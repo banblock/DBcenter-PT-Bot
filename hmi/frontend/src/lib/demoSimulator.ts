@@ -81,7 +81,8 @@ export function startDemoSimulator({ applyMessage, addLog }: DemoDeps): DemoHand
 
   function push(patch: InboundMessage & { robots?: Robot[] }) {
     patch.robots?.forEach((r) => {
-      robots[r.id] = r;
+      // 데모는 항상 완전한 Robot 을 만들어 넣는다 (부분 패치 아님).
+      robots[r.id] = r as Robot;
     });
     applyMessage(patch);
   }

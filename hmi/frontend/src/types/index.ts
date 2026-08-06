@@ -108,8 +108,9 @@ export interface LogEntry {
   hot?: boolean;
 }
 
-/** WS 인바운드 프레임 — 서버는 필요한 필드만 채워 보낸다 (부분 갱신) */
-export interface InboundRobotPatch extends Partial<Omit<Robot, "id">> {
+/** WS 인바운드 프레임 — 서버는 필요한 필드만 채워 보낸다 (부분 갱신).
+ *  ts 는 서버가 ISO 문자열로도 줄 수 있어 Robot 의 number 와 분리한다. */
+export interface InboundRobotPatch extends Partial<Omit<Robot, "id" | "ts">> {
   id: string;
   ts?: string | number;
 }

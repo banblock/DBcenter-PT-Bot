@@ -10,7 +10,18 @@ import {
   type ReactNode,
 } from "react";
 import { ALLOWED, CMD_LABEL, STATE_META, TRACKS } from "../constants/dashboard";
-import { apiClient, MOCK, WS_URL } from "../lib/apiClient";
+import {
+  MOCK,
+  WS_MONITOR_URL,
+  backendCommand,
+  backendDock,
+  backendEstopAll,
+  backendGoto,
+  backendStartAll,
+  fetchStatsOverview,
+  resetCaches,
+  translateFrame,
+} from "../lib/backendClient";
 import { startDemoSimulator, type DemoHandle } from "../lib/demoSimulator";
 import type {
   AppEvent,
@@ -78,6 +89,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [linkText, setLinkText] = useState("연결 중…");
   const [dismissedAlertId, setDismissedAlertId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  /** 차단기 불일치 수 — /api/stats/overview 집계값 (WS 로 오지 않아 주기 조회) */
+  const [breaker, setBreaker] = useState(0);
   const logSeq = useRef(0);
   const linkModeRef = useRef<LinkMode>("connecting");
   linkModeRef.current = linkMode;
@@ -141,6 +154,28 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     return () => window.clearInterval(id);
   }, []);
 
+  /* 이상 감지 현황 카드 — 마운트 시 1회 + 30초마다. 데모 모드에선 시뮬레이터가 채운다. */
+  useEffect(() => {
+    if (MOCK) return;
+    let cancelled = false;
+    async function load() {
+      try {
+        const overview = await fetchStatsOverview();
+        if (cancelled) return;
+        applyMessage({ stats: { fire: overview.fire_smoke, leak: overview.leak } });
+        setBreaker(overview.breaker_mismatch);
+      } catch {
+        /* 백엔드 미연결 — 통계는 그대로 두고 화면은 계속 동작한다 */
+      }
+    }
+    load();
+    const id = window.setInterval(load, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [applyMessage]);
+
   /* WS 연결 — 타임아웃 시 데모 시뮬레이터로 폴백, 이후 끊기면 재연결 시도 */
   useEffect(() => {
     let cancelled = false;
@@ -170,7 +205,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       }, WS_TIMEOUT_MS);
 
       try {
-        ws = new WebSocket(WS_URL);
+        ws = new WebSocket(WS_MONITOR_URL);
       } catch {
         window.clearTimeout(fallback);
         startDemo();
@@ -180,16 +215,16 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       ws.onopen = () => {
         settled = true;
         window.clearTimeout(fallback);
+        resetCaches(); // 재연결 시 미션/존/이벤트 캐시를 비우고 새 SNAPSHOT 으로 다시 채운다
         setLinkMode("live");
         setLinkText("WS 연결됨");
         addLog("PC1", "관제 WebSocket 연결");
       };
       ws.onmessage = (ev) => {
-        try {
-          applyMessage(JSON.parse(ev.data));
-        } catch (e) {
-          console.warn("bad frame", e);
-        }
+        // 백엔드 봉투(SNAPSHOT/ROBOT_STATUS/EVENT/…)를 원본 InboundMessage 로 번역해 반영.
+        // 모르는/무관한 타입은 translateFrame 이 null 을 돌려주고 조용히 무시된다.
+        const frame = translateFrame(ev.data);
+        if (frame) applyMessage(frame);
       };
       ws.onclose = () => {
         if (cancelled) return;
@@ -232,7 +267,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       (async () => {
         try {
           if (linkModeRef.current === "live") {
-            await apiClient.post(`/api/robots/${robotId}/command`, { cmd });
+            await backendCommand(robotId, cmd);
           } else {
             demoRef.current?.command(robotId, cmd);
           }
@@ -266,10 +301,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       (async () => {
         try {
           if (linkModeRef.current === "live") {
-            await apiClient.post(`/api/robots/${robotId}/goto`, {
-              waypoints: [{ x, y }],
-              preempt: true,
-            });
+            await backendGoto(robotId, x, y);
           } else {
             demoRef.current?.goto(robotId, x, y);
           }
@@ -282,20 +314,49 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   );
 
   const startAll = useCallback(() => {
-    Object.values(stateRef.current.robots).forEach((r) => {
-      if (ALLOWED[r.state]?.includes("start")) sendCommand(r.id, "start");
-    });
-  }, [sendCommand, stateRef]);
+    const robots = Object.values(stateRef.current.robots);
+    const targets = robots.filter((r) => ALLOWED[r.state]?.includes("start")).map((r) => r.id);
+    if (linkModeRef.current === "live") {
+      if (targets.length === 0) {
+        addLog("PC1", "순찰을 시작할 수 있는 로봇이 없습니다", true);
+        return;
+      }
+      addLog("PC1", `통합 순찰 시작 요청 · ${targets.join(", ")}`);
+      backendStartAll(targets).catch((e) =>
+        addLog("PC1", `순찰 시작 실패 · ${(e as Error).message}`, true),
+      );
+    } else {
+      targets.forEach((id) => sendCommand(id, "start"));
+    }
+  }, [sendCommand, addLog, stateRef]);
 
   const dockAll = useCallback(() => {
-    Object.values(stateRef.current.robots).forEach((r) => {
-      if (ALLOWED[r.state]?.includes("dock")) sendCommand(r.id, "dock");
-    });
-  }, [sendCommand, stateRef]);
+    const robots = Object.values(stateRef.current.robots);
+    if (linkModeRef.current === "live") {
+      robots
+        .filter((r) => r.state !== "OFFLINE")
+        .forEach((r) =>
+          backendDock(r.id).catch((e) =>
+            addLog("PC1", `${r.id} 도킹 실패 · ${(e as Error).message}`, true),
+          ),
+        );
+    } else {
+      robots.forEach((r) => {
+        if (ALLOWED[r.state]?.includes("dock")) sendCommand(r.id, "dock");
+      });
+    }
+  }, [sendCommand, addLog, stateRef]);
 
   const estopAll = useCallback(() => {
-    Object.values(stateRef.current.robots).forEach((r) => sendCommand(r.id, "estop"));
-  }, [sendCommand, stateRef]);
+    if (linkModeRef.current === "live") {
+      addLog("PC1", "전체 긴급정지 요청", true);
+      backendEstopAll().catch((e) =>
+        addLog("PC1", `긴급정지 실패 · ${(e as Error).message}`, true),
+      );
+    } else {
+      Object.values(stateRef.current.robots).forEach((r) => sendCommand(r.id, "estop"));
+    }
+  }, [sendCommand, addLog, stateRef]);
 
   const dismissAlert = useCallback((id: string) => setDismissedAlertId(id), []);
 
@@ -310,9 +371,11 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const isZone2Hot = state.events.some(
     (e) => e.zone === "존-2" && e.severity === "DANGER" && !["RESOLVED", "FALSE_ALARM"].includes(e.state),
   );
-  const breakerMismatch = robots
+  // 실연동 시엔 집계 엔드포인트 값을 쓰고, 데모 모드에선 로봇 존 칩에서 센다.
+  const breakerFromZones = robots
     .flatMap((r) => r.zones ?? [])
     .filter((z) => z.state === "MISMATCH" || z.state === "UNREADABLE").length;
+  const breakerMismatch = breaker || breakerFromZones;
 
   const value: DashboardContextValue = {
     robots,
