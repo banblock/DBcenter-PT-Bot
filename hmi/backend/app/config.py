@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     )
     heartbeat_timeout_sec: float = 3.0
     ros_enabled: bool = False  # 실장비 없이 기동할 때 False
+    #: robot_bridge 백엔드 (§10). null=NullBridge(기본, 발행 안 함) | loopback=발행만 기록 |
+    #: ros2=rclpy 실기 연동(PC2 ROS2 Humble 노드에서만).
+    bridge_backend: str = "null"
 
     # ── 이벤트 / 검증 ─────────────────────────────────────────────────────
     dedup_window_sec: int = 10

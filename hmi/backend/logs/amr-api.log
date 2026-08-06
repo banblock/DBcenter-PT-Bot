@@ -604,3 +604,6 @@
 2026-08-06 20:30:54 | INFO    | amr.request      | 3148f33a | GET /api/stats/overview → 200 (1.9ms) role=-
 2026-08-06 20:31:01 | INFO    | amr.request      | 72827b2b | GET /api/stats/overview → 200 (5.8ms) role=-
 2026-08-06 20:31:01 | INFO    | amr.request      | 0d9b1a16 | GET /api/stats/overview → 200 (8.6ms) role=-
+2026-08-06 21:23:04 | INFO    | amr.bridge       | -        | 브리지 교체 → RobotBridge
+2026-08-06 21:23:04 | INFO    | amr.main         | -        | [loopback] /amr_1/command ← {"command_id": "CMD-20260806-abce", "command_type": "GOTO", "payload": {"waypoints": [{"x": 1, "y": 2, "theta": 0}], "event_id": null}, "issued_at": "2026-08-06T21:23:04.076343+09:00"}
+2026-08-06 21:23:04 | INFO    | amr.bridge       | -        | [robot_bridge] amr_1 ← GOTO CMD-20260806-abce

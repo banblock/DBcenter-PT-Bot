@@ -58,6 +58,27 @@ def crud_mark_offline(db) -> list[tuple[str, str | None]]:
     ]
 
 
+def _install_bridge() -> None:
+    """설정에 따라 robot_bridge(§10)를 끼운다. 기본 null 은 NullBridge 유지 → 동작 불변."""
+    backend = settings.bridge_backend
+    if backend == "null":
+        return
+    from app.bridge import set_bridge
+    from app.bridge_backend import BackendSink
+    from app.robot_bridge import RobotBridge, build_ros2_bridge
+
+    if backend == "loopback":
+        # ROS2 없이 §10 발행 규격만 검증하는 배선 — 발행은 로그로만 남긴다.
+        def _log_publisher(topic: str, payload: str) -> None:
+            log.info("[loopback] %s ← %s", topic, payload)
+
+        set_bridge(RobotBridge(settings.robot_ids, publisher=_log_publisher, sink=BackendSink()))
+    elif backend == "ros2":
+        set_bridge(build_ros2_bridge(settings.robot_ids, BackendSink()))
+    else:
+        log.warning("알 수 없는 bridge_backend=%s — NullBridge 유지", backend)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("=" * 70)
@@ -74,6 +95,8 @@ async def lifespan(app: FastAPI):
         db.commit()
     finally:
         db.close()
+
+    _install_bridge()
 
     consumer = asyncio.create_task(manager.consumer_loop(), name="broadcast-consumer")
     watchdog = asyncio.create_task(_heartbeat_watchdog(), name="heartbeat-watchdog")
