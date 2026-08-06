@@ -1,0 +1,34 @@
+:root {
+  --surface-page: #eef2f7;
+  --surface-panel: #ffffff;
+  --surface-soft: #f6f8fb;
+  --border: #e4e9f1;
+  --border-strong: #cbd4e0;
+  --ink: #142033;
+  --ink-muted: #657287;
+  --ink-faint: #9aa6b8;
+  --blue: #2f6bff;
+  --blue-soft: #eaf0ff;
+  --green: #16a36a;
+  --green-soft: #e7f6ee;
+  --red: #e5484d;
+  --red-soft: #fdecec;
+  --amber: #d98500;
+  --amber-soft: #fff3df;
+  --violet: #7457f6;
+  --violet-soft: #efeaff;
+  --purple: var(--violet);
+  --purple-soft: var(--violet-soft);
+  --pink: #d6409f;
+  --pink-soft: #fbe6f4;
+  --muted: var(--ink-muted);
+  --muted2: var(--ink-faint);
+  --line: var(--border);
+  --line2: #eef0f4;
+  --radius-sm: 9px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --shadow-panel: 0 1px 2px rgba(20, 32, 51, 0.04), 0 8px 24px rgba(20, 32, 51, 0.06);
+  --font-ui: "Pretendard Variable", Pretendard, "Segoe UI", -apple-system, BlinkMacSystemFont, "Malgun Gothic", sans-serif;
+  --font-mono: "IBM Plex Mono", Consolas, monospace;
+}

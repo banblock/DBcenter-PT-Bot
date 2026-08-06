@@ -1,0 +1,73 @@
+.amrcard { overflow: hidden; transition: border-color .25s, box-shadow .25s; }
+.amrcard.tone-danger { border-color: #f3b0b2; box-shadow: 0 0 0 3px rgba(229,72,77,.12), var(--shadow-panel); }
+.amrcard.offline { opacity: .62; filter: saturate(.25); }
+
+/* 미션 리본 — "지금 어느 트랙인가"를 가장 먼저 알려주는 신호 */
+.misbar { display: flex; align-items: center; gap: 8px; padding: 9px 14px; font-size: 11.5px; font-weight: 800; letter-spacing: -.1px; border-bottom: 1px solid var(--line2); }
+.misbar .mtag { display: inline-flex; align-items: center; gap: 5px; }
+.misbar .msub { font-weight: 600; color: inherit; opacity: .72; }
+.misbar .mspacer { flex: 1; }
+.misbar .age { font-weight: 700; opacity: .6; font-variant-numeric: tabular-nums; }
+.mission-PATROL .misbar { background: var(--blue-soft); color: #1f4fd0; }
+.mission-ANOMALY .misbar { background: linear-gradient(90deg, #fff3df, #fdecec); color: #b06a00; }
+.mission-ANOMALY .misbar .mtag::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--red); animation: card-pulse 1s infinite; }
+
+.amr-top { display: flex; align-items: center; justify-content: space-between; padding: 13px 14px 0; gap: 8px; }
+.amr-top .name { font-size: 15.5px; font-weight: 800; }
+.amr-top .badges2 { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.pill { font-size: 10.5px; font-weight: 700; padding: 4px 10px; border-radius: 20px; white-space: nowrap; }
+.pill.ok { background: var(--green-soft); color: var(--green); }
+.pill.info { background: var(--blue-soft); color: var(--blue); }
+.pill.warn { background: var(--amber-soft); color: var(--amber); }
+.pill.danger { background: var(--red-soft); color: var(--red); }
+.pill.idle { background: #eef0f4; color: #5b6270; }
+.pill.off { background: #eef0f4; color: var(--muted2); }
+.pill.blink { animation: card-pulse 1s infinite; }
+.battpill { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 700; padding: 4px 10px; border-radius: 20px; background: #eef0f4; color: #5b6270; white-space: nowrap; }
+.battpill.ok { background: var(--green-soft); color: var(--green); }
+.battpill.low { background: var(--amber-soft); color: var(--amber); }
+.battpill.crit { background: var(--red-soft); color: var(--red); }
+
+.amr-body { display: flex; gap: 12px; padding: 12px 14px 0; }
+.amr-thumb { width: 56px; height: 56px; border-radius: 12px; background: #f1f2f6; border: 1px solid var(--line2); display: flex; align-items: center; justify-content: center; font-size: 24px; flex: 0 0 auto; }
+.amr-info { flex: 1; font-size: 12px; color: #4b5563; line-height: 1.7; }
+.amr-info b { color: var(--ink); }
+
+/* 중단 지점 안내 — 순찰이 어디서 끊겼는지 */
+.resumehint { margin: 10px 14px 0; padding: 7px 10px; border-radius: 9px; background: #f7f8fb; border: 1px dashed var(--muted2); font-size: 11px; color: #6b7280; display: flex; gap: 6px; align-items: center; }
+.resumehint b { color: #4b5563; }
+
+.steps2 { list-style: none; margin: 10px 14px 0; padding: 10px 0 4px; border-top: 1px solid var(--line2); }
+.steps2 li { display: flex; align-items: center; gap: 9px; padding: 5px 0; font-size: 12.5px; color: #4b5563; }
+.steps2 .n { width: 19px; height: 19px; border-radius: 50%; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; background: #eef0f4; color: var(--muted2); }
+.steps2 li.done .n { background: var(--green); color: #fff; }
+.steps2 li.active .n { background: var(--blue); color: #fff; }
+.steps2 li.warn .n { background: var(--amber); color: #fff; }
+.steps2 li.alert .n { background: var(--red); color: #fff; animation: card-pulse .9s infinite; }
+.steps2 .t { flex: 1; }
+.steps2 li.done .t { color: #5b6270; }
+.steps2 li.active .t { color: var(--ink); font-weight: 700; }
+.steps2 li.warn .t { color: var(--amber); font-weight: 700; }
+.steps2 li.alert .t { color: var(--red); font-weight: 800; }
+.steps2 .ic { font-size: 12px; color: var(--green); font-weight: 800; flex: 0 0 auto; }
+.steps2 li.warn .ic { color: var(--amber); }
+.steps2 li.alert .ic { color: var(--red); }
+.steps2 .sub { font-size: 10.5px; color: var(--muted); font-weight: 600; flex: 0 0 auto; }
+
+/* 로봇별 존 차단기 점검 이력 */
+.zonestrip { display: flex; gap: 6px; flex-wrap: wrap; padding: 9px 14px 0; border-top: 1px solid var(--line2); margin-top: 6px; }
+.zchip { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 700; padding: 4px 9px; border-radius: 7px; background: #f7f8fb; color: #6b7280; border: 1px solid var(--line2); }
+.zchip i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted2); }
+.zchip.NORMAL { background: var(--green-soft); color: var(--green); border-color: #bfe6d2; }
+.zchip.NORMAL i { background: var(--green); }
+.zchip.MISMATCH { background: var(--red-soft); color: var(--red); border-color: #f3b0b2; }
+.zchip.MISMATCH i { background: var(--red); }
+.zchip.RECHECK { background: var(--amber-soft); color: var(--amber); border-color: #f0d3a0; }
+.zchip.RECHECK i { background: var(--amber); }
+.zchip.SCANNING { background: var(--blue-soft); color: var(--blue); border-color: #c6d5ff; }
+.zchip.SCANNING i { background: var(--blue); animation: card-pulse .8s infinite; }
+
+.cmdrow { display: flex; gap: 6px; flex-wrap: wrap; padding: 11px 14px 13px; align-items: center; }
+.cmdrow .pending { font-size: 10.5px; color: var(--muted); font-weight: 700; }
+
+@keyframes card-pulse { 50% { opacity: .35; } }

@@ -1,0 +1,8 @@
+.alert-banner { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; padding: 11px 16px; border: 1px solid #f6bcbd; border-radius: 12px; background: linear-gradient(90deg, var(--red-soft), #fff6f6); box-shadow: var(--shadow-panel); flex-wrap: wrap; }
+.alert-banner__icon { position: relative; width: 30px; height: 30px; border-radius: 50%; background: var(--red); color: #fff; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; }
+.alert-banner__icon::after { content: ""; position: absolute; inset: -5px; border: 2px solid var(--red); border-radius: 50%; animation: alert-ping 1.5s ease-out infinite; }
+@keyframes alert-ping { from { opacity: .9; transform: scale(.7); } to { opacity: 0; transform: scale(1.7); } }
+.alert-banner__body { flex: 1; color: #a4585a; font-size: 12.5px; }
+.alert-banner__body strong { color: var(--red); }
+.alert-banner__close { width: 28px; height: 28px; border-radius: 50%; border: none; background: transparent; color: #b5787a; cursor: pointer; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; transition: .15s; }
+.alert-banner__close:hover { background: #f6d3d4; color: var(--red); }

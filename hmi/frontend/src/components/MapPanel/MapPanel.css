@@ -1,0 +1,31 @@
+.map-panel { overflow: hidden; }
+.map-panel__legend { display: flex; gap: 16px; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--line2); font-size: 11px; color: #6b7280; }
+.map-panel__legend span { display: inline-flex; align-items: center; gap: 6px; }
+.map-panel__legend .sw { display: inline-block; width: 16px; height: 3px; border-radius: 2px; background: var(--green); }
+.map-panel__legend .sw--dash { background: repeating-linear-gradient(90deg, #a9b0be 0 4px, transparent 4px 7px); }
+.map-panel__legend .sw--area { width: 11px; height: 11px; border-radius: 3px; }
+.map-panel__legend .sw--danger { background: var(--red-soft); border: 1px solid var(--red); }
+.map-panel__legend .sw--dock { background: var(--purple-soft); border: 1px solid var(--purple); }
+
+.map-panel__canvas { position: relative; background: #eef0f4; }
+.map-panel__canvas svg { display: block; width: 100%; height: auto; }
+.map-panel__controls { position: absolute; top: 12px; right: 12px; display: flex; flex-direction: column; gap: 6px; }
+.map-panel__controls button { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border); background: #fff; box-shadow: var(--shadow-panel); cursor: pointer; font-size: 14px; color: #5b6270; }
+.map-panel__controls button:hover { color: var(--blue); }
+
+.map-panel__svg { cursor: crosshair; }
+.map-panel__target-ring { fill: var(--purple); opacity: .28; animation: target-pulse 1.4s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes target-pulse { 0% { r: 6; opacity: .5; } 100% { r: 18; opacity: 0; } }
+
+/* 클릭한 좌표 옆에 뜨는 "어느 로봇을 어디로" 전송 카드 */
+.map-panel__goto { position: absolute; z-index: 4; transform: translate(14px, -12px); width: 168px;
+  background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-panel);
+  padding: 9px 10px 10px; font-size: 11px; }
+.map-panel__goto-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 6px; color: var(--purple); font-weight: 700; }
+.map-panel__goto-head span { display: inline-flex; align-items: center; gap: 5px; }
+.map-panel__goto-head button { border: none; background: transparent; color: var(--ink-faint); cursor: pointer; padding: 2px; display: flex; }
+.map-panel__goto-head button:hover { color: var(--red); }
+.map-panel__goto-coord { font-variant-numeric: tabular-nums; color: var(--ink-muted); margin-bottom: 7px; }
+.map-panel__goto-select { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 8px; color: var(--ink-muted); }
+.map-panel__goto-select select { flex: 1; min-width: 0; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--border); font: inherit; color: var(--ink); }
+.map-panel__goto-send { width: 100%; }

@@ -1,0 +1,17 @@
+.queue-panel { overflow: hidden; }
+.panel-header__hint { color: var(--ink-muted); font-size: 11px; font-weight: 600; }
+
+.queue-list { list-style: none; padding: 4px 8px 8px; }
+.queue-list__item { display: flex; align-items: center; gap: 9px; padding: 9px 6px; border-bottom: 1px solid var(--line2); }
+.queue-list__item:last-child { border-bottom: 0; }
+.queue-list__item .sev { font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; flex: 0 0 auto; }
+.sev.danger { background: var(--red-soft); color: var(--red); }
+.sev.warn { background: var(--amber-soft); color: var(--amber); }
+.sev.info { background: var(--blue-soft); color: var(--blue); }
+.queue-list__item p { flex: 1; min-width: 0; color: #3a4150; font-size: 11.8px; line-height: 1.4; }
+.queue-list__item .etm { font-size: 10.5px; color: var(--muted2); flex: 0 0 auto; }
+.queue-list__item .estat { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 20px; flex: 0 0 auto; }
+.estat.run { background: var(--green-soft); color: var(--green); }
+.estat.chk { background: var(--amber-soft); color: var(--amber); }
+.estat.done { background: #eef0f4; color: #6b7280; }
+.queue-list__empty { padding: 18px 8px; text-align: center; font-size: 11.5px; color: var(--muted2); }
