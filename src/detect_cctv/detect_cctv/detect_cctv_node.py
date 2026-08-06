@@ -33,6 +33,8 @@ class CameraContext:
     capture: cv2.VideoCapture
     image_publisher: Any
     last_status: Dict[str, bool]
+    detection_streaks: Dict[str, int]
+    missed_streaks: Dict[str, int]
     last_warning_time: float = 0.0
 
 
@@ -44,6 +46,8 @@ class DetectCctvNode(Node):
         "smoke": 1,
         "coolant": 2,
     }
+    DETECTION_CONFIRM_FRAMES = 3
+    RELEASE_CONFIRM_FRAMES = 10
 
     def __init__(self) -> None:
         super().__init__("detect_cctv_node")
@@ -179,6 +183,8 @@ class DetectCctvNode(Node):
                 "smoke": False,
                 "coolant": False,
             },
+            detection_streaks={event_name: 0 for event_name in self.STATUS_STATES},
+            missed_streaks={event_name: 0 for event_name in self.STATUS_STATES},
         )
 
     def _publish_initial_status(self, camera: CameraContext) -> None:
@@ -187,6 +193,12 @@ class DetectCctvNode(Node):
             "fire": False,
             "smoke": False,
             "coolant": False,
+        }
+        camera.detection_streaks = {
+            event_name: 0 for event_name in self.STATUS_STATES
+        }
+        camera.missed_streaks = {
+            event_name: 0 for event_name in self.STATUS_STATES
         }
         for event_name in self.STATUS_STATES:
             self._publish_status_message(camera, event_name, False)
@@ -301,6 +313,7 @@ class DetectCctvNode(Node):
                     if class_name in detected_status:
                         detected_status[class_name] = True
 
+            detected_status = self._apply_debounce(camera, detected_status)
             self._publish_image(camera, result.plot())
             self._publish_status(camera, detected_status)
         except Exception as exc:
@@ -315,6 +328,35 @@ class DetectCctvNode(Node):
         if isinstance(names, dict):
             return str(names.get(class_index, class_index))
         return str(names[class_index])
+
+    def _apply_debounce(
+        self, camera: CameraContext, detected_status: Dict[str, bool]
+    ) -> Dict[str, bool]:
+        stable_status = camera.last_status.copy()
+
+        for event_name, detected in detected_status.items():
+            if detected:
+                camera.detection_streaks[event_name] = min(
+                    camera.detection_streaks[event_name] + 1,
+                    self.DETECTION_CONFIRM_FRAMES,
+                )
+                camera.missed_streaks[event_name] = 0
+                if (
+                    camera.detection_streaks[event_name]
+                    >= self.DETECTION_CONFIRM_FRAMES
+                ):
+                    stable_status[event_name] = True
+                continue
+
+            camera.detection_streaks[event_name] = 0
+            camera.missed_streaks[event_name] = min(
+                camera.missed_streaks[event_name] + 1,
+                self.RELEASE_CONFIRM_FRAMES,
+            )
+            if camera.missed_streaks[event_name] >= self.RELEASE_CONFIRM_FRAMES:
+                stable_status[event_name] = False
+
+        return stable_status
 
     def _publish_image(self, camera: CameraContext, frame: Any) -> None:
         message = self.bridge.cv2_to_imgmsg(frame, encoding="bgr8")
