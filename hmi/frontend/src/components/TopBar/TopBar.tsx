@@ -1,9 +1,13 @@
-import { OctagonX, Play, PlugZap, ShieldCheck } from "lucide-react";
+import { OctagonX, Play, PlugZap, RotateCw, ShieldCheck } from "lucide-react";
+import { WP_PER_ZONE, ZONES } from "../../constants/dashboard";
 import { useDashboard } from "../../hooks/useDashboard";
 import "./TopBar.css";
 
 export function TopBar() {
-  const { linkMode, linkText, startAll, dockAll, estopAll } = useDashboard();
+  const { linkMode, linkText, waypointTotal, patrolStarted, estopped, startPatrol, dockAll, estopAll, resumeAll } =
+    useDashboard();
+  const need = ZONES.length * WP_PER_ZONE;
+  const startDisabled = waypointTotal < need || patrolStarted;
 
   return (
     <header className="topbar">
@@ -22,9 +26,14 @@ export function TopBar() {
           <i />
           {linkText}
         </span>
-        <button type="button" className="button button--start" onClick={startAll}>
-          <Play size={15} fill="currentColor" /> 통합 순찰 시작
+        <button type="button" className="button button--start" onClick={startPatrol} disabled={startDisabled}>
+          <Play size={15} fill="currentColor" /> 통합 순찰 시작 ({waypointTotal}/{need})
         </button>
+        {estopped && (
+          <button type="button" className="button button--ghost" onClick={resumeAll}>
+            <RotateCw size={15} /> 전체 작업 재개
+          </button>
+        )}
         <button type="button" className="button button--ghost" onClick={dockAll}>
           <PlugZap size={15} /> 도킹 스테이션 복귀
         </button>

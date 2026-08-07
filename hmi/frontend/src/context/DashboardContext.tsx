@@ -15,6 +15,10 @@
 // 헷갈렸던 점: 왜 useState 안 쓰고 useRef+useReducer(카운터)를 같이 쓰지?
 //  → 로봇 pose가 1초에 여러 번 옴. 매번 setState 하면 리렌더 폭발.
 //    그래서 실데이터는 ref(stateRef)에 담고, 화면 갱신은 "버전 카운터+1"로만 유발.
+//
+// UI 리뉴얼(기능 1~6): waypoint 사전 지정 / 도달 현황 / AMR·CCTV 팝업 /
+//   긴급정지·복귀·재개 / 차단기(CheckGate) 확인 흐름을 추가했다. 신규 상태
+//   (waypoints/patrolStarted/estopped/popup)와 액션도 이 허브에서만 관리한다.
 // ════════════════════════════════════════════════════════════════
 import {
   createContext,
@@ -27,7 +31,14 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ALLOWED, CMD_LABEL, STATE_META, TRACKS } from "../constants/dashboard";
+import {
+  CMD_LABEL,
+  STATE_META,
+  TRACKS,
+  WP_PER_ZONE,
+  ZONE_AMR,
+  ZONES,
+} from "../constants/dashboard";
 import {
   MOCK,
   WS_MONITOR_URL,
@@ -48,12 +59,15 @@ import type {
   LinkMode,
   LogEntry,
   LogTag,
+  PopupData,
   Robot,
   Stats,
+  WaypointMap,
 } from "../types";
 
 const WS_TIMEOUT_MS = 1500;
 const RECONNECT_DELAY_MS = 2000;
+const WP_NEED = ZONES.length * WP_PER_ZONE;
 
 interface DashboardState {
   robots: Record<string, Robot>;
@@ -82,12 +96,26 @@ interface DashboardContextValue {
   isZone2Hot: boolean;
   breakerMismatch: number;
   dismissedAlertId: string | null;
+  // 기능1: waypoint 지정
+  waypoints: WaypointMap;
+  waypointTotal: number;
+  patrolStarted: boolean;
+  addWaypoint: (zone: string, x: number, y: number) => void;
+  undoWaypoint: (zone: string) => void;
+  clearWaypoints: () => void;
+  startPatrol: () => void;
+  // 기능5: 긴급정지 흐름
+  estopped: boolean;
+  estopAll: () => void;
+  resumeAll: () => void;
+  dockAll: () => void;
+  // 기능3·4: 팝업
+  popup: PopupData | null;
+  closePopup: () => void;
+  // 공통
   addLog: (tag: LogTag, msg: string, hot?: boolean) => void;
   sendCommand: (robotId: string, cmd: Command) => void;
   sendGoto: (robotId: string, x: number, y: number) => void;
-  startAll: () => void;
-  dockAll: () => void;
-  estopAll: () => void;
   dismissAlert: (id: string) => void;
 }
 
@@ -97,6 +125,10 @@ function toEpoch(ts: string | number | undefined): number {
   if (typeof ts === "number") return ts;
   if (typeof ts === "string") return Date.parse(ts) || Date.now();
   return Date.now();
+}
+
+function emptyWaypoints(): WaypointMap {
+  return ZONES.reduce((acc, z) => ({ ...acc, [z]: [] }), {} as WaypointMap);
 }
 
 export function DashboardProvider({ children }: { children: ReactNode }) {
@@ -109,9 +141,20 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [now, setNow] = useState(() => Date.now());
   /** 차단기 불일치 수 — /api/stats/overview 집계값 (WS 로 오지 않아 주기 조회) */
   const [breaker, setBreaker] = useState(0);
+
+  // 기능1·3·5: 리뉴얼 UI 전용 상태
+  const [waypoints, setWaypoints] = useState<WaypointMap>(emptyWaypoints);
+  const [patrolStarted, setPatrolStarted] = useState(false);
+  const [estopped, setEstopped] = useState(false);
+  const [popup, setPopup] = useState<PopupData | null>(null);
+
   const logSeq = useRef(0);
   const linkModeRef = useRef<LinkMode>("connecting");
   linkModeRef.current = linkMode;
+  const waypointsRef = useRef<WaypointMap>(waypoints);
+  waypointsRef.current = waypoints;
+  const patrolStartedRef = useRef(false);
+  patrolStartedRef.current = patrolStarted;
   const demoRef = useRef<DemoHandle | null>(null);
 
   const addLog = useCallback((tag: LogTag, msg: string, hot?: boolean) => {
@@ -172,6 +215,14 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     [addLog, bump, stateRef],
   );
 
+  const openPopup = useCallback((p: PopupData) => setPopup(p), []);
+  const closePopup = useCallback(() => setPopup(null), []);
+  const setLink = useCallback((mode: LinkMode, text: string) => {
+    setLinkMode(mode);
+    setLinkText(text);
+  }, []);
+  const getWaypoints = useCallback(() => waypointsRef.current, []);
+
   /* 카드 age / 카메라 타임스탬프 갱신용 1초 틱 */
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000);
@@ -213,8 +264,15 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     function startDemo() {
       if (cancelled || demoRef.current) return;
       setLinkMode("demo");
-      setLinkText("데모 모드 (WS 미연결)");
-      demoRef.current = startDemoSimulator({ applyMessage, addLog });
+      setLinkText("데모 모드 · 순찰 대기");
+      demoRef.current = startDemoSimulator({
+        applyMessage,
+        addLog,
+        getWaypoints,
+        openPopup,
+        closePopup,
+        setLink,
+      });
     }
 
     function connect() {
@@ -260,7 +318,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
           settled = true;
           window.clearTimeout(fallback);
           startDemo();
-        } else {
+        } else if (!demoRef.current) {
+          // 데모 폴백이 이미 돌고 있으면(demoRef 존재) 재연결로 "down" 라벨을 덮지 않는다.
+          // 실제 live 였다가 끊긴 경우(demoRef 없음)에만 재연결을 시도한다.
           setLinkMode("down");
           setLinkText("WS 끊김 · 재연결");
           reconnectTimer = window.setTimeout(connect, RECONNECT_DELAY_MS);
@@ -285,7 +345,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         /* noop */
       }
     };
-  }, [applyMessage, addLog]);
+  }, [applyMessage, addLog, getWaypoints, openPopup, closePopup, setLink]);
 
   // ★② 낙관적 업데이트 금지의 실제 코드. 버튼 → 여기.
   //    (1) pending에 표시만 함(로봇 상태는 안 바꿈!)  (2) 백엔드로 명령 전송
@@ -345,50 +405,84 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     [addLog],
   );
 
-  const startAll = useCallback(() => {
-    const robots = Object.values(stateRef.current.robots);
-    const targets = robots.filter((r) => ALLOWED[r.state]?.includes("start")).map((r) => r.id);
+  /* 기능1: waypoint 지정 (구역별 최대 WP_PER_ZONE개) */
+  const addWaypoint = useCallback((zone: string, x: number, y: number) => {
+    if (patrolStartedRef.current) return;
+    setWaypoints((prev) => {
+      if ((prev[zone]?.length ?? 0) >= WP_PER_ZONE) return prev;
+      return { ...prev, [zone]: [...(prev[zone] ?? []), { x, y, theta: 0 }] };
+    });
+  }, []);
+  const undoWaypoint = useCallback((zone: string) => {
+    if (patrolStartedRef.current) return;
+    setWaypoints((prev) => ({ ...prev, [zone]: (prev[zone] ?? []).slice(0, -1) }));
+  }, []);
+  const clearWaypoints = useCallback(() => {
+    if (patrolStartedRef.current) return;
+    setWaypoints(emptyWaypoints());
+  }, []);
+
+  // ★ 기능1: 통합 순찰 시작 — 6개 waypoint를 다 채워야 활성.
+  //   · demo: 지정한 waypoint를 그대로 순환하도록 시뮬레이터에 넘긴다.
+  //   · live: 실백엔드는 route_id 기반(PatrolStartIn)이라 waypoint 좌표를 직접 받지 않는다.
+  //           → backendStartAll(대상 로봇)로 첫 경로 순찰을 건다. (waypoint 픽셀→월드
+  //             좌표 변환·경로화는 백엔드 합의 후 연동 — 인수인계서 §7 참고, 가정값)
+  const startPatrol = useCallback(() => {
+    const wp = waypointsRef.current;
+    const total = ZONES.reduce((n, z) => n + (wp[z]?.length ?? 0), 0);
+    if (total < WP_NEED || patrolStartedRef.current) return;
+    setPatrolStarted(true);
+    addLog("PC1", `통합 순찰 시작 · waypoint ${total}개 지정`);
     if (linkModeRef.current === "live") {
-      if (targets.length === 0) {
-        addLog("PC1", "순찰을 시작할 수 있는 로봇이 없습니다", true);
-        return;
-      }
-      addLog("PC1", `통합 순찰 시작 요청 · ${targets.join(", ")}`);
-      backendStartAll(targets).catch((e) =>
-        addLog("PC1", `순찰 시작 실패 · ${(e as Error).message}`, true),
+      // 지정 존의 담당 AMR 중 실제 접속된 로봇을 대상으로. 없으면 매핑 전체를 시도.
+      const known = stateRef.current.robots;
+      const targets = Object.values(ZONE_AMR).filter((id) => id in known);
+      backendStartAll(targets.length ? targets : Object.values(ZONE_AMR)).catch((e) => {
+        setPatrolStarted(false);
+        addLog("PC1", `순찰 시작 실패 · ${(e as Error).message}`, true);
+      });
+    } else {
+      demoRef.current?.startPatrol();
+    }
+  }, [addLog, stateRef]);
+
+  /* 기능5: 긴급정지 → 복귀/재개 */
+  const estopAll = useCallback(() => {
+    setEstopped(true);
+    addLog("PC1", "전체 긴급정지 요청", true);
+    if (linkModeRef.current === "live") {
+      backendEstopAll().catch((e) => addLog("PC1", `긴급정지 실패 · ${(e as Error).message}`, true));
+    } else {
+      demoRef.current?.estopAll();
+    }
+  }, [addLog]);
+
+  const resumeAll = useCallback(() => {
+    setEstopped(false);
+    addLog("PC1", "전체 작업 재개 요청");
+    if (linkModeRef.current === "live") {
+      Object.keys(stateRef.current.robots).forEach((id) =>
+        backendCommand(id, "reset").catch((e) => addLog("PC1", `${id} 재개 실패 · ${(e as Error).message}`, true)),
       );
     } else {
-      targets.forEach((id) => sendCommand(id, "start"));
+      demoRef.current?.resumeAll();
     }
-  }, [sendCommand, addLog, stateRef]);
+  }, [addLog, stateRef]);
 
   const dockAll = useCallback(() => {
-    const robots = Object.values(stateRef.current.robots);
+    setEstopped(false);
+    setPatrolStarted(false); // 도킹 복귀 → 통합 순찰 시작 재활성화 (지도 잠금 해제)
+    addLog("PC1", "전체 도킹 스테이션 복귀 요청");
     if (linkModeRef.current === "live") {
-      robots
+      Object.values(stateRef.current.robots)
         .filter((r) => r.state !== "OFFLINE")
         .forEach((r) =>
-          backendDock(r.id).catch((e) =>
-            addLog("PC1", `${r.id} 도킹 실패 · ${(e as Error).message}`, true),
-          ),
+          backendDock(r.id).catch((e) => addLog("PC1", `${r.id} 도킹 실패 · ${(e as Error).message}`, true)),
         );
     } else {
-      robots.forEach((r) => {
-        if (ALLOWED[r.state]?.includes("dock")) sendCommand(r.id, "dock");
-      });
+      demoRef.current?.dockAll();
     }
-  }, [sendCommand, addLog, stateRef]);
-
-  const estopAll = useCallback(() => {
-    if (linkModeRef.current === "live") {
-      addLog("PC1", "전체 긴급정지 요청", true);
-      backendEstopAll().catch((e) =>
-        addLog("PC1", `긴급정지 실패 · ${(e as Error).message}`, true),
-      );
-    } else {
-      Object.values(stateRef.current.robots).forEach((r) => sendCommand(r.id, "estop"));
-    }
-  }, [sendCommand, addLog, stateRef]);
+  }, [addLog, stateRef]);
 
   const dismissAlert = useCallback((id: string) => setDismissedAlertId(id), []);
 
@@ -398,16 +492,25 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     [state.robots],
   );
   const topAlert = state.events.find(
-    (e) => e.severity === "DANGER" && !["RESOLVED", "FALSE_ALARM"].includes(e.state),
+    (e) =>
+      (e.severity === "DANGER" || e.kind === "GATE") &&
+      !["RESOLVED", "FALSE_ALARM"].includes(e.state),
   );
   const isZone2Hot = state.events.some(
-    (e) => e.zone === "존-2" && e.severity === "DANGER" && !["RESOLVED", "FALSE_ALARM"].includes(e.state),
+    (e) =>
+      e.zone === "존-2" &&
+      (e.severity === "DANGER" || e.kind === "GATE") &&
+      !["RESOLVED", "FALSE_ALARM"].includes(e.state),
   );
-  // 실연동 시엔 집계 엔드포인트 값을 쓰고, 데모 모드에선 로봇 존 칩에서 센다.
+  // 실연동 시엔 집계 엔드포인트 값을 쓰고, 데모 모드에선 로봇 존 칩 + GATE 이벤트에서 센다.
+  const gateOpen = state.events.filter(
+    (e) => e.kind === "GATE" && !["RESOLVED", "FALSE_ALARM"].includes(e.state),
+  ).length;
   const breakerFromZones = robots
     .flatMap((r) => r.zones ?? [])
     .filter((z) => z.state === "MISMATCH" || z.state === "UNREADABLE").length;
-  const breakerMismatch = breaker || breakerFromZones;
+  const breakerMismatch = breaker || breakerFromZones + gateOpen;
+  const waypointTotal = ZONES.reduce((n, z) => n + (waypoints[z]?.length ?? 0), 0);
 
   const value: DashboardContextValue = {
     robots,
@@ -422,12 +525,22 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     isZone2Hot,
     breakerMismatch,
     dismissedAlertId,
+    waypoints,
+    waypointTotal,
+    patrolStarted,
+    addWaypoint,
+    undoWaypoint,
+    clearWaypoints,
+    startPatrol,
+    estopped,
+    estopAll,
+    resumeAll,
+    dockAll,
+    popup,
+    closePopup,
     addLog,
     sendCommand,
     sendGoto,
-    startAll,
-    dockAll,
-    estopAll,
     dismissAlert,
   };
 

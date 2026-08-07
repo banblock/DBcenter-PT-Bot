@@ -2,6 +2,7 @@ import { AlertBanner } from "./components/AlertBanner/AlertBanner";
 import { CameraGrid } from "./components/CameraGrid/CameraGrid";
 import { LogPanel } from "./components/LogPanel/LogPanel";
 import { MapPanel } from "./components/MapPanel/MapPanel";
+import { Modal } from "./components/Modal/Modal";
 import { QueuePanel } from "./components/QueuePanel/QueuePanel";
 import { RobotStatusCard } from "./components/RobotStatusCard/RobotStatusCard";
 import { StatsPanel } from "./components/StatsPanel/StatsPanel";
@@ -40,6 +41,7 @@ export default function App() {
             <LogPanel />
           </aside>
         </main>
+        <Modal />
       </div>
     </DashboardProvider>
   );

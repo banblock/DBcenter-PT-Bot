@@ -1,49 +1,34 @@
-// 백엔드 없을 때 가짜 데이터
-
-import type { AppEvent, Command, InboundMessage, LogTag, Robot, RobotState } from "../types";
+import { ZONE_AMR, ZONES } from "../constants/dashboard";
+import type {
+  AppEvent,
+  Command,
+  InboundMessage,
+  LinkMode,
+  LogTag,
+  PopupData,
+  Robot,
+  RobotState,
+  WaypointMap,
+} from "../types";
 
 /**
- * 백엔드 없이 화면을 구동하는 내장 시뮬레이터.
- * 실제 WS 서버가 하는 일(로봇 텔레메트리 생성, 이벤트 생성/갱신)을 흉내 낸다.
- * 실연동 시 이 파일은 더 이상 import되지 않으면 된다 — DashboardContext에서 분기만 걷어내면 삭제 가능.
+ * 백엔드 없이 화면을 구동하는 내장 시뮬레이터 (기능 1~6).
+ * - 순찰 시작 전: 두 대 모두 도킹 스테이션에서 IDLE 대기
+ * - 통합 순찰 시작(startPatrol): 각 AMR을 지정된 waypoint로 순환 이동(도달 시점에만 갱신)
+ * - waypoint 도달마다 CheckGate 판별(정상 O / 비정상 X → 알림)
+ * - 낮은 확률로 AMR 자체 이벤트(기능3) / CCTV 감지(기능4) 발생 → 팝업
+ * - 긴급정지/전체 재개/도킹 복귀(기능5)
+ * 실연동 시 이 파일은 import만 걷어내면 삭제 가능.
  */
 
 interface DemoDeps {
   applyMessage: (msg: InboundMessage) => void;
   addLog: (tag: LogTag, msg: string, hot?: boolean) => void;
+  getWaypoints: () => WaypointMap;
+  openPopup: (popup: PopupData) => void;
+  closePopup: () => void;
+  setLink: (mode: LinkMode, text: string) => void;
 }
-
-const BASE: Record<string, Robot> = {
-  "AMR-01": {
-    id: "AMR-01",
-    state: "PATROLLING",
-    mission_type: "PATROL",
-    step: 2,
-    battery: 78,
-    route: "Route A",
-    zone: "존-1",
-    task: "존-1 순찰",
-    pose: { x: 250, y: 145 },
-    ts: Date.now(),
-    zones: [
-      { id: "Z1", state: "NORMAL" },
-      { id: "Z3", state: "STALE" },
-    ],
-  },
-  "AMR-02": {
-    id: "AMR-02",
-    state: "PATROLLING",
-    mission_type: "PATROL",
-    step: 2,
-    battery: 52,
-    route: "Route B",
-    zone: "존-2",
-    task: "존-2 순찰",
-    pose: { x: 402, y: 340 },
-    ts: Date.now(),
-    zones: [{ id: "Z2", state: "NORMAL" }],
-  },
-};
 
 const COMMAND_STATE_MAP: Record<Command, RobotState> = {
   pause: "PATROL_PAUSED",
@@ -51,219 +36,336 @@ const COMMAND_STATE_MAP: Record<Command, RobotState> = {
   estop: "EMERGENCY_STOP",
   reset: "IDLE",
   dock: "DOCKING",
-  start: "UNDOCKING",
+  start: "PATROLLING",
   ack: "REPORTING",
+};
+
+const DOCK_POSE: Record<string, { x: number; y: number }> = {
+  "AMR-01": { x: 402, y: 60 },
+  "AMR-02": { x: 402, y: 400 },
 };
 
 export interface DemoHandle {
   stop: () => void;
   command: (id: string, cmd: Command) => void;
   goto: (id: string, x: number, y: number) => void;
+  startPatrol: () => void;
+  estopAll: () => void;
+  resumeAll: () => void;
+  dockAll: () => void;
 }
 
-export function startDemoSimulator({ applyMessage, addLog }: DemoDeps): DemoHandle {
-  let t = 0;
-  let tickTimer: number | null = null;
+export function startDemoSimulator(deps: DemoDeps): DemoHandle {
+  const { applyMessage, getWaypoints, openPopup, setLink } = deps;
 
-  const robots: Record<string, Robot> = {
-    "AMR-01": clone(BASE["AMR-01"]),
-    "AMR-02": clone(BASE["AMR-02"]),
-  };
+  let timer: number | null = null;
+  const robots: Record<string, Robot> = {};
   let events: AppEvent[] = [];
+  const prog: Record<string, { zone: string; i: number; wps: { x: number; y: number }[] }> = {};
+  const paused = new Set<string>();
+  const dispatch: Record<string, { x: number; y: number; zone: string }> = {};
+  let popupBusy = false;
 
-  function clone<T>(value: T): T {
-    return JSON.parse(JSON.stringify(value));
-  }
+  const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
 
-  /** AMR-02 스토리라인 전용 이벤트 갱신 — events[0]으로 가정하지 않고 id로 찾는다
-   *  (AMR-01의 무작위 차단기 불일치 이벤트가 같은 틱에 새로 unshift될 수 있으므로) */
-  function setEventState(id: string, state: AppEvent["state"]) {
-    events = events.map((e) => (e.id === id ? { ...e, state } : e));
-  }
-
-  function push(patch: InboundMessage & { robots?: Robot[] }) {
-    patch.robots?.forEach((r) => {
-      // 데모는 항상 완전한 Robot 을 만들어 넣는다 (부분 패치 아님).
-      robots[r.id] = r as Robot;
+  /** 내부 robots 갱신 + 컨텍스트로 push (이벤트는 항상 함께 보내 최신 목록 반영) */
+  function emit(patch: Robot[]) {
+    patch.forEach((r) => {
+      robots[r.id] = r;
     });
-    applyMessage(patch);
+    applyMessage({ robots: patch, events: events.map((e) => ({ ...e })) });
   }
 
-  function tick() {
-    t++;
-    const a1 = clone(robots["AMR-01"]);
-    const a2 = clone(robots["AMR-02"]);
-    a1.battery = Math.max(20, a1.battery - (t % 12 === 0 ? 1 : 0));
-    a2.battery = Math.max(20, a2.battery - (t % 10 === 0 ? 1 : 0));
+  const one = (amr: string, extra: Partial<Robot>): Robot =>
+    ({ ...clone(robots[amr]), ...extra, ts: Date.now() }) as Robot;
 
-    /* --- AMR-01: 순찰 루프 --- */
-    if (a1.mission_type === "PATROL" && a1.zones) {
-      const cyc = t % 20;
-      if (cyc === 2) {
-        a1.state = "INSPECTING";
-        a1.step = 3;
-        a1.task = "존-1 차단기 점검";
-        a1.step_note = "3각도 중 1";
-        a1.zones[0].state = "SCANNING";
-      }
-      if (cyc === 5) a1.step_note = "3각도 중 3";
-      if (cyc === 7) {
-        a1.state = "PATROLLING";
-        a1.step = 4;
-        a1.task = "존-3 이동";
-        a1.step_note = null;
-        a1.zones[0].state = "NORMAL";
-        a1.zone = "존-3";
-      }
-      if (cyc === 11) {
-        a1.state = "INSPECTING";
-        a1.step = 3;
-        a1.task = "존-3 차단기 점검";
-        a1.zones[1].state = "SCANNING";
-      }
-      if (cyc === 15) {
-        a1.state = "PATROLLING";
-        a1.step = 2;
-        a1.task = "존-1 이동";
-        a1.zone = "존-1";
-        a1.zones[1].state = Math.random() < 0.25 ? "MISMATCH" : "NORMAL";
-        if (a1.zones[1].state === "MISMATCH") {
-          events = [
-            {
-              id: "EVT-B" + t,
-              severity: "WARN",
-              state: "ACK_WAIT",
-              text: "존-3 차단기 DB 불일치 (기대 ON / 관측 OFF)",
-              zone: "존-3",
-              ts: Date.now(),
-            },
-            ...events,
-          ];
-        }
-      }
-      a1.pose = { x: 250 + Math.sin(t / 3) * 60, y: 145 + Math.cos(t / 3) * 25 };
-    }
+  function resolveEvt(amr: string, kind: AppEvent["kind"]) {
+    events = events.map((e) =>
+      e.assignee === amr && e.kind === kind && e.state !== "RESOLVED" ? { ...e, state: "RESOLVED" } : e,
+    );
+  }
 
-    /* --- AMR-02: 12틱째 연기 감지 → ANOMALY 미션 --- */
-    if (t === 12) {
+  /* 순찰 시작 전: 두 대 모두 도킹 스테이션에서 IDLE 대기 */
+  function seedIdle() {
+    const seeded = ZONES.map((z, idx) => ({
+      id: ZONE_AMR[z],
+      state: "IDLE" as RobotState,
+      mission_type: "PATROL" as const,
+      step: 1,
+      battery: idx === 0 ? 92 : 88,
+      route: z,
+      zone: z,
+      task: "도킹 스테이션 대기",
+      pose: DOCK_POSE[ZONE_AMR[z]],
+      atWaypoint: 0,
+      zones: [],
+      ts: Date.now(),
+    }));
+    events = [];
+    emit(seeded);
+  }
+
+  /* 기능6: waypoint(차단기) 도착 → CheckGate.srv 판별 (정상 O / 비정상 X) */
+  function checkGate(amr: string, zone: string, seq: number, r: Robot) {
+    const robot_id = amr === "AMR-01" ? 1 : 2;
+    const rack_id = (robot_id === 1 ? 100 : 200) + seq;
+    const crossinggate_state = Math.random() > 0.28; // true = 정상(O)
+    if (crossinggate_state) {
+      r.zones = [{ id: zone, state: "NORMAL" }];
+    } else {
+      r.zones = [{ id: zone, state: "MISMATCH" }];
       events = [
         {
-          id: "EVT-0142",
-          severity: "DANGER",
-          state: "ASSIGNED",
-          assignee: "AMR-02",
-          text: "존-2 연기 감지 (CCTV-02, conf 0.91)",
-          zone: "존-2",
+          id: `GATE-${robot_id}-${rack_id}-${Date.now() % 100000}`,
+          kind: "GATE",
+          severity: "WARN",
+          state: "ACK_WAIT",
+          zone,
+          text: `차단기 비정상 · rack #${rack_id} (AMR-0${robot_id} · crossinggate OFF)`,
           ts: Date.now(),
-        },
+        } as AppEvent,
         ...events,
-      ];
-      a2.mission_type = "ANOMALY";
-      a2.state = "DISPATCHING";
-      a2.step = 2;
-      a2.event_id = "EVT-0142";
-      a2.event_type = "연기";
-      a2.target_zone = "존-2";
-      a2.task = "존-2 이상지점 이동";
-      a2.patrol_resume = { step: 2, zone: "존-2 경로" };
-      addLog("PC2", "CCTV-02 연기 감지 (conf 0.91) → 이벤트 생성", true);
+      ].slice(0, 100);
+      deps.addLog("PC2", `차단기 비정상 · rack #${rack_id} (${amr})`, true);
     }
-    if (t === 17) {
-      a2.state = "INSPECTING";
-      a2.step = 3;
-      a2.task = "현장 다각도 확인";
-      a2.step_note = "검증 2/3";
-      setEventState("EVT-0142", "ON_SITE");
-    }
-    if (t === 22) {
-      a2.state = "ALERTING";
-      a2.step = 4;
-      a2.task = "현장 경보 발령 (부저·음성)";
-      a2.step_note = null;
-      setEventState("EVT-0142", "ALERTING");
-      addLog("Fleet", "AMR-02 현장 경보 발령 · 관제 ACK 대기", true);
-    }
-    if (t === 30) {
-      a2.state = "REPORTING";
-      a2.step = 5;
-      a2.task = "결과 전송";
-      setEventState("EVT-0142", "ACK_WAIT");
-    }
-    if (t === 34) {
-      a2.state = "RESUMING";
-      a2.task = "순찰 복귀 중";
-    }
-    if (t === 38) {
-      a2.mission_type = "PATROL";
-      a2.state = "PATROLLING";
-      a2.step = 2;
-      a2.task = "존-2 순찰";
-      a2.event_id = null;
-      a2.patrol_resume = null;
-      setEventState("EVT-0142", "RESOLVED");
-    }
-    if (a2.mission_type === "ANOMALY") {
-      a2.pose = { x: 402 + Math.min(180, (t - 12) * 18), y: 340 - Math.min(30, (t - 12) * 3) };
-    } else if (t > 38) {
-      a2.pose = { x: 500 + Math.sin(t / 4) * 80, y: 300 + Math.cos(t / 4) * 30 };
-    }
+  }
 
-    push({
-      robots: [
-        { ...a1, ts: Date.now() },
-        { ...a2, ts: Date.now() },
+  /* 기능2·4·6: waypoint 도달 현황 / CCTV 급파 도착 / 차단기 확인 */
+  function tick() {
+    const patch: Robot[] = [];
+    Object.keys(prog).forEach((amr) => {
+      if (paused.has(amr)) return; // 기능3/5: 일시정지 → 위치·현황 유지
+      if (dispatch[amr]) {
+        // 기능4: 이번 틱에 문제지점 도착
+        const d = dispatch[amr];
+        delete dispatch[amr];
+        patch.push(
+          one(amr, {
+            pose: { x: d.x, y: d.y },
+            mission_type: "ANOMALY",
+            state: "DISPATCHING",
+            task: `CCTV 감지지점 도착 (${d.zone})`,
+          }),
+        );
+        paused.add(amr);
+        onCctvArrive(amr, d);
+        return;
+      }
+      const p = prog[amr]; // 기능2·6: 다음 waypoint 도달 + 차단기 확인
+      p.i = (p.i + 1) % p.wps.length;
+      const w = p.wps[p.i];
+      const r = one(amr, {
+        pose: { x: w.x, y: w.y },
+        atWaypoint: p.i + 1,
+        mission_type: "PATROL",
+        state: "INSPECTING",
+        step: 3,
+        task: `${p.zone} · waypoint ${p.i + 1}/${p.wps.length} (rack #${(amr === "AMR-01" ? 100 : 200) + (p.i + 1)}) 점검`,
+      });
+      checkGate(amr, p.zone, p.i + 1, r);
+      r.battery = Math.max(20, (r.battery ?? 80) - (Math.random() < 0.35 ? 1 : 0));
+      patch.push(r);
+    });
+    if (patch.length) emit(patch);
+
+    if (!popupBusy) {
+      // 기능3: 낮은 확률로 AMR 자체 이벤트
+      const cand = Object.keys(prog).filter((a) => !paused.has(a) && !dispatch[a]);
+      if (cand.length && Math.random() < 0.06) triggerAmrEvent(cand[Math.floor(Math.random() * cand.length)]);
+    }
+    if (!popupBusy && Object.keys(dispatch).length === 0 && Math.random() < 0.05) triggerCctv();
+  }
+
+  /* 기능3: AMR 발행 이벤트 → 해당 AMR 일시정지 + 카메라 팝업 */
+  function triggerAmrEvent(amr: string) {
+    paused.add(amr);
+    popupBusy = true;
+    const rid = amr === "AMR-01" ? 1 : 2;
+    const ev = ["연기 감지", "과열 감지", "장애물 감지"][Math.floor(Math.random() * 3)];
+    const zone = robots[amr]?.zone ?? "";
+    events = [
+      {
+        id: `AMR-${rid}-${Date.now() % 100000}`,
+        kind: "AMR",
+        severity: "DANGER",
+        state: "ASSIGNED",
+        assignee: amr,
+        zone,
+        text: `${amr} ${ev} — 순찰 일시정지`,
+        ts: Date.now(),
+      } as AppEvent,
+      ...events,
+    ].slice(0, 100);
+    emit([one(amr, { state: "PATROL_PAUSED", task: `이벤트 발생 — 판단 대기 (${ev})` })]);
+    openPopup({
+      title: `⚠ ${amr} 이벤트 — 카메라 확인`,
+      camLabel: `AMR CAM (${amr})`,
+      camHot: true,
+      evtHtml: `<b>${amr}</b> · ${zone} · <b>${ev}</b> 로 순찰을 일시정지했습니다. 영상 확인 후 조치를 선택하세요.`,
+      actions: [
+        { label: "🔌 도킹 스테이션 복귀", cls: "ghost", onClick: () => { popupBusy = false; dockRobot(amr); } },
+        { label: "▶ 순찰 재개", cls: "start", onClick: () => { popupBusy = false; resumeRobot(amr); } },
       ],
-      events: [...events],
-      stats: t === 12 ? { fire: 1 } : undefined,
     });
   }
 
-  function startTicking() {
-    tickTimer = window.setInterval(tick, 1200);
-  }
-
-  addLog("PC1", "백엔드 미연결 · 내장 시뮬레이터로 화면 구동");
-  push({
-    robots: [
-      { ...robots["AMR-01"], ts: Date.now() },
-      { ...robots["AMR-02"], ts: Date.now() },
-    ],
-    events: [],
-  });
-  startTicking();
-
-  function command(id: string, cmd: Command) {
-    window.setTimeout(() => {
-      const rb = clone(robots[id] ?? BASE[id]);
-      if (!rb) return;
-      rb.state = COMMAND_STATE_MAP[cmd] ?? rb.state;
-      if (cmd === "estop") {
-        if (tickTimer !== null) {
-          window.clearInterval(tickTimer);
-          tickTimer = null;
-        }
-        rb.task = "긴급정지 — 조작 대기";
+  /* 기능4: CCTV 문제 감지 → 가까운 AMR 급파 + 이벤트 로그·긴급알림 즉시 */
+  function triggerCctv() {
+    const zone = ZONES[Math.floor(Math.random() * ZONES.length)];
+    const P = { x: 120 + Math.random() * 640, y: 90 + Math.random() * 300, zone };
+    const cand = Object.keys(prog).filter((a) => !paused.has(a) && !dispatch[a]);
+    if (!cand.length) return;
+    let best = cand[0];
+    let bd = Infinity;
+    cand.forEach((a) => {
+      const q = robots[a].pose ?? { x: 0, y: 0 };
+      const d = (q.x - P.x) ** 2 + (q.y - P.y) ** 2;
+      if (d < bd) {
+        bd = d;
+        best = a;
       }
-      if (cmd === "reset" && tickTimer === null) startTicking();
-      push({ robots: [{ ...rb, ts: Date.now() }] });
-    }, 600);
+    });
+    dispatch[best] = P;
+    events = [
+      {
+        id: `CCTV-${Date.now() % 100000}`,
+        kind: "CCTV",
+        severity: "DANGER",
+        state: "ASSIGNED",
+        assignee: best,
+        zone,
+        text: `CCTV ${zone} 이상 감지 → ${best} 급파`,
+        ts: Date.now(),
+      } as AppEvent,
+      ...events,
+    ].slice(0, 100);
+    emit([one(best, { mission_type: "ANOMALY", state: "DISPATCHING", task: `CCTV 감지지점 이동 (${zone})` })]);
   }
 
-  /** 지도 클릭으로 지정한 목표 좌표로 이동 — 데모에서는 즉시 pose를 옮기고 로그만 남긴다.
-   *  (실제 주행 스크립트가 계속 도는 로봇이면 다음 tick에서 다시 덮어써질 수 있음 — 데모 한계) */
-  function goto(id: string, x: number, y: number) {
-    window.setTimeout(() => {
-      const rb = clone(robots[id] ?? BASE[id]);
-      if (!rb) return;
-      rb.pose = { x, y };
-      rb.task = `수동 목표 이동 · (${x}, ${y})`;
-      push({ robots: [{ ...rb, ts: Date.now() }] });
-    }, 400);
+  /* 기능4: 급파 AMR 도착 → CCTV 팝업 (오작동 확인·작업 재개) */
+  function onCctvArrive(amr: string, d: { zone: string }) {
+    popupBusy = true;
+    openPopup({
+      title: `📹 CCTV 확인 — ${amr} 도착 (${d.zone})`,
+      camLabel: `CCTV (${d.zone})`,
+      camHot: true,
+      evtHtml: `<b>${amr}</b> 이(가) CCTV 감지지점 <b>${d.zone}</b> 에 도착했습니다. 영상 확인 후 오작동이면 작업을 재개하세요.`,
+      actions: [
+        { label: "✓ CCTV 오작동 확인 및 작업 재개", cls: "start", onClick: () => { popupBusy = false; resolveCctv(amr); } },
+      ],
+    });
   }
 
-  function stop() {
-    if (tickTimer !== null) window.clearInterval(tickTimer);
+  function resolveCctv(amr: string) {
+    paused.delete(amr);
+    resolveEvt(amr, "CCTV");
+    emit([one(amr, { mission_type: "PATROL", state: "PATROLLING", task: "순찰 재개" })]);
+  }
+  function dockRobot(amr: string) {
+    paused.delete(amr);
+    delete prog[amr];
+    resolveEvt(amr, "AMR");
+    emit([one(amr, { mission_type: "PATROL", state: "DOCKING", task: "도킹 스테이션 복귀 중", pose: DOCK_POSE[amr] })]);
+  }
+  function resumeRobot(amr: string) {
+    paused.delete(amr);
+    resolveEvt(amr, "AMR");
+    emit([one(amr, { mission_type: "PATROL", state: "PATROLLING", task: "순찰 재개" })]);
   }
 
-  return { stop, command, goto };
+  /* --- 초기: 도킹 대기 상태 시드 --- */
+  seedIdle();
+
+  return {
+    stop() {
+      if (timer !== null) window.clearInterval(timer);
+    },
+
+    /* 기능1: 통합 순찰 시작 → 각 AMR을 첫 waypoint로 출발 */
+    startPatrol() {
+      const wpMap = getWaypoints();
+      const patch: Robot[] = [];
+      ZONES.forEach((z, idx) => {
+        const amr = ZONE_AMR[z];
+        const wps = wpMap[z] ?? [];
+        if (!wps.length) return;
+        prog[amr] = { zone: z, i: 0, wps: wps.map((w) => ({ x: w.x, y: w.y })) };
+        patch.push({
+          id: amr,
+          state: "PATROLLING",
+          mission_type: "PATROL",
+          step: 2,
+          battery: idx === 0 ? 90 : 86,
+          route: z,
+          zone: z,
+          task: `${z} · waypoint 1/${wps.length} 이동`,
+          pose: { x: wps[0].x, y: wps[0].y },
+          atWaypoint: 1,
+          zones: [{ id: z, state: "NORMAL" }],
+          ts: Date.now(),
+        });
+      });
+      emit(patch);
+      setLink("demo", "데모 · 순찰 진행 중");
+      if (timer !== null) window.clearInterval(timer);
+      timer = window.setInterval(tick, 3000);
+    },
+
+    /* 기능5: 긴급정지 → 2대 정지 */
+    estopAll() {
+      if (timer !== null) {
+        window.clearInterval(timer);
+        timer = null;
+      }
+      popupBusy = false;
+      deps.closePopup();
+      Object.keys(dispatch).forEach((k) => delete dispatch[k]);
+      Object.keys(robots).forEach((id) => paused.add(id));
+      emit(Object.keys(robots).map((id) => one(id, { state: "EMERGENCY_STOP", task: "긴급정지 — 조작 대기" })));
+      setLink("demo", "데모 · 긴급정지");
+    },
+    resumeAll() {
+      paused.clear();
+      emit(Object.keys(robots).map((id) => one(id, { mission_type: "PATROL", state: "PATROLLING", task: "전체 작업 재개" })));
+      if (timer === null) timer = window.setInterval(tick, 3000);
+      setLink("demo", "데모 · 순찰 진행 중");
+    },
+    dockAll() {
+      if (timer !== null) {
+        window.clearInterval(timer);
+        timer = null;
+      }
+      paused.clear();
+      emit(
+        Object.keys(robots).map((id) =>
+          one(id, { state: "DOCKING", task: "도킹 스테이션 복귀 중", pose: DOCK_POSE[id] ?? robots[id].pose }),
+        ),
+      );
+      setLink("demo", "데모 · 도킹 복귀");
+    },
+
+    command(id: string, cmd: Command) {
+      window.setTimeout(() => {
+        const extra: Partial<Robot> = { state: COMMAND_STATE_MAP[cmd] ?? robots[id]?.state };
+        if (cmd === "estop") {
+          if (timer !== null) {
+            window.clearInterval(timer);
+            timer = null;
+          }
+          extra.task = "긴급정지 — 조작 대기";
+          paused.add(id);
+        }
+        if (cmd === "dock") extra.task = "도킹 스테이션 복귀 중";
+        if (cmd === "pause") paused.add(id);
+        if (cmd === "resume") paused.delete(id);
+        if (robots[id]) emit([one(id, extra)]);
+      }, 500);
+    },
+
+    goto(id: string, x: number, y: number) {
+      window.setTimeout(() => {
+        if (robots[id]) emit([one(id, { pose: { x, y }, task: `수동 목표 이동 · (${x}, ${y})` })]);
+      }, 400);
+    },
+  };
 }

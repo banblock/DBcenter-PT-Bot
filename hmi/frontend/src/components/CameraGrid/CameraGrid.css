@@ -19,4 +19,6 @@
 .bbox2.orange { border-color: #e08a00; }
 .bbox2.orange .bbox2__lbl { background: #e08a00; }
 
+.camera-panel__note { margin: 0; padding: 0 14px 12px; font-size: 11px; color: var(--ink-muted); }
+
 @media (max-width: 900px) { .camera-grid { grid-template-columns: 1fr; } }

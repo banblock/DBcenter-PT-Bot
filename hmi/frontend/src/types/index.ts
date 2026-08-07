@@ -53,6 +53,30 @@ export interface RobotPose {
   y: number;
 }
 
+/** 기능1: 사용자가 구역별로 지정하는 순찰 waypoint */
+export interface Waypoint {
+  x: number;
+  y: number;
+  theta: number;
+}
+
+export type WaypointMap = Record<string, Waypoint[]>;
+
+/** 기능3·4: 카메라/CCTV 확인 팝업 */
+export interface PopupAction {
+  label: string;
+  cls?: string;
+  onClick?: () => void;
+}
+
+export interface PopupData {
+  title: string;
+  camLabel: string;
+  camHot: boolean;
+  evtHtml: string;
+  actions: PopupAction[];
+}
+
 export interface Robot {
   id: string;
   state: RobotState;
@@ -69,6 +93,8 @@ export interface Robot {
   patrol_resume?: { step: number; zone: string } | null;
   zones?: ZoneChip[];
   pose?: RobotPose;
+  /** 기능2: 도달한 waypoint 순번 (도달 시점에만 갱신) */
+  atWaypoint?: number;
   ts: number;
 }
 
@@ -92,6 +118,8 @@ export interface AppEvent {
   text: string;
   zone?: string;
   assignee?: string;
+  /** 기능4·6: 이벤트 출처 구분 (차단기 / AMR / CCTV) */
+  kind?: "GATE" | "AMR" | "CCTV";
   ts: number;
 }
 

@@ -33,22 +33,7 @@ export function CameraGrid() {
       hotLabel: "smoke 0.91",
       box: { left: 28, top: 26, width: 44, height: 52 },
     },
-    {
-      id: "amr-cam-01",
-      name: "AMR CAM (AMR-01)",
-      hot: false,
-      normalLabel: "breaker ON 0.97",
-      hotLabel: "breaker ON 0.97",
-      box: { left: 28, top: 26, width: 44, height: 52 },
-    },
-    {
-      id: "amr-cam-02",
-      name: "AMR CAM (AMR-02)",
-      hot: isZone2Hot,
-      normalLabel: "breaker ON 0.94",
-      hotLabel: "smoke 0.93",
-      box: { left: 34, top: 30, width: 34, height: 44 },
-    },
+    // AMR 카메라는 상시 표시하지 않고, 이벤트 발생 시 Modal 팝업으로만 띄운다.
   ];
 
   return (
@@ -86,6 +71,7 @@ export function CameraGrid() {
           </article>
         ))}
       </div>
+      <p className="camera-panel__note">※ AMR 카메라는 이벤트 발생 시 팝업으로 표시됩니다.</p>
     </section>
   );
 }

@@ -2,6 +2,11 @@
 
 import type { Command, MissionType, RobotState, StateMetaEntry, Track } from "../types";
 
+/** 기능1: 구역 2개 · 각 구역당 waypoint 3개 · 구역↔담당 AMR 매핑 */
+export const ZONES = ["존-1", "존-2"] as const;
+export const ZONE_AMR: Record<string, string> = { "존-1": "AMR-01", "존-2": "AMR-02" };
+export const WP_PER_ZONE = 3;
+
 /** 상태별 한글 라벨 + 뱃지 톤 */
 export const STATE_META: Record<RobotState, StateMetaEntry> = {
   OFFLINE: { ko: "연결 끊김", tone: "off" },
