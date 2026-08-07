@@ -9,7 +9,7 @@ from std_msgs.msg import Bool
 from std_srvs.srv import SetBool
 
 from vision_detection.yolo_utils import YoloDetector
-from vision_detection_interfaces.msg import CamState
+from patrol_interfaces.msg import CamState
 
 # AMR 주변에서 감지되면 "이상 상황"으로 취급할 클래스 이름들
 DEFAULT_ANOMALY_CLASSES = ['fire', 'smoke', 'coolant']

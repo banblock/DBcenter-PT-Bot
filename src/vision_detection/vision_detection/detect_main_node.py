@@ -6,7 +6,7 @@ from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 
 from std_srvs.srv import SetBool
-from vision_detection_interfaces.srv import CheckGate
+from patrol_interfaces.srv import CheckGate
 
 
 class DetectMainNode(Node):

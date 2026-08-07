@@ -9,7 +9,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import Image
 
 from vision_detection.gate_color_detector import GateColorDetector
-from vision_detection_interfaces.srv import CheckGate
+from patrol_interfaces.srv import CheckGate
 
 
 class DetectStationNode(Node):

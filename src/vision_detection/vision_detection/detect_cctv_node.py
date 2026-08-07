@@ -12,7 +12,7 @@ import cv2
 import rclpy
 from ament_index_python.packages import get_package_share_directory
 from cv_bridge import CvBridge
-from vision_detection_interfaces.msg import CamState
+from patrol_interfaces.msg import CamState
 from rclpy.node import Node
 from rclpy.qos import (
     HistoryPolicy,

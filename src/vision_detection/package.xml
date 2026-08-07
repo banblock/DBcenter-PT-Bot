@@ -14,7 +14,7 @@
   <depend>std_srvs</depend>
   <depend>cv_bridge</depend>
   <depend>python3-opencv</depend>
-  <depend>vision_detection_interfaces</depend>
+  <depend>patrol_interfaces</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
