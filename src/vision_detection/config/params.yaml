@@ -21,6 +21,7 @@ detect_station_node:
       - "/robot3/okad/preview/image_raw"
       - "/robot8/okad/preview/image_raw"
     fresh_frame_timeout_sec: 2.0
+    sample_frame_count: 3
     hough_dp: 1.2
     hough_min_dist: 50.0
     hough_param1: 100.0

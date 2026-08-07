@@ -28,6 +28,9 @@ def generate_launch_description():
             name='detect_station_node',
             parameters=[params_file],
         ),
-        # detect_cctv_node is intentionally omitted here; wire it in once its
-        # implementation is added.
+        Node(
+            package='vision_detection',
+            executable='detect_cctv_node',
+            name='detect_cctv_node',
+        ),
     ])

@@ -9,6 +9,7 @@ from std_msgs.msg import Bool
 from std_srvs.srv import SetBool
 
 from vision_detection.yolo_utils import YoloDetector
+from vision_detection_interfaces.msg import CamState
 
 # AMR 주변에서 감지되면 "이상 상황"으로 취급할 클래스 이름들
 DEFAULT_ANOMALY_CLASSES = ['fire', 'smoke', 'coolant']
@@ -16,6 +17,11 @@ DEFAULT_ANOMALY_CLASSES = ['fire', 'smoke', 'coolant']
 DEFAULT_MODEL_PATH = os.path.join(get_package_share_directory('vision_detection'), 'models', 'best.pt')
 # 신뢰도 값
 CONF_THRESHOLD = 0.5
+
+# CamState.msg의 state 값 (detect_cctv_node와 동일한 규칙)
+STATE_BY_CLASS = {'fire': 0, 'smoke': 1, 'coolant': 2}
+# CamState.msg의 camera_id 값 (0/1은 cctv1/cctv2가 사용, AMR 캠은 2번부터)
+CAMERA_ID_BY_ROBOT = {'robot3': 2, 'robot8': 3}
 
 
 class DetectAmbientNode(Node):
@@ -57,18 +63,28 @@ class DetectAmbientNode(Node):
         self.process_every_n = self.normal_process_every_n
         self._frame_counters = {}
 
+        # 문제상황을 새로 인식했을 때만(엣지 트리거) CamState를 발행하기 위해
+        # 토픽별 마지막 감지 클래스 집합을 기억해둔다.
+        self._last_detected_classes = {}
+        self._camera_id_by_topic = {}
+
         self._subs = []
         self._image_pubs = {}
         self._anomaly_pubs = {}
         for topic in self.amr_cam_topics:
             robot_id = self._robot_id_from_topic(topic)
             self._frame_counters[topic] = 0
+            self._last_detected_classes[topic] = set()
+            self._camera_id_by_topic[topic] = CAMERA_ID_BY_ROBOT.get(robot_id)
             self._image_pubs[topic] = self.create_publisher(
                 Image, f'/detection/{robot_id}_cam/detection_image', image_qos)
             self._anomaly_pubs[topic] = self.create_publisher(
                 Bool, f'/detection/{robot_id}_cam/anomaly_detected', 10)
             self._subs.append(self.create_subscription(
                 Image, topic, self._make_image_callback(topic), image_qos))
+
+        # detect_cctv_node와 동일한 이상상황 이벤트 토픽 (fire/smoke/coolant 새로 인식 시 발행)
+        self.cam_state_pub = self.create_publisher(CamState, '/detection/cam_state', 10)
 
         # detect_main_node가 차단기 검사 전/후에 호출해 쓰로틀을 켜고 끄는 서비스
         self.set_throttle_srv = self.create_service(
@@ -99,10 +115,19 @@ class DetectAmbientNode(Node):
                 return
 
             annotated_image, detections = self.detector.infer_from_msg(msg)
-            self._image_pubs[topic].publish(self.detector.to_image_msg(annotated_image))
+            detected_classes = {d['class_name'] for d in detections if d['class_name'] in self.anomaly_classes}
+            self._anomaly_pubs[topic].publish(Bool(data=bool(detected_classes)))
 
-            anomaly = any(d['class_name'] in self.anomaly_classes for d in detections)
-            self._anomaly_pubs[topic].publish(Bool(data=anomaly))
+            # 이상상황이 감지되는 동안에는 매 프레임 이미지를 계속 보내고, 감지가 끝나면(빈 집합) 멈춘다
+            if detected_classes:
+                self._image_pubs[topic].publish(self.detector.to_image_msg(annotated_image))
+
+            # CamState는 새로 인식된 클래스에 대해서만 1번 발행 (같은 상황을 매 프레임 재발행하지 않음)
+            camera_id = self._camera_id_by_topic[topic]
+            newly_detected = detected_classes - self._last_detected_classes[topic]
+            for class_name in newly_detected:
+                self.cam_state_pub.publish(CamState(camera_id=camera_id, state=STATE_BY_CLASS[class_name]))
+            self._last_detected_classes[topic] = detected_classes
 
         return callback
 

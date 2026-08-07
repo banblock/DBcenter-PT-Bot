@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -11,7 +12,7 @@ import cv2
 import rclpy
 from ament_index_python.packages import get_package_share_directory
 from cv_bridge import CvBridge
-from detect_cctv_interfaces.msg import CctvStatus
+from vision_detection_interfaces.msg import CamState
 from rclpy.node import Node
 from rclpy.qos import (
     HistoryPolicy,
@@ -33,8 +34,7 @@ class CameraContext:
     capture: cv2.VideoCapture
     image_publisher: Any
     last_status: Dict[str, bool]
-    detection_streaks: Dict[str, int]
-    last_seen_times: Dict[str, float]
+    detection_windows: Dict[str, "deque[bool]"]
     last_warning_time: float = 0.0
 
 
@@ -46,8 +46,8 @@ class DetectCctvNode(Node):
         "smoke": 1,
         "coolant": 2,
     }
-    DETECTION_CONFIRM_FRAMES = 2
-    RELEASE_TIMEOUT_SECONDS = 2.0
+    # 최근 N프레임 중 과반 이상 감지되면 확정 (켜짐/꺼짐 모두 동일 기준)
+    DETECTION_WINDOW_SIZE = 3
 
     def __init__(self) -> None:
         super().__init__("detect_cctv_node")
@@ -55,13 +55,13 @@ class DetectCctvNode(Node):
         # 문자열 배열로 선언하면 카메라 인덱스("0")와 /dev 경로를 모두 사용할 수 있다.
         self.declare_parameter("camera_devices", ["0", "2"])
         self.declare_parameter("camera_ids", ["cctv1", "cctv2"])
-        self.declare_parameter("model_path", "models/best.pt")
+        self.declare_parameter("model_path", "models/cctv_best.pt")
         self.declare_parameter("confidence", 0.5)
         self.declare_parameter("publish_hz", 10.0)
         self.declare_parameter("device", "")
         self.declare_parameter("image_width", 1280)
         self.declare_parameter("image_height", 960)
-        self.declare_parameter("camera_fps", 15.0)
+        self.declare_parameter("camera_fps", 30.0)
         self.declare_parameter("inference_size", 640)
 
         camera_devices = [
@@ -94,8 +94,8 @@ class DetectCctvNode(Node):
         )
 
         self.status_publisher = self.create_publisher(
-            CctvStatus,
-            "/detection/status",
+            CamState,
+            "/detection/cam_state",
             10,
         )
 
@@ -147,7 +147,7 @@ class DetectCctvNode(Node):
             resolved_path = model_path
         else:
             resolved_path = (
-                Path(get_package_share_directory("detect_cctv")) / model_path
+                Path(get_package_share_directory("vision_detection")) / model_path
             )
 
         if not resolved_path.is_file():
@@ -180,30 +180,25 @@ class DetectCctvNode(Node):
             camera_device=self._convert_camera_device(camera_device),
             capture=capture,
             image_publisher=image_publisher,
-            last_status={
-                "fire": False,
-                "smoke": False,
-                "coolant": False,
-            },
-            detection_streaks={event_name: 0 for event_name in self.STATUS_STATES},
-            last_seen_times={event_name: 0.0 for event_name in self.STATUS_STATES},
+            last_status=self._default_status(),
+            detection_windows=self._new_detection_windows(),
         )
+
+    def _new_detection_windows(self) -> Dict[str, "deque[bool]"]:
+        return {
+            event_name: deque(maxlen=self.DETECTION_WINDOW_SIZE)
+            for event_name in self.STATUS_STATES
+        }
+
+    def _default_status(self) -> Dict[str, bool]:
+        return dict.fromkeys(self.STATUS_STATES, False)
 
     def _publish_initial_status(self, camera: CameraContext) -> None:
         """구독자가 시작 시 정상 상태(False)를 받을 수 있게 발행한다."""
-        camera.last_status = {
-            "fire": False,
-            "smoke": False,
-            "coolant": False,
-        }
-        camera.detection_streaks = {
-            event_name: 0 for event_name in self.STATUS_STATES
-        }
-        camera.last_seen_times = {
-            event_name: 0.0 for event_name in self.STATUS_STATES
-        }
+        camera.last_status = self._default_status()
+        camera.detection_windows = self._new_detection_windows()
         for event_name in self.STATUS_STATES:
-            self._publish_status_message(camera, event_name, False)
+            self._publish_status_message(camera, event_name)
 
     def _start_callback(self, message: Bool) -> None:
         if message.data == self.task_started:
@@ -211,18 +206,12 @@ class DetectCctvNode(Node):
 
         self.task_started = message.data
 
-        if self.task_started:
-            for camera in self.cameras:
-                self._publish_initial_status(camera)
-            self.get_logger().info(
-                "/ui/start=True 수신: CCTV 탐지 및 토픽 발행을 시작합니다."
-            )
-            return
-
         for camera in self.cameras:
             self._publish_initial_status(camera)
+
+        action = "시작" if self.task_started else "중지"
         self.get_logger().info(
-            "/ui/start=False 수신: CCTV 탐지 및 토픽 발행을 중지합니다."
+            f"/ui/start={self.task_started} 수신: CCTV 탐지 및 토픽 발행을 {action}합니다."
         )
 
     @staticmethod
@@ -305,12 +294,9 @@ class DetectCctvNode(Node):
                     "YOLO 결과 수가 입력한 카메라 프레임 수와 다릅니다."
                 )
 
-            now = time.monotonic()
             for camera, result in zip(cameras_with_frames, results):
                 detected_status = self._extract_detected_status(result)
-                stable_status = self._apply_debounce(
-                    camera, detected_status, now
-                )
+                stable_status = self._apply_debounce(camera, detected_status)
                 self._publish_status(camera, stable_status)
                 self._publish_image(camera, result.plot())
         except Exception as exc:
@@ -331,11 +317,7 @@ class DetectCctvNode(Node):
         return frame
 
     def _extract_detected_status(self, result: Any) -> Dict[str, bool]:
-        detected_status = {
-            "fire": False,
-            "smoke": False,
-            "coolant": False,
-        }
+        detected_status = self._default_status()
 
         if result.boxes is not None:
             for class_index in result.boxes.cls.tolist():
@@ -356,34 +338,16 @@ class DetectCctvNode(Node):
         return str(names[class_index])
 
     def _apply_debounce(
-        self,
-        camera: CameraContext,
-        detected_status: Dict[str, bool],
-        now: float,
+        self, camera: CameraContext, detected_status: Dict[str, bool]
     ) -> Dict[str, bool]:
+        """최근 DETECTION_WINDOW_SIZE프레임 중 과반 이상 감지되면 확정 상태로 반영."""
         stable_status = camera.last_status.copy()
+        majority = self.DETECTION_WINDOW_SIZE // 2 + 1
 
         for event_name, detected in detected_status.items():
-            if detected:
-                camera.detection_streaks[event_name] = min(
-                    camera.detection_streaks[event_name] + 1,
-                    self.DETECTION_CONFIRM_FRAMES,
-                )
-                camera.last_seen_times[event_name] = now
-                if (
-                    camera.detection_streaks[event_name]
-                    >= self.DETECTION_CONFIRM_FRAMES
-                ):
-                    stable_status[event_name] = True
-                continue
-
-            camera.detection_streaks[event_name] = 0
-            if (
-                stable_status[event_name]
-                and now - camera.last_seen_times[event_name]
-                >= self.RELEASE_TIMEOUT_SECONDS
-            ):
-                stable_status[event_name] = False
+            window = camera.detection_windows[event_name]
+            window.append(detected)
+            stable_status[event_name] = sum(window) >= majority
 
         return stable_status
 
@@ -408,17 +372,14 @@ class DetectCctvNode(Node):
                 f"{camera.camera_id}: {event_name} {state_text}"
             )
 
-            self._publish_status_message(camera, event_name, detected)
+            self._publish_status_message(camera, event_name)
 
         camera.last_status = detected_status.copy()
 
-    def _publish_status_message(
-        self, camera: CameraContext, event_name: str, detected: bool
-    ) -> None:
-        message = CctvStatus()
+    def _publish_status_message(self, camera: CameraContext, event_name: str) -> None:
+        message = CamState()
         message.camera_id = camera.camera_number
         message.state = self.STATUS_STATES[event_name]
-        message.detected = detected
         self.status_publisher.publish(message)
 
     def _release_cameras(self) -> None:

@@ -3,7 +3,7 @@
 <package format="3">
   <name>vision_detection_interfaces</name>
   <version>0.0.0</version>
-  <description>Service definitions for the vision_detection package</description>
+  <description>Message/service definitions for the vision_detection package</description>
   <maintainer email="junh001224@gmail.com">junh0012</maintainer>
   <license>TODO</license>
 

@@ -1,4 +1,5 @@
 import threading
+import time
 
 import rclpy
 from cv_bridge import CvBridge
@@ -15,8 +16,10 @@ class DetectStationNode(Node):
     """차단기(gate) 상태를 검사하는 노드.
 
     평소에는 AMR 캠을 구독하지 않고 대기하다가, main_node가 inspect_gate
-    서비스를 호출한 순간에만 구독을 열어 최신 프레임을 받고
-    (Hough Circle + HSV 색상판별로) 차단기가 닫혔는지 판단한 뒤 다시 구독을 닫는다.
+    서비스를 호출한 순간에만 구독을 열어 프레임을 여러 장 모으고
+    (Hough Circle + HSV 색상판별로) 판정한 뒤 과반수 투표로 최종 상태를 정하고 구독을 닫는다.
+    프레임 1장만으로 판정하면 모션 블러/조명 반사 같은 순간적인 오검출에 취약해서
+    안전 판단(차단기 상태)에는 여러 장을 모아 다수결로 확정한다.
     """
 
     def __init__(self):
@@ -25,6 +28,7 @@ class DetectStationNode(Node):
         self.declare_parameter('amr_cam_topics', ['/robot3/okad/preview/image_raw',
                                                     '/robot8/okad/preview/image_raw'])
         self.declare_parameter('fresh_frame_timeout_sec', 2.0)
+        self.declare_parameter('sample_frame_count', 3)
         self.declare_parameter('hough_dp', 1.2)
         self.declare_parameter('hough_min_dist', 50.0)
         self.declare_parameter('hough_param1', 100.0)
@@ -42,6 +46,7 @@ class DetectStationNode(Node):
 
         self.amr_cam_topics = self.get_parameter('amr_cam_topics').value
         self.fresh_frame_timeout_sec = self.get_parameter('fresh_frame_timeout_sec').value
+        self.sample_frame_count = self.get_parameter('sample_frame_count').value
 
         hough_params = {
             'dp': self.get_parameter('hough_dp').value,
@@ -123,6 +128,23 @@ class DetectStationNode(Node):
         if sub is not None:
             self.destroy_subscription(sub)
 
+    def _collect_frames(self, topic):
+        """fresh_frame_timeout_sec 예산 안에서 서로 다른 프레임을 최대 sample_frame_count장 모은다."""
+        frames = []
+        deadline = time.monotonic() + self.fresh_frame_timeout_sec
+        for _ in range(self.sample_frame_count):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            self._new_frame_event.clear()
+            if not self._new_frame_event.wait(timeout=remaining):
+                break
+            with self._frame_lock:
+                msg = self._latest_frames.get(topic)
+            if msg is not None:
+                frames.append(msg)
+        return frames
+
     def _inspect_gate_callback(self, request, response):
         topic = self._topic_by_robot_id.get(request.robot_id)
         if topic is None:
@@ -133,25 +155,32 @@ class DetectStationNode(Node):
 
         self._activate_cam_sub(topic)
         try:
-            # 새 프레임이 도착할 때까지 잠깐 대기 (타임아웃 내 못 받으면 카메라 연결 문제로 취급)
-            if not self._new_frame_event.wait(timeout=self.fresh_frame_timeout_sec):
-                self.get_logger().error(f'timed out waiting for a fresh frame on {topic}')
+            frames = self._collect_frames(topic)
+            if not frames:
+                self.get_logger().error(f'timed out waiting for frames on {topic}')
                 response.gate_state_equal = False
                 response.error_state = 3  # 로봇 cam 연결 안 됨
                 return response
 
-            with self._frame_lock:
-                msg = self._latest_frames.get(topic)
-
-            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-            annotated_image, gate_closed = self.detector.detect(cv_image)
+            # 프레임 1장만으로 판정하면 모션 블러/조명 반사에 취약하므로 여러 장을 모아 과반수로 확정한다.
+            results = []
+            annotated_image = None
+            for msg in frames:
+                cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+                annotated_image, gate_closed = self.detector.detect(cv_image)
+                if gate_closed is not None:
+                    results.append(gate_closed)
             self._image_pubs[topic].publish(self.bridge.cv2_to_imgmsg(annotated_image, encoding='bgr8'))
 
-            if gate_closed is None:
-                self.get_logger().error(f'no gate indicator circle detected on {topic}')
+            majority = len(frames) // 2 + 1
+            if len(results) < majority:
+                self.get_logger().error(
+                    f'gate indicator circle only found in {len(results)}/{len(frames)} sampled frames on {topic}')
                 response.gate_state_equal = False
                 response.error_state = 2  # 차단기 못 찾음
                 return response
+
+            gate_closed = sum(results) >= (len(results) // 2 + 1)
 
             # DB 기준 상태(request.gate_state)와 카메라로 본 실제 상태가 같은지 비교
             response.gate_state_equal = (gate_closed == request.gate_state)
