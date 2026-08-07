@@ -34,3 +34,5 @@ AMENT_IGNORE
 
 #vscode
 .vscode/
+
+src/detect_cctv/detect_cctv/detect_cctv_node_commented.py
