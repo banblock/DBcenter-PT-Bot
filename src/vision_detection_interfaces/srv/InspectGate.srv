@@ -1,4 +1,0 @@
----
-bool gate_closed
-bool success
-string message

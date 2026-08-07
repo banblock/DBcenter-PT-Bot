@@ -1,4 +1,9 @@
+#Req
+int32 robot_id  #amr ID
+int32 gate_id   #차단기 ID
+bool gate_state #차단기 상태(DB 기준)
 ---
-bool gate_closed
-bool success
-string message
+#Res
+bool gate_state_equal #True: gate_state = 현재 차단기 상태(조치 필요 없음)
+					  #False : gate_state != 현재 차단기 상태(조치 필요) or 에러 상황
+int32 error_state     #0 : 정상, 1 : 차단기 상태 불일치, 2 : 차단기 못 찾음, 3 : 로봇 cam 연결 안 됨

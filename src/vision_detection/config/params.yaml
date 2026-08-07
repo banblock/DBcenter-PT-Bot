@@ -4,9 +4,7 @@ detect_main_node:
 
 detect_ambient_node:
   ros__parameters:
-    # overridden with the installed models/best.pt path by the launch file
-    model_path: "yolov8n.pt"
-    conf_threshold: 0.5
+    # model_path, conf_threshold는 여기서 지정하지 않음: detect_ambient_node.py가 자체 값을 사용
     amr_cam_topics:
       - "/robot3/okad/preview/image_raw"
       - "/robot8/okad/preview/image_raw"

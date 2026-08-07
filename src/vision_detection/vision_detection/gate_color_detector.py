@@ -3,8 +3,12 @@ import numpy as np
 
 
 class GateColorDetector:
-    """Locates a circular gate indicator light with HoughCircles and classifies
-    its on/off state by sampling the dominant color inside the circle (HSV)."""
+    """차단기의 원형 상태 표시등을 찾아 색상으로 열림/닫힘을 판별하는 순수 CV 로직.
+
+    ROS에 의존하지 않는 클래스라서 ROS 없이도(numpy 이미지만으로) 단독 테스트가 가능하다.
+    1) HoughCircles로 원형 인디케이터 위치를 찾고
+    2) 그 원 내부 픽셀을 HSV로 변환해 '닫힘 색상'/'열림 색상' 비율을 비교해 판정한다.
+    """
 
     def __init__(self, hough_params, closed_hsv_ranges, open_hsv_ranges, min_color_ratio=0.3):
         self.dp = hough_params['dp']
@@ -13,14 +17,13 @@ class GateColorDetector:
         self.param2 = hough_params['param2']
         self.min_radius = hough_params['min_radius']
         self.max_radius = hough_params['max_radius']
-        # each range is (lower_hsv, upper_hsv); a color can need two ranges (e.g. red wraps at hue 0/180)
+        # 각 range는 (lower_hsv, upper_hsv). 색상 하나가 범위 2개를 필요로 할 수도 있음(예: 빨강은 hue 0/180 양쪽)
         self.closed_hsv_ranges = closed_hsv_ranges
         self.open_hsv_ranges = open_hsv_ranges
         self.min_color_ratio = min_color_ratio
 
     def detect(self, cv_image):
-        """Returns (annotated_image, gate_closed). gate_closed is None if no
-        indicator circle could be located."""
+        """(주석 그려진 이미지, gate_closed)를 반환. 원을 못 찾으면 gate_closed는 None."""
         gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
         blurred = cv2.medianBlur(gray, 5)
         circles = cv2.HoughCircles(
@@ -33,8 +36,7 @@ class GateColorDetector:
             return annotated, None
 
         hsv = cv2.cvtColor(cv_image, cv2.COLOR_BGR2HSV)
-        # HoughCircles can return several candidates; the largest is assumed to
-        # be the indicator light closest to the camera.
+        # 원이 여러 개 검출될 수 있는데, 가장 큰(카메라와 가장 가까운) 원을 인디케이터로 가정
         x, y, r = max(np.round(circles[0]).astype(int), key=lambda c: c[2])
 
         mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
@@ -44,6 +46,7 @@ class GateColorDetector:
         open_ratio = self._color_ratio(hsv, mask, self.open_hsv_ranges)
         gate_closed = closed_ratio >= self.min_color_ratio and closed_ratio >= open_ratio
 
+        # 판정 결과를 원 + 텍스트로 그려서 디버깅/모니터링용 이미지로 사용
         label = f'CLOSED {closed_ratio:.2f}' if gate_closed else f'OPEN {open_ratio:.2f}'
         color = (0, 0, 255) if gate_closed else (0, 255, 0)
         cv2.circle(annotated, (x, y), r, color, 3)
@@ -54,6 +57,7 @@ class GateColorDetector:
 
     @staticmethod
     def _color_ratio(hsv, mask, ranges):
+        """원(mask) 내부 픽셀 중 주어진 HSV 색상 범위(ranges)에 속하는 비율을 계산."""
         matched = np.zeros(mask.shape, dtype=np.uint8)
         for lower, upper in ranges:
             matched |= cv2.inRange(hsv, np.array(lower), np.array(upper))

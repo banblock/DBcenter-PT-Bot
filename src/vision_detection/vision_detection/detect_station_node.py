@@ -4,13 +4,21 @@ import rclpy
 from cv_bridge import CvBridge
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import Image
 
 from vision_detection.gate_color_detector import GateColorDetector
-from vision_detection_interfaces.srv import InspectGate
+from vision_detection_interfaces.srv import CheckGate
 
 
 class DetectStationNode(Node):
+    """차단기(gate) 상태를 검사하는 노드.
+
+    평소에는 AMR 캠을 구독하지 않고 대기하다가, main_node가 inspect_gate
+    서비스를 호출한 순간에만 구독을 열어 최신 프레임을 받고
+    (Hough Circle + HSV 색상판별로) 차단기가 닫혔는지 판단한 뒤 다시 구독을 닫는다.
+    """
+
     def __init__(self):
         super().__init__('detect_station_node')
 
@@ -23,7 +31,7 @@ class DetectStationNode(Node):
         self.declare_parameter('hough_param2', 30.0)
         self.declare_parameter('hough_min_radius', 10)
         self.declare_parameter('hough_max_radius', 100)
-        # red wraps around hue 0/180 in OpenCV HSV, so "closed" needs two ranges
+        # 빨간색은 OpenCV HSV에서 hue 0/180 양쪽에 걸쳐 있어서 "닫힘" 판정엔 범위가 2개 필요
         self.declare_parameter('closed_hsv_lower1', [0, 70, 50])
         self.declare_parameter('closed_hsv_upper1', [10, 255, 255])
         self.declare_parameter('closed_hsv_lower2', [170, 70, 50])
@@ -56,73 +64,101 @@ class DetectStationNode(Node):
 
         self.bridge = CvBridge()
 
-        # Only used while inspect_gate is being served; kept idle otherwise so
-        # detect_ambient_node stays the primary consumer of these AMR cams.
-        self.active = False
+        self._image_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+
+        # inspect_gate 처리 중 도착한 최신 프레임들을 토픽별로 캐싱
         self._latest_frames = {}
         self._frame_lock = threading.Lock()
+        # 구독 시작 후 새 프레임이 한 장이라도 도착했는지 알리는 이벤트
         self._new_frame_event = threading.Event()
+        # 구독을 상시 유지하지 않고 inspect_gate 호출마다 열고 닫는다.
+        # -> 평소엔 detect_ambient_node만 AMR 캠을 소비하게 해서 이중 디코딩/트래픽을 없앤다.
+        self._subs = {}
 
         self._image_pubs = {}
+        # 요청의 robot_id(정수)로 어떤 카메라 토픽을 볼지 찾기 위한 매핑
+        self._topic_by_robot_id = {}
         for topic in self.amr_cam_topics:
-            robot_id = self._robot_id_from_topic(topic)
+            robot_id = self._robot_num_from_topic(topic)
+            self._topic_by_robot_id[robot_id] = topic
             self._image_pubs[topic] = self.create_publisher(
-                Image, f'/detection/{robot_id}_cam/detection_image', 10)
-            self.create_subscription(
-                Image, topic, self._make_image_callback(topic), 10)
+                Image, f'/detection/robot{robot_id}_cam/detection_image', self._image_qos)
 
+        # 서비스 콜백 안에서 새 프레임을 기다리는 동안에도 구독 콜백이 동시에
+        # 실행돼야 하므로 ReentrantCallbackGroup + MultiThreadedExecutor 사용
         self.inspect_gate_srv = self.create_service(
-            InspectGate, '~/inspect_gate', self._inspect_gate_callback,
+            CheckGate, '/detection/inspect_gate', self._inspect_gate_callback,
             callback_group=ReentrantCallbackGroup())
 
         self.get_logger().info('detect_station_node ready')
 
     @staticmethod
-    def _robot_id_from_topic(topic):
-        return topic.strip('/').split('/')[0]
+    def _robot_num_from_topic(topic):
+        # e.g. '/robot3/okad/preview/image_raw' -> 3
+        robot_str = topic.strip('/').split('/')[0]
+        return int(''.join(filter(str.isdigit, robot_str)))
 
     def _make_image_callback(self, topic):
         def callback(msg):
             with self._frame_lock:
                 self._latest_frames[topic] = msg
-            if self.active:
-                self._new_frame_event.set()
+            self._new_frame_event.set()
 
         return callback
 
-    def _inspect_gate_callback(self, request, response):
-        self.active = True
+    def _activate_cam_sub(self, topic):
+        """검사 시작: 요청받은 로봇의 카메라 하나만 구독을 연다."""
+        self._latest_frames = {}
         self._new_frame_event.clear()
+        self._subs[topic] = self.create_subscription(
+            Image, topic, self._make_image_callback(topic), self._image_qos)
+
+    def _deactivate_cam_sub(self, topic):
+        """검사 종료: 열었던 구독을 정리한다."""
+        sub = self._subs.pop(topic, None)
+        if sub is not None:
+            self.destroy_subscription(sub)
+
+    def _inspect_gate_callback(self, request, response):
+        topic = self._topic_by_robot_id.get(request.robot_id)
+        if topic is None:
+            self.get_logger().error(f'unknown robot_id {request.robot_id}: no camera mapped')
+            response.gate_state_equal = False
+            response.error_state = 3  # 로봇 cam 연결 안 됨
+            return response
+
+        self._activate_cam_sub(topic)
         try:
+            # 새 프레임이 도착할 때까지 잠깐 대기 (타임아웃 내 못 받으면 카메라 연결 문제로 취급)
             if not self._new_frame_event.wait(timeout=self.fresh_frame_timeout_sec):
-                response.success = False
-                response.gate_closed = False
-                response.message = 'timed out waiting for a fresh AMR camera frame'
+                self.get_logger().error(f'timed out waiting for a fresh frame on {topic}')
+                response.gate_state_equal = False
+                response.error_state = 3  # 로봇 cam 연결 안 됨
                 return response
 
             with self._frame_lock:
-                frames = dict(self._latest_frames)
+                msg = self._latest_frames.get(topic)
 
-            results = []
-            for topic, msg in frames.items():
-                cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-                annotated_image, gate_closed = self.detector.detect(cv_image)
-                self._image_pubs[topic].publish(self.bridge.cv2_to_imgmsg(annotated_image, encoding='bgr8'))
-                if gate_closed is not None:
-                    results.append(gate_closed)
+            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            annotated_image, gate_closed = self.detector.detect(cv_image)
+            self._image_pubs[topic].publish(self.bridge.cv2_to_imgmsg(annotated_image, encoding='bgr8'))
 
-            if not results:
-                response.success = False
-                response.gate_closed = False
-                response.message = 'no gate indicator circle detected on any camera'
+            if gate_closed is None:
+                self.get_logger().error(f'no gate indicator circle detected on {topic}')
+                response.gate_state_equal = False
+                response.error_state = 2  # 차단기 못 찾음
                 return response
 
-            response.success = True
-            response.gate_closed = any(results)
-            response.message = 'ok'
+            # DB 기준 상태(request.gate_state)와 카메라로 본 실제 상태가 같은지 비교
+            response.gate_state_equal = (gate_closed == request.gate_state)
+            response.error_state = 0 if response.gate_state_equal else 1  # 0:정상, 1:상태 불일치
             return response
         finally:
-            self.active = False
+            self._deactivate_cam_sub(topic)
 
 
 def main(args=None):

@@ -8,7 +8,6 @@ from launch_ros.actions import Node
 def generate_launch_description():
     share_dir = get_package_share_directory('vision_detection')
     params_file = os.path.join(share_dir, 'config', 'params.yaml')
-    ambient_model_path = os.path.join(share_dir, 'models', 'best.pt')
 
     return LaunchDescription([
         Node(
@@ -21,7 +20,7 @@ def generate_launch_description():
             package='vision_detection',
             executable='detect_ambient_node',
             name='detect_ambient_node',
-            parameters=[params_file, {'model_path': ambient_model_path}],
+            parameters=[params_file],
         ),
         Node(
             package='vision_detection',
