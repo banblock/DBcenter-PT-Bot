@@ -12,7 +12,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', ['launch/vision_detection_launch.py']),
         ('share/' + package_name + '/config', ['config/params.yaml']),
-        ('share/' + package_name + '/models', ['resource/best.pt', 'resource/cctv_best.pt']),
+        ('share/' + package_name + '/models', ['resource/ambient_best.pt', 'resource/cctv_best.pt']),
     ],
     install_requires=['setuptools', 'ultralytics'],
     zip_safe=True,

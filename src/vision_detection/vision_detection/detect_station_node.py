@@ -25,8 +25,8 @@ class DetectStationNode(Node):
     def __init__(self):
         super().__init__('detect_station_node')
 
-        self.declare_parameter('amr_cam_topics', ['/robot3/okad/preview/image_raw',
-                                                    '/robot8/okad/preview/image_raw'])
+        self.declare_parameter('amr_cam_topics', ['/robot3/oakd/rgb/preview/image_raw',
+                                                    '/robot8/oakd/rgb/preview/image_raw'])
         self.declare_parameter('fresh_frame_timeout_sec', 2.0)
         self.declare_parameter('sample_frame_count', 3)
         self.declare_parameter('hough_dp', 1.2)
@@ -103,7 +103,7 @@ class DetectStationNode(Node):
 
     @staticmethod
     def _robot_num_from_topic(topic):
-        # e.g. '/robot3/okad/preview/image_raw' -> 3
+        # e.g. '/robot3/oakd/rgb/preview/image_raw' -> 3
         robot_str = topic.strip('/').split('/')[0]
         return int(''.join(filter(str.isdigit, robot_str)))
 

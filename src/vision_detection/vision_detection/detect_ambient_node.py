@@ -1,4 +1,5 @@
 import os
+from collections import deque
 
 import rclpy
 from ament_index_python.packages import get_package_share_directory
@@ -14,7 +15,7 @@ from patrol_interfaces.msg import CamState
 # AMR 주변에서 감지되면 "이상 상황"으로 취급할 클래스 이름들
 DEFAULT_ANOMALY_CLASSES = ['fire', 'smoke', 'coolant']
 # YOLO 모델
-DEFAULT_MODEL_PATH = os.path.join(get_package_share_directory('vision_detection'), 'models', 'best.pt')
+DEFAULT_MODEL_PATH = os.path.join(get_package_share_directory('vision_detection'), 'models', 'ambient_best.pt')
 # 신뢰도 값
 CONF_THRESHOLD = 0.5
 
@@ -22,6 +23,9 @@ CONF_THRESHOLD = 0.5
 STATE_BY_CLASS = {'fire': 0, 'smoke': 1, 'coolant': 2}
 # CamState.msg의 camera_id 값 (0/1은 cctv1/cctv2가 사용, AMR 캠은 2번부터)
 CAMERA_ID_BY_ROBOT = {'robot3': 2, 'robot8': 3}
+# 감지 해제 판단용 윈도우 크기. 감지(켜짐)는 1프레임만 봐도 즉시 반응하지만,
+# 해제(꺼짐)는 최근 이 프레임 수 중 과반이 미검출이어야 확정한다 (detect_cctv_node와 동일한 방식).
+EVENT_WINDOW_SIZE = 3
 
 
 class DetectAmbientNode(Node):
@@ -36,8 +40,8 @@ class DetectAmbientNode(Node):
         super().__init__('detect_ambient_node')
 
         self.declare_parameter('model_path', DEFAULT_MODEL_PATH)
-        self.declare_parameter('amr_cam_topics', ['/robot3/okad/preview/image_raw',
-                                                    '/robot8/okad/preview/image_raw'])
+        self.declare_parameter('amr_cam_topics', ['/robot3/oakd/rgb/preview/image_raw',
+                                                    '/robot8/oakd/rgb/preview/image_raw'])
         self.declare_parameter('anomaly_classes', DEFAULT_ANOMALY_CLASSES)
         #평상시 1장마다 1번씩 처리, 쓰로틀 시 10장마다 1번씩 처리
         self.declare_parameter('normal_process_every_n', 1)
@@ -63,9 +67,10 @@ class DetectAmbientNode(Node):
         self.process_every_n = self.normal_process_every_n
         self._frame_counters = {}
 
-        # 문제상황을 새로 인식했을 때만(엣지 트리거) CamState를 발행하기 위해
-        # 토픽별 마지막 감지 클래스 집합을 기억해둔다.
-        self._last_detected_classes = {}
+        # CamState 재발행을 막기 위해 클래스별로 "지금 이상상황이 진행 중인가"를 기억해둔다.
+        # 켜짐은 즉시 반영하고, 꺼짐은 최근 프레임 윈도우의 과반 판정으로만 반영한다.
+        self._active_classes = {}
+        self._recent_detections = {}
         self._camera_id_by_topic = {}
 
         self._subs = []
@@ -74,7 +79,10 @@ class DetectAmbientNode(Node):
         for topic in self.amr_cam_topics:
             robot_id = self._robot_id_from_topic(topic)
             self._frame_counters[topic] = 0
-            self._last_detected_classes[topic] = set()
+            self._active_classes[topic] = set()
+            self._recent_detections[topic] = {
+                class_name: deque(maxlen=EVENT_WINDOW_SIZE) for class_name in self.anomaly_classes
+            }
             self._camera_id_by_topic[topic] = CAMERA_ID_BY_ROBOT.get(robot_id)
             self._image_pubs[topic] = self.create_publisher(
                 Image, f'/detection/{robot_id}_cam/detection_image', image_qos)
@@ -94,7 +102,7 @@ class DetectAmbientNode(Node):
 
     @staticmethod
     def _robot_id_from_topic(topic):
-        # e.g. '/robot3/okad/preview/image_raw' -> 'robot3'
+        # e.g. '/robot3/oakd/rgb/preview/image_raw' -> 'robot3'
         return topic.strip('/').split('/')[0]
 
     def _set_throttle_callback(self, request, response):
@@ -122,12 +130,27 @@ class DetectAmbientNode(Node):
             if detected_classes:
                 self._image_pubs[topic].publish(self.detector.to_image_msg(annotated_image))
 
-            # CamState는 새로 인식된 클래스에 대해서만 1번 발행 (같은 상황을 매 프레임 재발행하지 않음)
+            # CamState: 감지(켜짐)는 1프레임만 봐도 즉시 발행하되, 이미 진행 중인 상황은 재발행하지
+            # 않는다. 진행 중 여부(꺼짐 판정)는 최근 프레임 윈도우의 과반으로만 해제해서,
+            # 프레임 간 미세한 검출 흔들림(flicker) 때문에 같은 상황이 반복 발행되는 것을 막는다.
             camera_id = self._camera_id_by_topic[topic]
-            newly_detected = detected_classes - self._last_detected_classes[topic]
-            for class_name in newly_detected:
-                self.cam_state_pub.publish(CamState(camera_id=camera_id, state=STATE_BY_CLASS[class_name]))
-            self._last_detected_classes[topic] = detected_classes
+            majority = EVENT_WINDOW_SIZE // 2 + 1
+            active_classes = self._active_classes[topic]
+            for class_name in self.anomaly_classes:
+                detected = class_name in detected_classes
+                window = self._recent_detections[topic][class_name]
+                window.append(detected)
+
+                if detected and class_name not in active_classes:
+                    active_classes.add(class_name)
+                    self.cam_state_pub.publish(CamState(camera_id=camera_id, state=STATE_BY_CLASS[class_name]))
+                elif (
+                    class_name in active_classes
+                    and len(window) == window.maxlen
+                    and sum(window) < majority
+                ):
+                    # 윈도우가 다 찼을 때만 해제 판정 (덜 찬 상태에서 미스 1번으로 바로 꺼짐 처리되는 것 방지)
+                    active_classes.discard(class_name)
 
         return callback
 
