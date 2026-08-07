@@ -1,4 +1,5 @@
 """FastAPI 애플리케이션 엔트리포인트."""
+# ★앱 본체(시작·종료·라우터 등록)
 
 from __future__ import annotations
 
@@ -58,11 +59,19 @@ def crud_mark_offline(db) -> list[tuple[str, str | None]]:
     ]
 
 
-def _install_bridge() -> None:
-    """설정에 따라 robot_bridge(§10)를 끼운다. 기본 null 은 NullBridge 유지 → 동작 불변."""
+# [공부 메모] 여기서 config의 스위치(AMR_BRIDGE_BACKEND)를 보고 어떤 브리지를 끼울지 결정.
+#   null(기본)=NullBridge(로그만) / loopback=RobotBridge(발행 로그) / ros2=Ros2Bridge(진짜).
+#   set_bridge()로 갈아끼우는 거라 라우터는 뭘 끼우든 모름(= bridge.py의 의존성 역전 활용).
+#   ros2는 상행 컨슈머가 이벤트 루프를 필요로 해서 loop를 넘기고, 종료 시 정리하려고 mgr 반환.
+def _install_bridge(loop=None):
+    """설정에 따라 robot_bridge(§10)를 끼운다. 기본 null 은 NullBridge 유지 → 동작 불변.
+
+    ros2 모드에서는 상행 프로듀서-컨슈머가 이벤트 루프를 필요로 하므로 `loop` 를 받아
+    넘기고, 종료 시 정리할 수 있게 관리자(Ros2Bridge)를 반환한다.
+    """
     backend = settings.bridge_backend
     if backend == "null":
-        return
+        return None
     from app.bridge import set_bridge
     from app.bridge_backend import BackendSink
     from app.robot_bridge import RobotBridge, build_ros2_bridge
@@ -73,10 +82,14 @@ def _install_bridge() -> None:
             log.info("[loopback] %s ← %s", topic, payload)
 
         set_bridge(RobotBridge(settings.robot_ids, publisher=_log_publisher, sink=BackendSink()))
+        return None
     elif backend == "ros2":
-        set_bridge(build_ros2_bridge(settings.robot_ids, BackendSink()))
+        mgr = build_ros2_bridge(settings.robot_ids, BackendSink(), loop)
+        set_bridge(mgr.bridge)
+        return mgr
     else:
         log.warning("알 수 없는 bridge_backend=%s — NullBridge 유지", backend)
+        return None
 
 
 @asynccontextmanager
@@ -96,8 +109,11 @@ async def lifespan(app: FastAPI):
     finally:
         db.close()
 
-    _install_bridge()
+    bridge_mgr = _install_bridge(asyncio.get_running_loop())
 
+    # ★ 서버 켜질 때 백그라운드 작업 2개를 계속 돌림:
+    #   consumer = 방송 큐 소비(connection_manager) / watchdog = 3초 무소식 로봇 OFFLINE 처리.
+    #   lifespan은 "서버 수명"을 관리 — yield 위=시작, 아래(finally)=종료 정리.
     consumer = asyncio.create_task(manager.consumer_loop(), name="broadcast-consumer")
     watchdog = asyncio.create_task(_heartbeat_watchdog(), name="heartbeat-watchdog")
     log.info("REST %d개 라우터 · WS /ws/monitor 준비 완료", len(ALL_ROUTERS))
@@ -106,6 +122,8 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        if bridge_mgr is not None:
+            bridge_mgr.stop()
         for task in (consumer, watchdog):
             task.cancel()
         await asyncio.gather(consumer, watchdog, return_exceptions=True)

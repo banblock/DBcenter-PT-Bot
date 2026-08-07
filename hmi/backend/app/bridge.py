@@ -1,3 +1,5 @@
+# 로봇 연결 '교체구'(시임)
+
 """ROS2 브리지 시임(seam).
 
 지금 단계에서 ROS2 노드는 아직 붙지 않았다. 그렇다고 라우터가 ROS 호출을
@@ -23,7 +25,13 @@ log = get_logger("bridge")
 CommandType = str  # START_PATROL|PAUSE|RESUME|CANCEL|GOTO|INSPECT|EVACUATE|ESTOP|RESET|DOCK
 
 
+# [공부 메모] 이게 수업 때 배운 "의존성 역전(DIP)" 실물 예시라 리뷰 때 얘기하면 좋음.
+#   - 라우터는 항상 get_bridge().publish_command(...) 만 부름 = "추상(Protocol)"에 의존.
+#   - 실제 구현은 런타임에 set_bridge()로 끼움: NullBridge(로그만) / RobotBridge(loopback)
+#     / Ros2Bridge(진짜 rclpy). → ROS가 있든 없든 라우터·테스트 코드는 안 바뀜.
+#   - 기본이 NullBridge라서 로봇 없이 서버 켜도 아무것도 안 깨짐(그냥 로그만 남김).
 class Bridge(Protocol):
+    # ← "이런 메서드를 가진 놈이면 다 Bridge다"라는 계약(구조적 타이핑). 상속 아님.
     def publish_command(self, robot_id: str, command_type: CommandType, payload: dict) -> dict: ...
 
     @property
@@ -47,6 +55,8 @@ class NullBridge:
         return False
 
     def publish_command(self, robot_id: str, command_type: CommandType, payload: dict) -> dict:
+        # ← 여기 핵심: accepted=True 지만 dispatched=False. "접수는 했는데 실제 로봇엔
+        #   안 보냄"을 정직하게 표시. 이걸 True로 뭉개면 로봇 죽어도 성공처럼 보임 = 위험.
         record = {
             "command_id": ids.next_command_id(),
             "robot_id": robot_id,

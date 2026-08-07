@@ -1,3 +1,5 @@
+// 상태·명령 규칙표
+
 import type { Command, MissionType, RobotState, StateMetaEntry, Track } from "../types";
 
 /** 상태별 한글 라벨 + 뱃지 톤 */

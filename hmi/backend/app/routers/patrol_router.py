@@ -14,6 +14,7 @@ from app.crud import ids
 from app.database import get_db
 from app.enums import MissionStatus, RobotState, WsMessageType
 from app.errors import ApiError, E
+from app.services import node_lock
 from app.models import utcnow
 from app.responses import ok
 from app.schemas import (
@@ -228,7 +229,23 @@ async def start_patrol(body: PatrolStartIn, db: DbDep, actor: ActorDep):
         scores = {n.node_id: n.priority_score for n in crud.patrol.list_nodes(db)}
         node_order.sort(key=lambda nid: -scores.get(nid, 0.0))
 
-    assignment = _split_nodes(node_order, body.robot_ids)
+    # 경로 겹침 사전 검사 (B-28) — 다른 로봇이 이미 점유 중인 노드를 배분 대상에서 뺀다.
+    # 이렇게 하면 두 로봇이 같은 노드로 동시에 배정되는 일(중복/데드락)이 원천 차단된다.
+    claim = node_lock.claim(db, body.robot_ids, node_order)
+    if not claim.granted:
+        raise ApiError(
+            E.NODE_LOCKED,
+            "요청한 경로의 모든 노드가 다른 로봇에 점유되어 있습니다",
+            data={"conflicts": claim.conflicts_as_dicts()},
+        )
+
+    # granted 노드만 배분한다. 노드를 하나도 못 받은 로봇은 미션을 만들지 않는다
+    # (점유 충돌로 배분할 노드가 부족한 경우 — conflicts 로 사유를 응답에 남긴다).
+    assignment = {
+        robot_id: nodes
+        for robot_id, nodes in _split_nodes(claim.granted, body.robot_ids).items()
+        if nodes
+    }
     assigned_payload = []
     missions = []
 
@@ -286,7 +303,7 @@ async def start_patrol(body: PatrolStartIn, db: DbDep, actor: ActorDep):
             "mission_ids": [m.mission_id for m in missions],
             "status": MissionStatus.RUNNING.value,
             "assigned": assigned_payload,
-            "conflicts": [],
+            "conflicts": claim.conflicts_as_dicts(),
         }
     )
 

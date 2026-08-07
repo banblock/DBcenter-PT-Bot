@@ -1,3 +1,5 @@
+// ★백엔드와 통역(핵심)
+
 /**
  * 실백엔드 배선 계층 — 원본 대시보드의 데이터 소스를 실제 관제 백엔드로 잇는다.
  *
@@ -15,6 +17,20 @@
  * (순찰/정지/급파/도킹/ACK)에 필요한 권한을 모두 가지므로 헤더를 보내지 않는다.
  */
 
+// ════════════════════════════════════════════════════════════════
+// [공부 메모] ★ 프론트↔백엔드 "통역사" (두 번째로 중요한 파일)
+//
+// 왜 필요? 백엔드 필드명(robot_id, state_ko, progress_step...)이랑
+//   원래 화면이 쓰던 이름(id, task, step...)이 다름. 화면 코드를 안 고치려고
+//   이 파일이 중간에서 번역함. (수업 때 배운 'anti-corruption layer'가 이거였음!)
+//
+// 리뷰 때 볼 함수 2개:
+//   - translateFrame(): 백엔드 WS 봉투 → 화면이 아는 InboundMessage 로 번역.
+//                       모르는 타입은 null 반환 → 그냥 무시(화면 안 죽음).
+//   - backendCommand()/backendGoto(): 버튼(start/pause/...) → 실제 REST 주소로.
+//
+// 포인트: 백엔드 스키마가 바뀌어도 이 파일만 고치면 됨. 화면 컴포넌트는 그대로.
+// ════════════════════════════════════════════════════════════════
 import type { AppEvent, Command, EventState, InboundMessage, InboundRobotPatch, RobotState } from "../types";
 
 const API_BASE: string = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
@@ -182,6 +198,8 @@ function indexMission(m: BackendMission): void {
  * 관제 화면이 프레임 하나 때문에 죽지 않도록 파싱·필드 검증에 관대하게 처리한다.
  */
 export function translateFrame(raw: string): InboundMessage | null {
+  // ← 여기서 백엔드 봉투 {type, payload} 를 받아 화면용으로 바꿈.
+  //   깨진 JSON이나 type 없으면 그냥 null(=무시). 화면이 죽으면 안 되니까 관대하게.
   let env: { type?: unknown; payload?: unknown };
   try {
     env = JSON.parse(raw);
@@ -191,6 +209,7 @@ export function translateFrame(raw: string): InboundMessage | null {
   if (!env || typeof env.type !== "string") return null;
   const p = (env.payload ?? {}) as Record<string, unknown>;
 
+  // ← type별로 갈라서 번역. 화면이 안 쓰는 type(PONG 등)은 default에서 null → 무시.
   switch (env.type) {
     case "SNAPSHOT": {
       zoneNameById.clear();
@@ -286,6 +305,8 @@ async function firstRouteId(): Promise<string | null> {
 }
 
 /** 카드 명령 버튼 (start/pause/resume/dock/estop/reset/ack) → REST. */
+// ← 버튼 뜻(cmd)을 실제 REST 주소로 매핑하는 표. 예) estop → POST .../emergency-stop.
+//   여기가 하행(명령) 흐름에서 "화면 → HTTP" 로 넘어가는 경계. req()가 fetch 담당.
 export async function backendCommand(robotId: string, cmd: Command): Promise<void> {
   switch (cmd) {
     case "estop":

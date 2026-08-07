@@ -1,3 +1,21 @@
+// ★화면의 뇌(핵심)
+
+// ════════════════════════════════════════════════════════════════
+// [공부 메모] ★★ 프론트에서 제일 중요한 파일. 리뷰 30분이면 여기부터 시작 ★★
+//
+// 한 줄 정의: "화면의 뇌". 모든 상태(로봇/이벤트/통계)를 딱 여기 한 곳에서만
+//           들고 있음 = SSOT(단일 진실 원천). 컴포넌트들은 여기서 받아 "그리기만".
+//
+// 리뷰 때 꼭 짚을 3가지 (아래 코드에 ★로 표시해둠):
+//  1) applyMessage(): 서버가 준 데이터로만 화면 상태를 바꾼다.
+//  2) 낙관적 업데이트 금지: 버튼 눌러도 화면 미리 안 바꿈. pending만 표시하고
+//     서버가 새 상태로 답할 때만 바꿈. (로봇이랑 화면 어긋나면 사고니까)
+//  3) WS 연결 상태머신: connecting→live→down(재연결) / demo(백엔드 없을 때 폴백)
+//
+// 헷갈렸던 점: 왜 useState 안 쓰고 useRef+useReducer(카운터)를 같이 쓰지?
+//  → 로봇 pose가 1초에 여러 번 옴. 매번 setState 하면 리렌더 폭발.
+//    그래서 실데이터는 ref(stateRef)에 담고, 화면 갱신은 "버전 카운터+1"로만 유발.
+// ════════════════════════════════════════════════════════════════
 import {
   createContext,
   useCallback,
@@ -102,6 +120,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     setLogs((prev) => [entry, ...prev].slice(0, 40));
   }, []);
 
+  // ★①  applyMessage = "화면 상태를 바꾸는 유일한 문". 서버(WS)나 데모가 준
+  //     메시지로만 여기서 stateRef를 갱신함. 버튼 핸들러는 여기 직접 안 건드림.
+  //     robots는 patch(부분 갱신)로 병합, events는 통째 교체.
+  //     마지막에 bump()로 "버전+1" → 이때만 리렌더.
   const applyMessage = useCallback(
     (msg: InboundMessage) => {
       const state = stateRef.current;
@@ -127,6 +149,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             true,
           );
         }
+        // ★②와 짝: 이 로봇에 대한 새 상태가 실제로 도착했으니 pending("요청 중…") 해제.
+        //   즉 "버튼 눌렀을 때"가 아니라 "서버가 답했을 때" pending이 풀림.
         setPending((prev) => {
           if (!(patch.id in prev)) return prev;
           const next = { ...prev };
@@ -176,6 +200,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     };
   }, [applyMessage]);
 
+  // ★③ 연결 상태머신. 상단 pill 색이 여기서 정해짐.
+  //    connect() 시도 → 1.5초 안에 안 열리면 startDemo()로 폴백(백엔드 없어도 화면 돎).
+  //    열리면 "live", 끊기면 "down"+2초 후 재연결. 데모면 "demo".
+  //    핵심: 백엔드가 죽어 있어도 관제 화면 자체는 절대 안 죽게 설계.
   /* WS 연결 — 타임아웃 시 데모 시뮬레이터로 폴백, 이후 끊기면 재연결 시도 */
   useEffect(() => {
     let cancelled = false;
@@ -259,6 +287,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     };
   }, [applyMessage, addLog]);
 
+  // ★② 낙관적 업데이트 금지의 실제 코드. 버튼 → 여기.
+  //    (1) pending에 표시만 함(로봇 상태는 안 바꿈!)  (2) 백엔드로 명령 전송
+  //    실제 상태 변경은? applyMessage(★①)가 서버 응답 받을 때만. 여기선 절대 안 바꿈.
+  //    5초 안에 응답 없으면 pending 풀고 "응답 지연" 경고(멈춘 것처럼 안 보이게).
   const sendCommand = useCallback(
     (robotId: string, cmd: Command) => {
       setPending((prev) => ({ ...prev, [robotId]: cmd }));

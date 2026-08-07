@@ -1,3 +1,5 @@
+# ★WebSocket + 방송 큐(핵심)
+
 """WebSocket 연결 관리 + 토픽 구독 필터 (B-01~B-07).
 
 구조는 체크리스트가 지정한 auto-dump-bot 패턴을 그대로 잇는다::
@@ -48,6 +50,12 @@ def envelope(type_: str, payload: dict[str, Any] | list[Any] | None = None) -> d
     }
 
 
+# [공부 메모] ★ 백엔드→화면 "방송국". WebSocket 붙은 화면들한테 소식을 뿌림.
+#   이것도 프로듀서-컨슈머임: publish()로 큐에 넣기만 하고, consumer_loop()가 꺼내 방송.
+#   ★리뷰 포인트: 큐를 왜 2개로 나눴나?
+#     - telemetry_queue: 위치 같은 고빈도. 넘치면 오래된 거 버려도 됨(곧 새 게 옴).
+#     - event_queue: 화재/이벤트. 절대 안 버림(하나라도 놓치면 큰일).
+#     하나로 합치면 위치 데이터가 큐 채웠을 때 화재 이벤트가 밀려 드롭될 수 있음 → 분리.
 class ConnectionManager:
     def __init__(self) -> None:
         self._clients: dict[WebSocket, set[str]] = {}
@@ -140,6 +148,9 @@ class ConnectionManager:
             await self.broadcast(envelope(type_, payload))
 
     # ── 소비 루프 (B-02) ──────────────────────────────────────────────────
+    # ★ 컨슈머(요리사). main.py lifespan에서 백그라운드 태스크로 계속 돎.
+    #   event_queue(화재)를 항상 먼저 다 비우고, 그 다음 telemetry(위치) 처리 = 우선순위.
+    #   둘 다 비면 20ms 잠깐 쉼(폴링). broadcast는 구독한 화면한테만 보냄.
     async def consumer_loop(self) -> None:
         """두 큐를 소비해 브로드캐스트한다. 이벤트 큐를 항상 먼저 비운다."""
         log.info("브로드캐스트 소비 루프 시작")

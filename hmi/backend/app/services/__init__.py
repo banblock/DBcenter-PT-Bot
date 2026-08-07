@@ -4,6 +4,6 @@
 라우터는 HTTP 관심사만, CRUD 는 저장 관심사만 다루도록 하기 위한 분리다.
 """
 
-from app.services import align_engine, priority
+from app.services import align_engine, node_lock, priority, suppression
 
-__all__ = ["align_engine", "priority"]
+__all__ = ["align_engine", "node_lock", "priority", "suppression"]

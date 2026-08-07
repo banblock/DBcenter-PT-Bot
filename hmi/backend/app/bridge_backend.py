@@ -1,3 +1,5 @@
+# 로봇→DB/방송 연결 어댑터
+
 """robot_bridge → 백엔드 배선 (sink).
 
 `app/robot_bridge.py` 의 `RobotBridge` 는 순수 로직(§10 규격)만 담고, DB 반영과 WS
@@ -24,9 +26,14 @@ log = get_logger("bridge")
 _TELEMETRY_COLUMNS = {"state": "status", "x": "x", "y": "y", "theta": "theta", "battery": "battery"}
 
 
+# [공부 메모] "sink" = 상행 데이터가 최종적으로 흘러 들어가는 곳(수챗구멍 느낌).
+#   RobotBridge(§10 규칙)는 파싱만 하고, "실제 DB 저장 + 화면 방송"은 여기가 담당.
+#   덕분에 RobotBridge는 DB/ROS 없이 테스트되고, 운영은 이 sink만 끼우면 실데이터가 흐름.
+#   ※ 이 메서드들은 robot_bridge의 '컨슈머'가 이벤트 루프에서 불러줌 → DB 만져도 안전.
 class BackendSink:
     """§10-1 구독 데이터를 DB + WS 로 흘려보내는 운영용 sink."""
 
+    # ← 로봇이 올린 상태를 (1) DB에 저장(apply_telemetry) + (2) 화면에 방송(publish). 상행의 종착.
     def robot_status(self, robot_id: str, **fields: Any) -> None:
         mapped = {
             _TELEMETRY_COLUMNS[k]: v

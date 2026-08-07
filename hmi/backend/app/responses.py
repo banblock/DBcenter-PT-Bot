@@ -1,3 +1,5 @@
+# 응답 공통 봉투
+
 """공통 응답 래퍼.
 
 API 명세서 상단 규격: ``{"result": "SUCCESS"|"FAIL", "data": {...}, "message": "..."}``

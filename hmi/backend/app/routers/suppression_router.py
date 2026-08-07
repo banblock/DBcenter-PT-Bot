@@ -32,6 +32,7 @@ from app.schemas import (
     SuppressionRequestIn,
 )
 from app.security import ActorDep, Permission, require
+from app.services import suppression as suppression_service
 
 DbDep = Annotated[Session, Depends(get_db)]
 
@@ -192,6 +193,11 @@ async def approve(suppression_id: str, body: SuppressionApproveIn, db: DbDep):
     suppression.approved_by = body.approver
     suppression.status = SuppressionStatus.APPROVED.value
     crud.system.append_step(db, suppression, step="APPROVED", status="DONE", result=body.approver)
+
+    # 승인 즉시 액추에이터 시퀀스를 실행한다 (전력 차단 → 스프링클러 → 완료).
+    # 실장비/시뮬레이터가 붙기 전까지 발행은 로그 스텁이다 (services/suppression 참조).
+    suppression_service.execute(db, suppression)
+
     db.commit()
     payload = SuppressionOut.model_validate(suppression).model_dump(by_alias=False)
     await manager.publish_async(WsMessageType.SUPPRESSION_STATUS.value, payload)

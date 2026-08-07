@@ -607,3 +607,438 @@
 2026-08-06 21:23:04 | INFO    | amr.bridge       | -        | 브리지 교체 → RobotBridge
 2026-08-06 21:23:04 | INFO    | amr.main         | -        | [loopback] /amr_1/command ← {"command_id": "CMD-20260806-abce", "command_type": "GOTO", "payload": {"waypoints": [{"x": 1, "y": 2, "theta": 0}], "event_id": null}, "issued_at": "2026-08-06T21:23:04.076343+09:00"}
 2026-08-06 21:23:04 | INFO    | amr.bridge       | -        | [robot_bridge] amr_1 ← GOTO CMD-20260806-abce
+2026-08-07 04:31:27 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 04:31:27 | INFO    | amr.main         | -        | AMR 순찰·이상감지 관제 API v1.0.0 기동
+2026-08-07 04:31:27 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 04:31:27 | INFO    | amr.bridge       | -        | 브리지 교체 → RobotBridge
+2026-08-07 04:31:27 | INFO    | amr.main         | -        | REST 14개 라우터 · WS /ws/monitor 준비 완료
+2026-08-07 04:31:27 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 04:31:27 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 시작
+2026-08-07 04:31:45 | INFO    | amr.request      | eab4ff2d | GET /api/stats/overview → 200 (14.8ms) role=-
+2026-08-07 04:31:49 | INFO    | amr.main         | 810b9e54 | [loopback] /amr_1/command ← {"command_id": "CMD-20260806-424d", "command_type": "START_PATROL", "payload": {"mission_id": "MSN-20260806-0090", "nodes": [{"node_id": "N-001", "x": 2.0, "y": 2.0, "theta": 0.0, "dwell_sec": 0}, {"node_id": "N-003", "x": 7.5, "y": 4.0, "theta": 1.57, "dwell_sec": 0}, {"node_id": "N-005", "x": 11.0, "y": 2.0, "theta": 0.0, "dwell_sec": 5}, {"node_id": "N-007", "x": 4.0, "y": 10.0, "theta": 1.57, "dwell_sec": 8}], "loop": true}, "issued_at": "2026-08-07T04:31:49.551348+09:00"}
+2026-08-07 04:31:49 | INFO    | amr.bridge       | 810b9e54 | [robot_bridge] amr_1 ← START_PATROL CMD-20260806-424d
+2026-08-07 04:31:49 | INFO    | amr.main         | 810b9e54 | [loopback] /amr_2/command ← {"command_id": "CMD-20260806-45fc", "command_type": "START_PATROL", "payload": {"mission_id": "MSN-20260806-d0c4", "nodes": [{"node_id": "N-002", "x": 5.0, "y": 2.0, "theta": 0.0, "dwell_sec": 0}, {"node_id": "N-004", "x": 3.2, "y": 4.5, "theta": 1.57, "dwell_sec": 5}, {"node_id": "N-006", "x": 14.0, "y": 3.0, "theta": 3.14, "dwell_sec": 3}, {"node_id": "N-008", "x": 12.0, "y": 10.0, "theta": 0.0, "dwell_sec": 4}], "loop": true}, "issued_at": "2026-08-07T04:31:49.555930+09:00"}
+2026-08-07 04:31:49 | INFO    | amr.bridge       | 810b9e54 | [robot_bridge] amr_2 ← START_PATROL CMD-20260806-45fc
+2026-08-07 04:31:49 | INFO    | amr.request      | 810b9e54 | POST /api/patrol/start → 200 (37.7ms) role=-
+2026-08-07 04:31:49 | INFO    | amr.main         | fa51e447 | [loopback] /amr_1/command ← {"command_id": "CMD-20260806-c8f1", "command_type": "ESTOP", "payload": {"reason": "OPERATOR_ALL"}, "issued_at": "2026-08-07T04:31:49.579417+09:00"}
+2026-08-07 04:31:49 | INFO    | amr.bridge       | fa51e447 | [robot_bridge] amr_1 ← ESTOP CMD-20260806-c8f1
+2026-08-07 04:31:49 | INFO    | amr.main         | fa51e447 | [loopback] /amr_2/command ← {"command_id": "CMD-20260806-fa68", "command_type": "ESTOP", "payload": {"reason": "OPERATOR_ALL"}, "issued_at": "2026-08-07T04:31:49.580083+09:00"}
+2026-08-07 04:31:49 | INFO    | amr.bridge       | fa51e447 | [robot_bridge] amr_2 ← ESTOP CMD-20260806-fa68
+2026-08-07 04:31:49 | INFO    | amr.request      | fa51e447 | POST /api/robots/emergency-stop-all → 200 (8.0ms) role=-
+2026-08-07 04:31:49 | INFO    | amr.main         | 393c45ed | [loopback] /amr_1/command ← {"command_id": "CMD-20260806-d68a", "command_type": "GOTO", "payload": {"waypoints": [{"x": 3.2, "y": -1.5, "theta": 1.57}], "preempt": true}, "issued_at": "2026-08-07T04:31:49.597316+09:00"}
+2026-08-07 04:31:49 | INFO    | amr.bridge       | 393c45ed | [robot_bridge] amr_1 ← GOTO CMD-20260806-d68a
+2026-08-07 04:31:49 | INFO    | amr.request      | 393c45ed | POST /api/robots/amr_1/goto → 200 (5.8ms) role=-
+2026-08-07 04:31:49 | INFO    | amr.request      | dee3ced9 | POST /api/events/detect → 201 (18.2ms) role=-
+2026-08-07 04:32:05 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 종료
+2026-08-07 04:32:05 | INFO    | amr.main         | -        | 서버 종료
+2026-08-07 04:41:08 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 04:41:08 | INFO    | amr.main         | -        | AMR 순찰·이상감지 관제 API v1.0.0 기동
+2026-08-07 04:41:08 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 04:41:08 | INFO    | amr.bridge       | -        | 브리지 교체 → RobotBridge
+2026-08-07 04:41:08 | INFO    | amr.main         | -        | REST 14개 라우터 · WS /ws/monitor 준비 완료
+2026-08-07 04:41:08 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 04:41:08 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 시작
+2026-08-07 04:41:21 | INFO    | amr.request      | da3172e2 | GET /api/stats/overview → 200 (192.2ms) role=-
+2026-08-07 04:41:51 | INFO    | amr.request      | a607f758 | GET /api/stats/overview → 200 (8.6ms) role=-
+2026-08-07 04:42:08 | INFO    | amr.ws           | -        | WS 접속 — 현재 1개 연결
+2026-08-07 04:42:08 | INFO    | amr.request      | a4b0d128 | GET /api/stats/overview → 200 (67.4ms) role=-
+2026-08-07 04:42:08 | INFO    | amr.request      | 05ff37fe | GET /api/stats/overview → 200 (8.4ms) role=-
+2026-08-07 04:42:38 | INFO    | amr.request      | c670ca53 | GET /api/stats/overview → 200 (3.6ms) role=-
+2026-08-07 04:43:08 | INFO    | amr.request      | b4168763 | GET /api/stats/overview → 200 (6.0ms) role=-
+2026-08-07 04:43:25 | INFO    | amr.request      | 73568dc6 | GET /api/routes → 200 (9.5ms) role=-
+2026-08-07 04:43:25 | INFO    | amr.request      | 8edf611b | OPTIONS /api/patrol/start → 200 (0.4ms) role=-
+2026-08-07 04:43:25 | WARNING | amr.request      | d832ef3b | POST /api/patrol/start → 409 (14.9ms) role=-
+2026-08-07 04:43:38 | INFO    | amr.request      | 7f8a6de6 | GET /api/stats/overview → 200 (3.5ms) role=-
+2026-08-07 04:44:08 | INFO    | amr.request      | 433c526e | GET /api/stats/overview → 200 (5.6ms) role=-
+2026-08-07 04:44:19 | INFO    | amr.request      | 07b26b6f | POST /api/events/detect → 201 (25.2ms) role=-
+2026-08-07 04:44:38 | INFO    | amr.request      | 5f26d95e | GET /api/stats/overview → 200 (10.5ms) role=-
+2026-08-07 04:45:09 | INFO    | amr.request      | 9a5eb1be | GET /api/stats/overview → 200 (10.6ms) role=-
+2026-08-07 04:45:39 | INFO    | amr.request      | 8a1246ec | GET /api/stats/overview → 200 (3.1ms) role=-
+2026-08-07 04:46:09 | INFO    | amr.request      | 9d3298e8 | GET /api/stats/overview → 200 (9.2ms) role=-
+2026-08-07 04:46:40 | INFO    | amr.request      | d391567b | GET /api/stats/overview → 200 (9.6ms) role=-
+2026-08-07 04:47:06 | WARNING | amr.db           | -        | 기존 테이블을 전부 삭제합니다 (drop=True)
+2026-08-07 04:47:06 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 04:47:06 | INFO    | amr.db           | -        | 시드 완료 — {'maps': 1, 'zones': 3, 'nodes': 8, 'routes': 1, 'equipment': 5, 'rules': 3, 'robots': 2}
+2026-08-07 04:47:10 | INFO    | amr.request      | a82c538b | GET /api/stats/overview → 200 (12.3ms) role=-
+2026-08-07 04:47:40 | INFO    | amr.request      | cf628b93 | GET /api/stats/overview → 200 (4.0ms) role=-
+2026-08-07 04:47:53 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 04:47:53 | INFO    | amr.main         | -        | AMR 순찰·이상감지 관제 API v1.0.0 기동
+2026-08-07 04:47:53 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 04:47:53 | INFO    | amr.bridge       | -        | 브리지 교체 → RobotBridge
+2026-08-07 04:47:53 | INFO    | amr.main         | -        | REST 14개 라우터 · WS /ws/monitor 준비 완료
+2026-08-07 04:47:53 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 04:47:53 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 시작
+2026-08-07 04:47:53 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 종료
+2026-08-07 04:47:53 | INFO    | amr.main         | -        | 서버 종료
+2026-08-07 04:47:55 | INFO    | amr.main         | daefb460 | [loopback] /amr_1/command ← {"command_id": "CMD-20260806-d8a9", "command_type": "START_PATROL", "payload": {"mission_id": "MSN-20260806-18d8", "nodes": [{"node_id": "N-001", "x": 2.0, "y": 2.0, "theta": 0.0, "dwell_sec": 0}, {"node_id": "N-003", "x": 7.5, "y": 4.0, "theta": 1.57, "dwell_sec": 0}, {"node_id": "N-005", "x": 11.0, "y": 2.0, "theta": 0.0, "dwell_sec": 5}, {"node_id": "N-007", "x": 4.0, "y": 10.0, "theta": 1.57, "dwell_sec": 8}], "loop": true}, "issued_at": "2026-08-07T04:47:55.598369+09:00"}
+2026-08-07 04:47:55 | INFO    | amr.bridge       | daefb460 | [robot_bridge] amr_1 ← START_PATROL CMD-20260806-d8a9
+2026-08-07 04:47:55 | INFO    | amr.main         | daefb460 | [loopback] /amr_2/command ← {"command_id": "CMD-20260806-9ff3", "command_type": "START_PATROL", "payload": {"mission_id": "MSN-20260806-9303", "nodes": [{"node_id": "N-002", "x": 5.0, "y": 2.0, "theta": 0.0, "dwell_sec": 0}, {"node_id": "N-004", "x": 3.2, "y": 4.5, "theta": 1.57, "dwell_sec": 5}, {"node_id": "N-006", "x": 14.0, "y": 3.0, "theta": 3.14, "dwell_sec": 3}, {"node_id": "N-008", "x": 12.0, "y": 10.0, "theta": 0.0, "dwell_sec": 4}], "loop": true}, "issued_at": "2026-08-07T04:47:55.604093+09:00"}
+2026-08-07 04:47:55 | INFO    | amr.bridge       | daefb460 | [robot_bridge] amr_2 ← START_PATROL CMD-20260806-9ff3
+2026-08-07 04:47:55 | INFO    | amr.request      | daefb460 | POST /api/patrol/start → 200 (30.1ms) role=-
+2026-08-07 04:48:11 | INFO    | amr.request      | d6fba586 | GET /api/stats/overview → 200 (12.7ms) role=-
+2026-08-07 04:49:02 | WARNING | amr.db           | -        | 기존 테이블을 전부 삭제합니다 (drop=True)
+2026-08-07 04:49:02 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 04:49:02 | INFO    | amr.db           | -        | 시드 완료 — {'maps': 1, 'zones': 3, 'nodes': 8, 'routes': 1, 'equipment': 5, 'rules': 3, 'robots': 2}
+2026-08-07 04:49:05 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 04:49:05 | INFO    | amr.main         | -        | AMR 순찰·이상감지 관제 API v1.0.0 기동
+2026-08-07 04:49:05 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 04:49:05 | INFO    | amr.bridge       | -        | 브리지 교체 → RobotBridge
+2026-08-07 04:49:05 | INFO    | amr.main         | -        | REST 14개 라우터 · WS /ws/monitor 준비 완료
+2026-08-07 04:49:05 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 04:49:05 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 시작
+2026-08-07 04:49:11 | INFO    | amr.request      | 65c1f261 | GET /api/stats/overview → 200 (12.4ms) role=-
+2026-08-07 04:49:18 | INFO    | amr.main         | 615ceafd | [loopback] /amr_1/command ← {"command_id": "CMD-20260806-920f", "command_type": "START_PATROL", "payload": {"mission_id": "MSN-20260806-c861", "nodes": [{"node_id": "N-001", "x": 2.0, "y": 2.0, "theta": 0.0, "dwell_sec": 0}, {"node_id": "N-003", "x": 7.5, "y": 4.0, "theta": 1.57, "dwell_sec": 0}, {"node_id": "N-005", "x": 11.0, "y": 2.0, "theta": 0.0, "dwell_sec": 5}, {"node_id": "N-007", "x": 4.0, "y": 10.0, "theta": 1.57, "dwell_sec": 8}], "loop": true}, "issued_at": "2026-08-07T04:49:18.034631+09:00"}
+2026-08-07 04:49:18 | INFO    | amr.bridge       | 615ceafd | [robot_bridge] amr_1 ← START_PATROL CMD-20260806-920f
+2026-08-07 04:49:18 | INFO    | amr.main         | 615ceafd | [loopback] /amr_2/command ← {"command_id": "CMD-20260806-9d78", "command_type": "START_PATROL", "payload": {"mission_id": "MSN-20260806-d7cc", "nodes": [{"node_id": "N-002", "x": 5.0, "y": 2.0, "theta": 0.0, "dwell_sec": 0}, {"node_id": "N-004", "x": 3.2, "y": 4.5, "theta": 1.57, "dwell_sec": 5}, {"node_id": "N-006", "x": 14.0, "y": 3.0, "theta": 3.14, "dwell_sec": 3}, {"node_id": "N-008", "x": 12.0, "y": 10.0, "theta": 0.0, "dwell_sec": 4}], "loop": true}, "issued_at": "2026-08-07T04:49:18.039696+09:00"}
+2026-08-07 04:49:18 | INFO    | amr.bridge       | 615ceafd | [robot_bridge] amr_2 ← START_PATROL CMD-20260806-9d78
+2026-08-07 04:49:18 | INFO    | amr.request      | 615ceafd | POST /api/patrol/start → 200 (43.9ms) role=-
+2026-08-07 04:50:15 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 04:50:15 | INFO    | amr.main         | -        | AMR 순찰·이상감지 관제 API v1.0.0 기동
+2026-08-07 04:50:15 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 04:50:16 | INFO    | amr.main         | -        | REST 14개 라우터 · WS /ws/monitor 준비 완료
+2026-08-07 04:50:16 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 04:50:16 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 시작
+2026-08-07 04:50:25 | WARNING | amr.request      | 83380488 | POST /api/patrol/start → 409 (16.6ms) role=-
+2026-08-07 04:50:42 | INFO    | amr.request      | e738f3c5 | GET /api/stats/overview → 200 (16.1ms) role=-
+2026-08-07 04:51:35 | WARNING | amr.db           | -        | 기존 테이블을 전부 삭제합니다 (drop=True)
+2026-08-07 04:51:36 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 04:51:36 | INFO    | amr.db           | -        | 시드 완료 — {'maps': 1, 'zones': 3, 'nodes': 8, 'routes': 1, 'equipment': 5, 'rules': 3, 'robots': 2}
+2026-08-07 04:51:54 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 04:51:54 | INFO    | amr.main         | -        | AMR 순찰·이상감지 관제 API v1.0.0 기동
+2026-08-07 04:51:54 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 04:51:54 | INFO    | amr.main         | -        | REST 14개 라우터 · WS /ws/monitor 준비 완료
+2026-08-07 04:51:54 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 04:51:54 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 시작
+2026-08-07 04:52:07 | INFO    | amr.bridge       | e34c71b2 | [NullBridge] amr_1 → START_PATROL {'mission_id': 'MSN-20260806-6f89', 'nodes': [{'node_id': 'N-001', 'x': 2.0, 'y': 2.0, 'theta': 0.0, 'dwell_sec': 0}, {'node_id': 'N-003', 'x': 7.5, 'y': 4.0, 'theta': 1.57, 'dwell_sec': 0}, {'node_id': 'N-005', 'x': 11.0, 'y': 2.0, 'theta': 0.0, 'dwell_sec': 5}, {'node_id': 'N-007', 'x': 4.0, 'y': 10.0, 'theta': 1.57, 'dwell_sec': 8}], 'loop': True}
+2026-08-07 04:52:07 | INFO    | amr.bridge       | e34c71b2 | [NullBridge] amr_2 → START_PATROL {'mission_id': 'MSN-20260806-32f2', 'nodes': [{'node_id': 'N-002', 'x': 5.0, 'y': 2.0, 'theta': 0.0, 'dwell_sec': 0}, {'node_id': 'N-004', 'x': 3.2, 'y': 4.5, 'theta': 1.57, 'dwell_sec': 5}, {'node_id': 'N-006', 'x': 14.0, 'y': 3.0, 'theta': 3.14, 'dwell_sec': 3}, {'node_id': 'N-008', 'x': 12.0, 'y': 10.0, 'theta': 0.0, 'dwell_sec': 4}], 'loop': True}
+2026-08-07 04:52:07 | INFO    | amr.request      | e34c71b2 | POST /api/patrol/start → 200 (47.0ms) role=-
+2026-08-07 04:52:13 | INFO    | amr.request      | a97c2a22 | GET /api/stats/overview → 200 (16.1ms) role=-
+2026-08-07 04:52:54 | WARNING | amr.db           | -        | 기존 테이블을 전부 삭제합니다 (drop=True)
+2026-08-07 04:52:54 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 04:52:54 | INFO    | amr.db           | -        | 시드 완료 — {'maps': 1, 'zones': 3, 'nodes': 8, 'routes': 1, 'equipment': 5, 'rules': 3, 'robots': 2}
+2026-08-07 04:55:29 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 04:55:29 | INFO    | amr.main         | -        | AMR 순찰·이상감지 관제 API v1.0.0 기동
+2026-08-07 04:55:29 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 04:55:29 | INFO    | amr.bridge       | -        | 브리지 교체 → RobotBridge
+2026-08-07 04:55:29 | INFO    | amr.main         | -        | REST 14개 라우터 · WS /ws/monitor 준비 완료
+2026-08-07 04:55:29 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 04:55:29 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 시작
+2026-08-07 04:55:46 | INFO    | amr.request      | dae3287c | GET /api/stats/overview → 200 (184.8ms) role=-
+2026-08-07 04:56:15 | INFO    | amr.request      | b786b409 | GET /api/stats/overview → 200 (9.0ms) role=-
+2026-08-07 04:56:45 | INFO    | amr.request      | 5ea1311a | GET /api/stats/overview → 200 (3.3ms) role=-
+2026-08-07 04:57:08 | INFO    | amr.ws           | -        | WS 접속 — 현재 1개 연결
+2026-08-07 04:57:08 | INFO    | amr.request      | a3651c42 | GET /api/stats/overview → 200 (73.0ms) role=-
+2026-08-07 04:57:08 | INFO    | amr.request      | 86e406e5 | GET /api/stats/overview → 200 (5.9ms) role=-
+2026-08-07 04:57:13 | INFO    | amr.request      | e86a39f6 | GET /api/routes → 200 (14.8ms) role=-
+2026-08-07 04:57:13 | INFO    | amr.request      | 861b7cc9 | OPTIONS /api/patrol/start → 200 (0.3ms) role=-
+2026-08-07 04:57:13 | INFO    | amr.main         | 102d47a9 | [loopback] /amr_1/command ← {"command_id": "CMD-20260806-3868", "command_type": "START_PATROL", "payload": {"mission_id": "MSN-20260806-a876", "nodes": [{"node_id": "N-001", "x": 2.0, "y": 2.0, "theta": 0.0, "dwell_sec": 0}, {"node_id": "N-003", "x": 7.5, "y": 4.0, "theta": 1.57, "dwell_sec": 0}, {"node_id": "N-005", "x": 11.0, "y": 2.0, "theta": 0.0, "dwell_sec": 5}, {"node_id": "N-007", "x": 4.0, "y": 10.0, "theta": 1.57, "dwell_sec": 8}], "loop": true}, "issued_at": "2026-08-07T04:57:13.918626+09:00"}
+2026-08-07 04:57:13 | INFO    | amr.bridge       | 102d47a9 | [robot_bridge] amr_1 ← START_PATROL CMD-20260806-3868
+2026-08-07 04:57:13 | INFO    | amr.main         | 102d47a9 | [loopback] /amr_2/command ← {"command_id": "CMD-20260806-0ead", "command_type": "START_PATROL", "payload": {"mission_id": "MSN-20260806-90f0", "nodes": [{"node_id": "N-002", "x": 5.0, "y": 2.0, "theta": 0.0, "dwell_sec": 0}, {"node_id": "N-004", "x": 3.2, "y": 4.5, "theta": 1.57, "dwell_sec": 5}, {"node_id": "N-006", "x": 14.0, "y": 3.0, "theta": 3.14, "dwell_sec": 3}, {"node_id": "N-008", "x": 12.0, "y": 10.0, "theta": 0.0, "dwell_sec": 4}], "loop": true}, "issued_at": "2026-08-07T04:57:13.922706+09:00"}
+2026-08-07 04:57:13 | INFO    | amr.bridge       | 102d47a9 | [robot_bridge] amr_2 ← START_PATROL CMD-20260806-0ead
+2026-08-07 04:57:13 | INFO    | amr.request      | 102d47a9 | POST /api/patrol/start → 200 (37.1ms) role=-
+2026-08-07 04:57:38 | INFO    | amr.request      | b921270e | GET /api/stats/overview → 200 (6.7ms) role=-
+2026-08-07 04:57:55 | INFO    | amr.main         | 36c0545d | [loopback] /amr_1/command ← {"command_id": "CMD-20260806-1229", "command_type": "DOCK", "payload": {"dock_id": "D1"}, "issued_at": "2026-08-07T04:57:55.351586+09:00"}
+2026-08-07 04:57:55 | INFO    | amr.bridge       | 36c0545d | [robot_bridge] amr_1 ← DOCK CMD-20260806-1229
+2026-08-07 04:57:55 | INFO    | amr.main         | 705f504b | [loopback] /amr_2/command ← {"command_id": "CMD-20260806-4599", "command_type": "DOCK", "payload": {"dock_id": "D2"}, "issued_at": "2026-08-07T04:57:55.353277+09:00"}
+2026-08-07 04:57:55 | INFO    | amr.bridge       | 705f504b | [robot_bridge] amr_2 ← DOCK CMD-20260806-4599
+2026-08-07 04:57:55 | INFO    | amr.request      | 36c0545d | POST /api/robots/amr_1/dock → 200 (33.3ms) role=-
+2026-08-07 04:57:55 | INFO    | amr.request      | 705f504b | POST /api/robots/amr_2/dock → 200 (29.2ms) role=-
+2026-08-07 04:58:08 | INFO    | amr.request      | d9f36749 | GET /api/stats/overview → 200 (11.1ms) role=-
+2026-08-07 04:58:14 | INFO    | amr.main         | b413f471 | [loopback] /amr_1/command ← {"command_id": "CMD-20260806-5982", "command_type": "ESTOP", "payload": {"reason": "OPERATOR_ALL"}, "issued_at": "2026-08-07T04:58:14.002477+09:00"}
+2026-08-07 04:58:14 | INFO    | amr.bridge       | b413f471 | [robot_bridge] amr_1 ← ESTOP CMD-20260806-5982
+2026-08-07 04:58:14 | INFO    | amr.main         | b413f471 | [loopback] /amr_2/command ← {"command_id": "CMD-20260806-f1e7", "command_type": "ESTOP", "payload": {"reason": "OPERATOR_ALL"}, "issued_at": "2026-08-07T04:58:14.004389+09:00"}
+2026-08-07 04:58:14 | INFO    | amr.bridge       | b413f471 | [robot_bridge] amr_2 ← ESTOP CMD-20260806-f1e7
+2026-08-07 04:58:14 | INFO    | amr.request      | b413f471 | POST /api/robots/emergency-stop-all → 200 (22.4ms) role=-
+2026-08-07 04:58:30 | WARNING | amr.request      | 7f20b9d7 | POST /api/patrol/start → 409 (17.5ms) role=-
+2026-08-07 04:58:38 | INFO    | amr.request      | d9efe305 | GET /api/stats/overview → 200 (3.4ms) role=-
+2026-08-07 04:59:01 | INFO    | amr.request      | b2ac32aa | POST /api/events/detect → 201 (19.7ms) role=-
+2026-08-07 04:59:08 | INFO    | amr.request      | d20ec19c | GET /api/stats/overview → 200 (11.1ms) role=-
+2026-08-07 04:59:38 | INFO    | amr.request      | ceae3355 | GET /api/stats/overview → 200 (8.1ms) role=-
+2026-08-07 05:00:08 | INFO    | amr.request      | d232a817 | GET /api/stats/overview → 200 (5.1ms) role=-
+2026-08-07 05:00:39 | INFO    | amr.request      | b61809f6 | GET /api/stats/overview → 200 (4.1ms) role=-
+2026-08-07 05:01:09 | INFO    | amr.request      | 73248b2f | GET /api/stats/overview → 200 (12.6ms) role=-
+2026-08-07 05:01:39 | INFO    | amr.request      | 1947bd32 | GET /api/stats/overview → 200 (4.9ms) role=-
+2026-08-07 05:02:09 | INFO    | amr.request      | 681bf355 | GET /api/stats/overview → 200 (4.5ms) role=-
+2026-08-07 05:02:40 | INFO    | amr.request      | fcc90f82 | GET /api/stats/overview → 200 (12.4ms) role=-
+2026-08-07 05:03:10 | INFO    | amr.request      | f32c50a0 | GET /api/stats/overview → 200 (4.4ms) role=-
+2026-08-07 05:03:40 | INFO    | amr.request      | 80c016d8 | GET /api/stats/overview → 200 (5.9ms) role=-
+2026-08-07 05:04:11 | INFO    | amr.request      | 43bd3733 | GET /api/stats/overview → 200 (10.0ms) role=-
+2026-08-07 05:04:41 | INFO    | amr.request      | fa9fc9c8 | GET /api/stats/overview → 200 (6.3ms) role=-
+2026-08-07 05:05:11 | INFO    | amr.request      | aec97f35 | GET /api/stats/overview → 200 (6.5ms) role=-
+2026-08-07 05:05:41 | INFO    | amr.request      | 7733109a | GET /api/stats/overview → 200 (8.2ms) role=-
+2026-08-07 05:06:12 | INFO    | amr.request      | 04f3a10c | GET /api/stats/overview → 200 (3.0ms) role=-
+2026-08-07 05:06:42 | INFO    | amr.request      | 167348b3 | GET /api/stats/overview → 200 (11.9ms) role=-
+2026-08-07 05:07:12 | INFO    | amr.request      | 4e08a46b | GET /api/stats/overview → 200 (8.0ms) role=-
+2026-08-07 05:07:25 | WARNING | amr.db           | -        | 기존 테이블을 전부 삭제합니다 (drop=True)
+2026-08-07 05:07:25 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 05:07:25 | INFO    | amr.db           | -        | 시드 완료 — {'maps': 1, 'zones': 3, 'nodes': 8, 'routes': 1, 'equipment': 5, 'rules': 3, 'robots': 2}
+2026-08-07 05:07:43 | INFO    | amr.request      | 7b75a203 | GET /api/stats/overview → 200 (13.2ms) role=-
+2026-08-07 05:08:13 | INFO    | amr.request      | 54eef1d6 | GET /api/stats/overview → 200 (6.3ms) role=-
+2026-08-07 05:08:45 | WARNING | amr.db           | -        | 기존 테이블을 전부 삭제합니다 (drop=True)
+2026-08-07 05:08:45 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 05:08:45 | INFO    | amr.db           | -        | 시드 완료 — {'maps': 1, 'zones': 3, 'nodes': 8, 'routes': 1, 'equipment': 5, 'rules': 3, 'robots': 2}
+2026-08-07 05:08:56 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 05:08:56 | INFO    | amr.main         | -        | AMR 순찰·이상감지 관제 API v1.0.0 기동
+2026-08-07 05:08:56 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 05:08:57 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 노드 기동 — 발행 2개, 구독 8토픽/로봇
+2026-08-07 05:08:57 | INFO    | amr.bridge       | -        | 브리지 교체 → RobotBridge
+2026-08-07 05:08:57 | INFO    | amr.main         | -        | REST 14개 라우터 · WS /ws/monitor 준비 완료
+2026-08-07 05:08:57 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 05:08:57 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 시작
+2026-08-07 05:09:13 | INFO    | amr.request      | b59f7076 | GET /api/stats/overview → 200 (17.9ms) role=-
+2026-08-07 05:09:38 | INFO    | amr.request      | b7473565 | GET /api/robots → 200 (7.6ms) role=-
+2026-08-07 05:09:44 | INFO    | amr.request      | 1e91c410 | GET /api/stats/overview → 200 (10.2ms) role=-
+2026-08-07 05:09:58 | INFO    | amr.bridge       | 28421935 | [robot_bridge] amr_1 ← START_PATROL CMD-20260806-7098
+2026-08-07 05:09:58 | INFO    | amr.bridge       | 28421935 | [robot_bridge] amr_2 ← START_PATROL CMD-20260806-d252
+2026-08-07 05:09:58 | INFO    | amr.request      | 28421935 | POST /api/patrol/start → 200 (47.3ms) role=-
+2026-08-07 05:10:14 | INFO    | amr.request      | 41625bef | GET /api/stats/overview → 200 (10.4ms) role=-
+2026-08-07 05:10:30 | INFO    | amr.request      | e4c85e35 | GET /api/robots → 200 (3.4ms) role=-
+2026-08-07 05:10:44 | INFO    | amr.request      | 2e1f0b5c | GET /api/stats/overview → 200 (6.7ms) role=-
+2026-08-07 05:11:15 | INFO    | amr.request      | a20be6c2 | GET /api/stats/overview → 200 (6.3ms) role=-
+2026-08-07 05:11:23 | INFO    | amr.bridge       | 677e6da5 | [robot_bridge] amr_1 ← GOTO CMD-20260806-40e5
+2026-08-07 05:11:23 | INFO    | amr.request      | 677e6da5 | POST /api/robots/amr_1/goto → 200 (7.9ms) role=-
+2026-08-07 05:11:45 | INFO    | amr.request      | fba9ccd3 | GET /api/stats/overview → 200 (5.9ms) role=-
+2026-08-07 05:12:00 | INFO    | amr.bridge       | e7e68cf4 | [robot_bridge] amr_1 ← DOCK CMD-20260806-3249
+2026-08-07 05:12:00 | INFO    | amr.request      | e7e68cf4 | POST /api/robots/amr_1/dock → 200 (13.7ms) role=-
+2026-08-07 05:12:15 | INFO    | amr.request      | ed6b7524 | GET /api/stats/overview → 200 (3.9ms) role=-
+2026-08-07 05:12:46 | INFO    | amr.request      | db0cf764 | GET /api/stats/overview → 200 (4.1ms) role=-
+2026-08-07 05:13:16 | INFO    | amr.request      | 66a9f460 | GET /api/stats/overview → 200 (27.6ms) role=-
+2026-08-07 05:13:46 | INFO    | amr.request      | c7209d2d | GET /api/stats/overview → 200 (6.1ms) role=-
+2026-08-07 05:14:17 | INFO    | amr.request      | 951d42c5 | GET /api/stats/overview → 200 (3.9ms) role=-
+2026-08-07 05:14:41 | WARNING | amr.db           | -        | 기존 테이블을 전부 삭제합니다 (drop=True)
+2026-08-07 05:14:41 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 05:14:42 | INFO    | amr.db           | -        | 시드 완료 — {'maps': 1, 'zones': 3, 'nodes': 8, 'routes': 1, 'equipment': 5, 'rules': 3, 'robots': 2}
+2026-08-07 05:14:47 | INFO    | amr.request      | 8b189d58 | GET /api/stats/overview → 200 (8.5ms) role=-
+2026-08-07 05:15:21 | WARNING | amr.db           | -        | 기존 테이블을 전부 삭제합니다 (drop=True)
+2026-08-07 05:15:21 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 05:15:21 | INFO    | amr.db           | -        | 시드 완료 — {'maps': 1, 'zones': 3, 'nodes': 8, 'routes': 1, 'equipment': 5, 'rules': 3, 'robots': 2}
+2026-08-07 05:30:01 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 05:30:01 | INFO    | amr.main         | -        | AMR 순찰·이상감지 관제 API v1.0.0 기동
+2026-08-07 05:30:01 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 05:30:02 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 브리지 기동 — 발행 2개, 구독 8토픽/로봇, 상행 큐 컨슈머 1
+2026-08-07 05:30:02 | INFO    | amr.bridge       | -        | 브리지 교체 → RobotBridge
+2026-08-07 05:30:02 | INFO    | amr.main         | -        | REST 14개 라우터 · WS /ws/monitor 준비 완료
+2026-08-07 05:30:02 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 05:30:02 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 시작
+2026-08-07 05:30:07 | ERROR   | amr.bridge       | -        | [robot_bridge] rclpy spin 종료
+Traceback (most recent call last):
+  File "/home/chaesong/DBcenter-PT-Bot/hmi/backend/app/robot_bridge.py", line 485, in _spin
+    rclpy.spin_once(self._node, timeout_sec=0.5)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 208, in spin_once
+    executor.spin_once(timeout_sec=timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 808, in spin_once
+    self._spin_once_impl(timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 797, in _spin_once_impl
+    handler, entity, node = self.wait_for_ready_callbacks(timeout_sec=timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 780, in wait_for_ready_callbacks
+    return next(self._cb_iter)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 681, in _wait_for_ready_callbacks
+    raise ExternalShutdownException()
+rclpy.executors.ExternalShutdownException
+2026-08-07 05:30:07 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 브리지 종료
+2026-08-07 05:30:07 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 종료
+2026-08-07 05:30:07 | INFO    | amr.main         | -        | 서버 종료
+2026-08-07 05:30:24 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 05:30:24 | INFO    | amr.main         | -        | AMR 순찰·이상감지 관제 API v1.0.0 기동
+2026-08-07 05:30:24 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 05:30:24 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 브리지 기동 — 발행 2개, 구독 8토픽/로봇, 상행 큐 컨슈머 1
+2026-08-07 05:30:24 | INFO    | amr.bridge       | -        | 브리지 교체 → RobotBridge
+2026-08-07 05:30:24 | INFO    | amr.main         | -        | REST 14개 라우터 · WS /ws/monitor 준비 완료
+2026-08-07 05:30:24 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 05:30:24 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 시작
+2026-08-07 05:30:27 | INFO    | amr.request      | 9e30c63e | GET /api/stats/overview → 200 (222.8ms) role=-
+2026-08-07 05:30:30 | ERROR   | amr.bridge       | -        | [robot_bridge] rclpy spin 종료
+Traceback (most recent call last):
+  File "/home/chaesong/DBcenter-PT-Bot/hmi/backend/app/robot_bridge.py", line 485, in _spin
+    rclpy.spin_once(self._node, timeout_sec=0.5)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 208, in spin_once
+    executor.spin_once(timeout_sec=timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 808, in spin_once
+    self._spin_once_impl(timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 797, in _spin_once_impl
+    handler, entity, node = self.wait_for_ready_callbacks(timeout_sec=timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 780, in wait_for_ready_callbacks
+    return next(self._cb_iter)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 681, in _wait_for_ready_callbacks
+    raise ExternalShutdownException()
+rclpy.executors.ExternalShutdownException
+2026-08-07 05:30:30 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 브리지 종료
+2026-08-07 05:30:30 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 종료
+2026-08-07 05:30:30 | INFO    | amr.main         | -        | 서버 종료
+2026-08-07 05:31:16 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 05:31:16 | INFO    | amr.main         | -        | AMR 순찰·이상감지 관제 API v1.0.0 기동
+2026-08-07 05:31:16 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 05:31:17 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 브리지 기동 — 발행 2개, 구독 8토픽/로봇, 상행 큐 컨슈머 1
+2026-08-07 05:31:17 | INFO    | amr.bridge       | -        | 브리지 교체 → RobotBridge
+2026-08-07 05:31:17 | INFO    | amr.main         | -        | REST 14개 라우터 · WS /ws/monitor 준비 완료
+2026-08-07 05:31:17 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 05:31:17 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 시작
+2026-08-07 05:31:27 | INFO    | amr.request      | 93648ef5 | GET /api/stats/overview → 200 (14.1ms) role=-
+2026-08-07 05:31:44 | INFO    | amr.request      | a39d8764 | GET /api/robots → 200 (3.7ms) role=-
+2026-08-07 05:31:58 | INFO    | amr.request      | 38ab1bdb | GET /api/stats/overview → 200 (4.6ms) role=-
+2026-08-07 05:31:58 | INFO    | amr.bridge       | 641502e6 | [robot_bridge] amr_1 ← START_PATROL CMD-20260806-1c30
+2026-08-07 05:31:58 | INFO    | amr.bridge       | 641502e6 | [robot_bridge] amr_2 ← START_PATROL CMD-20260806-09f7
+2026-08-07 05:31:58 | INFO    | amr.request      | 641502e6 | POST /api/patrol/start → 200 (44.6ms) role=-
+2026-08-07 05:32:01 | INFO    | amr.request      | 2f020e10 | GET /api/robots → 200 (7.6ms) role=-
+2026-08-07 05:32:28 | INFO    | amr.request      | 9da343cc | GET /api/stats/overview → 200 (3.7ms) role=-
+2026-08-07 05:32:59 | WARNING | amr.db           | -        | 기존 테이블을 전부 삭제합니다 (drop=True)
+2026-08-07 05:32:59 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 05:32:59 | INFO    | amr.db           | -        | 시드 완료 — {'maps': 1, 'zones': 3, 'nodes': 8, 'routes': 1, 'equipment': 5, 'rules': 3, 'robots': 2}
+2026-08-07 05:41:53 | WARNING | amr.db           | -        | 기존 테이블을 전부 삭제합니다 (drop=True)
+2026-08-07 05:41:53 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 05:41:53 | INFO    | amr.db           | -        | 시드 완료 — {'maps': 1, 'zones': 3, 'nodes': 8, 'routes': 1, 'equipment': 5, 'rules': 3, 'robots': 2}
+2026-08-07 05:42:37 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 05:42:37 | INFO    | amr.main         | -        | AMR 순찰·이상감지 관제 API v1.0.0 기동
+2026-08-07 05:42:37 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 05:42:38 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 브리지 기동 — 발행 2개, 구독 8토픽/로봇, 상행 큐 컨슈머 1
+2026-08-07 05:42:38 | INFO    | amr.bridge       | -        | 브리지 교체 → RobotBridge
+2026-08-07 05:42:38 | INFO    | amr.main         | -        | REST 14개 라우터 · WS /ws/monitor 준비 완료
+2026-08-07 05:42:38 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 05:42:38 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 시작
+2026-08-07 05:43:04 | INFO    | amr.request      | 3f277213 | GET /api/stats/overview → 200 (245.0ms) role=-
+2026-08-07 05:43:11 | INFO    | amr.ws           | -        | WS 접속 — 현재 1개 연결
+2026-08-07 05:43:11 | INFO    | amr.request      | 29e95864 | GET /api/stats/overview → 200 (62.9ms) role=-
+2026-08-07 05:43:11 | INFO    | amr.request      | 09d08e39 | GET /api/stats/overview → 200 (9.9ms) role=-
+2026-08-07 05:43:12 | INFO    | amr.ws           | -        | WS 해제 — 현재 0개 연결
+2026-08-07 05:43:13 | INFO    | amr.ws           | -        | WS 접속 — 현재 1개 연결
+2026-08-07 05:43:13 | INFO    | amr.request      | a1fbedb1 | GET /api/stats/overview → 200 (24.4ms) role=-
+2026-08-07 05:43:13 | INFO    | amr.request      | e5ede38e | GET /api/stats/overview → 200 (9.0ms) role=-
+2026-08-07 05:43:29 | INFO    | amr.request      | 644df594 | GET /api/routes → 200 (18.2ms) role=-
+2026-08-07 05:43:29 | INFO    | amr.request      | f62a2ec5 | OPTIONS /api/patrol/start → 200 (0.8ms) role=-
+2026-08-07 05:43:29 | INFO    | amr.bridge       | 357bdce1 | [robot_bridge] amr_1 ← START_PATROL CMD-20260806-9b92
+2026-08-07 05:43:29 | INFO    | amr.bridge       | 357bdce1 | [robot_bridge] amr_2 ← START_PATROL CMD-20260806-0e3e
+2026-08-07 05:43:29 | INFO    | amr.request      | 357bdce1 | POST /api/patrol/start → 200 (96.7ms) role=-
+2026-08-07 05:43:43 | INFO    | amr.request      | 91af86af | GET /api/stats/overview → 200 (4.3ms) role=-
+2026-08-07 05:43:57 | INFO    | amr.bridge       | 0d81be43 | [robot_bridge] amr_1 ← ESTOP CMD-20260806-031f
+2026-08-07 05:43:57 | INFO    | amr.bridge       | 0d81be43 | [robot_bridge] amr_2 ← ESTOP CMD-20260806-74b2
+2026-08-07 05:43:57 | INFO    | amr.request      | 0d81be43 | POST /api/robots/emergency-stop-all → 200 (18.7ms) role=-
+2026-08-07 05:44:13 | INFO    | amr.request      | ea68d17f | GET /api/stats/overview → 200 (4.3ms) role=-
+2026-08-07 05:44:16 | INFO    | amr.bridge       | 5f827e6d | [robot_bridge] amr_1 ← DOCK CMD-20260806-aab8
+2026-08-07 05:44:16 | INFO    | amr.request      | 5f827e6d | POST /api/robots/amr_1/dock → 200 (29.0ms) role=-
+2026-08-07 05:44:16 | INFO    | amr.bridge       | ec856c47 | [robot_bridge] amr_2 ← DOCK CMD-20260806-db04
+2026-08-07 05:44:16 | INFO    | amr.request      | ec856c47 | POST /api/robots/amr_2/dock → 200 (37.0ms) role=-
+2026-08-07 05:44:43 | INFO    | amr.request      | bbc496ff | GET /api/stats/overview → 200 (5.9ms) role=-
+2026-08-07 05:44:59 | INFO    | amr.request      | 0997f706 | OPTIONS /api/robots/amr_1/goto → 200 (0.5ms) role=-
+2026-08-07 05:44:59 | INFO    | amr.bridge       | 2a7f5846 | [robot_bridge] amr_1 ← GOTO CMD-20260806-e70f
+2026-08-07 05:44:59 | INFO    | amr.request      | 2a7f5846 | POST /api/robots/amr_1/goto → 200 (13.6ms) role=-
+2026-08-07 05:45:13 | INFO    | amr.request      | 9743d19c | GET /api/stats/overview → 200 (7.8ms) role=-
+2026-08-07 05:45:43 | INFO    | amr.request      | 792c5b84 | GET /api/stats/overview → 200 (11.8ms) role=-
+2026-08-07 05:45:45 | INFO    | amr.request      | 832e18ab | POST /api/events/detect → 201 (19.7ms) role=-
+2026-08-07 05:46:14 | INFO    | amr.request      | 41a9b98e | GET /api/stats/overview → 200 (21.7ms) role=-
+2026-08-07 05:46:44 | INFO    | amr.request      | cceb49e1 | GET /api/stats/overview → 200 (3.6ms) role=-
+2026-08-07 05:47:11 | INFO    | amr.ws           | -        | WS 접속 — 현재 2개 연결
+2026-08-07 05:47:11 | INFO    | amr.request      | 52a03a6f | GET /api/stats/overview → 200 (17.5ms) role=-
+2026-08-07 05:47:11 | INFO    | amr.request      | 12082b5e | GET /api/stats/overview → 200 (20.3ms) role=-
+2026-08-07 05:47:14 | INFO    | amr.request      | 2fe253b1 | GET /api/stats/overview → 200 (17.0ms) role=-
+2026-08-07 05:47:14 | INFO    | amr.ws           | -        | WS 해제 — 현재 1개 연결
+2026-08-07 05:47:44 | INFO    | amr.request      | 169029f5 | GET /api/stats/overview → 200 (6.6ms) role=-
+2026-08-07 05:48:14 | INFO    | amr.request      | 15e4a9f5 | GET /api/stats/overview → 200 (5.4ms) role=-
+2026-08-07 05:48:44 | INFO    | amr.request      | 13dc2eba | GET /api/stats/overview → 200 (7.9ms) role=-
+2026-08-07 05:49:14 | INFO    | amr.request      | 08b11211 | GET /api/stats/overview → 200 (4.5ms) role=-
+2026-08-07 05:49:44 | INFO    | amr.request      | fdd90e84 | GET /api/stats/overview → 200 (3.4ms) role=-
+2026-08-07 05:50:14 | INFO    | amr.request      | f790a9ab | GET /api/stats/overview → 200 (3.2ms) role=-
+2026-08-07 05:50:44 | INFO    | amr.request      | 92578f7c | GET /api/stats/overview → 200 (7.2ms) role=-
+2026-08-07 05:51:15 | INFO    | amr.request      | d6dd74f6 | GET /api/stats/overview → 200 (18.8ms) role=-
+2026-08-07 05:51:45 | INFO    | amr.request      | f5df5e59 | GET /api/stats/overview → 200 (9.3ms) role=-
+2026-08-07 05:52:15 | INFO    | amr.request      | accb672c | GET /api/stats/overview → 200 (6.4ms) role=-
+2026-08-07 05:52:45 | INFO    | amr.request      | 8cb31fb6 | GET /api/stats/overview → 200 (14.9ms) role=-
+2026-08-07 05:53:15 | INFO    | amr.request      | c4d0bc2b | GET /api/stats/overview → 200 (5.6ms) role=-
+2026-08-07 05:53:45 | INFO    | amr.request      | ffe63dac | GET /api/stats/overview → 200 (3.7ms) role=-
+2026-08-07 05:54:15 | INFO    | amr.request      | 4235a98f | GET /api/stats/overview → 200 (3.8ms) role=-
+2026-08-07 05:54:18 | ERROR   | amr.bridge       | -        | [robot_bridge] rclpy spin 종료
+Traceback (most recent call last):
+  File "/home/chaesong/DBcenter-PT-Bot/hmi/backend/app/robot_bridge.py", line 485, in _spin
+    rclpy.spin_once(self._node, timeout_sec=0.5)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 208, in spin_once
+    executor.spin_once(timeout_sec=timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 808, in spin_once
+    self._spin_once_impl(timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 797, in _spin_once_impl
+    handler, entity, node = self.wait_for_ready_callbacks(timeout_sec=timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 780, in wait_for_ready_callbacks
+    return next(self._cb_iter)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 653, in _wait_for_ready_callbacks
+    wait_set = _rclpy.WaitSet(
+rclpy._rclpy_pybind11.RCLError: failed to initialize wait set: the given context is not valid, either rcl_init() was not called or rcl_shutdown() was called., at ./src/rcl/wait.c:130
+2026-08-07 05:54:18 | INFO    | amr.ws           | -        | WS 해제 — 현재 0개 연결
+2026-08-07 05:54:19 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 브리지 종료
+2026-08-07 05:54:19 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 종료
+2026-08-07 05:54:19 | INFO    | amr.main         | -        | 서버 종료
+2026-08-07 09:42:29 | WARNING | amr.db           | -        | 기존 테이블을 전부 삭제합니다 (drop=True)
+2026-08-07 09:42:29 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 09:42:29 | INFO    | amr.db           | -        | 시드 완료 — {'maps': 1, 'zones': 3, 'nodes': 8, 'routes': 1, 'equipment': 5, 'rules': 3, 'robots': 2}
+2026-08-07 09:42:54 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 09:42:54 | INFO    | amr.main         | -        | AMR 순찰·이상감지 관제 API v1.0.0 기동
+2026-08-07 09:42:54 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 09:42:55 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 브리지 기동 — 발행 2개, 구독 8토픽/로봇, 상행 큐 컨슈머 1
+2026-08-07 09:42:55 | INFO    | amr.bridge       | -        | 브리지 교체 → RobotBridge
+2026-08-07 09:42:55 | INFO    | amr.main         | -        | REST 14개 라우터 · WS /ws/monitor 준비 완료
+2026-08-07 09:42:55 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 09:42:55 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 시작
+2026-08-07 09:43:00 | ERROR   | amr.bridge       | -        | [robot_bridge] rclpy spin 종료
+Traceback (most recent call last):
+  File "/home/chaesong/DBcenter-PT-Bot/hmi/backend/app/robot_bridge.py", line 513, in _spin
+    rclpy.spin_once(self._node, timeout_sec=0.5)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 208, in spin_once
+    executor.spin_once(timeout_sec=timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 808, in spin_once
+    self._spin_once_impl(timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 797, in _spin_once_impl
+    handler, entity, node = self.wait_for_ready_callbacks(timeout_sec=timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 780, in wait_for_ready_callbacks
+    return next(self._cb_iter)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 681, in _wait_for_ready_callbacks
+    raise ExternalShutdownException()
+rclpy.executors.ExternalShutdownException
+2026-08-07 09:43:01 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 브리지 종료
+2026-08-07 09:43:01 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 종료
+2026-08-07 09:43:01 | INFO    | amr.main         | -        | 서버 종료
+2026-08-07 10:12:12 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 10:12:12 | INFO    | amr.main         | -        | AMR 순찰·이상감지 관제 API v1.0.0 기동
+2026-08-07 10:12:12 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-07 10:12:13 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 브리지 기동 — 발행 2개, 구독 8토픽/로봇, 상행 큐 컨슈머 1
+2026-08-07 10:12:13 | INFO    | amr.bridge       | -        | 브리지 교체 → RobotBridge
+2026-08-07 10:12:13 | INFO    | amr.main         | -        | REST 14개 라우터 · WS /ws/monitor 준비 완료
+2026-08-07 10:12:13 | INFO    | amr.main         | -        | ======================================================================
+2026-08-07 10:12:13 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 시작
+2026-08-07 10:12:27 | INFO    | amr.request      | bb647196 | GET /api/stats/overview → 200 (281.8ms) role=-
+2026-08-07 10:12:57 | INFO    | amr.request      | 66a5301c | GET /api/stats/overview → 200 (5.0ms) role=-
+2026-08-07 10:13:12 | INFO    | amr.ws           | -        | WS 접속 — 현재 1개 연결
+2026-08-07 10:13:12 | INFO    | amr.request      | e510fea3 | GET /api/stats/overview → 200 (69.8ms) role=-
+2026-08-07 10:13:12 | INFO    | amr.request      | 726ed180 | GET /api/stats/overview → 200 (3.2ms) role=-
+2026-08-07 10:13:42 | INFO    | amr.request      | 6c8fcdee | GET /api/stats/overview → 200 (4.0ms) role=-
+2026-08-07 10:14:12 | INFO    | amr.request      | d1c3251c | GET /api/stats/overview → 200 (14.8ms) role=-
+2026-08-07 10:14:42 | INFO    | amr.request      | e3f9c35e | GET /api/stats/overview → 200 (9.3ms) role=-
+2026-08-07 10:15:12 | INFO    | amr.request      | badb2561 | GET /api/stats/overview → 200 (11.6ms) role=-
+2026-08-07 10:15:39 | INFO    | amr.request      | 98b9a2c4 | GET /api/routes → 200 (14.1ms) role=-
+2026-08-07 10:15:39 | INFO    | amr.request      | dc58471d | OPTIONS /api/patrol/start → 200 (0.8ms) role=-
+2026-08-07 10:15:39 | INFO    | amr.bridge       | b601c80e | [robot_bridge] amr_1 ← START_PATROL CMD-20260807-eda6
+2026-08-07 10:15:39 | INFO    | amr.bridge       | b601c80e | [robot_bridge] amr_2 ← START_PATROL CMD-20260807-9d01
+2026-08-07 10:15:39 | INFO    | amr.request      | b601c80e | POST /api/patrol/start → 200 (43.5ms) role=-
+2026-08-07 10:15:42 | INFO    | amr.request      | 2e694a0f | GET /api/stats/overview → 200 (11.1ms) role=-
+2026-08-07 10:16:12 | INFO    | amr.request      | 97b773df | GET /api/stats/overview → 200 (46.4ms) role=-
+2026-08-07 10:16:42 | INFO    | amr.request      | ca707a60 | GET /api/stats/overview → 200 (3.9ms) role=-
+2026-08-07 10:17:12 | INFO    | amr.request      | 1a4192eb | GET /api/stats/overview → 200 (10.5ms) role=-
+2026-08-07 10:17:42 | INFO    | amr.request      | ab97b2cd | GET /api/stats/overview → 200 (4.8ms) role=-
+2026-08-07 10:18:12 | INFO    | amr.request      | 35a79bec | GET /api/stats/overview → 200 (5.9ms) role=-
+2026-08-07 10:18:42 | INFO    | amr.request      | 9f09edbd | GET /api/stats/overview → 200 (6.0ms) role=-
+2026-08-07 10:19:12 | INFO    | amr.request      | bd076ae8 | GET /api/stats/overview → 200 (9.0ms) role=-
+2026-08-07 10:19:42 | INFO    | amr.request      | ee84c6a3 | GET /api/stats/overview → 200 (3.8ms) role=-
+2026-08-07 10:20:13 | INFO    | amr.request      | 843ce0eb | GET /api/stats/overview → 200 (8.6ms) role=-
+2026-08-07 10:20:43 | INFO    | amr.request      | 1d2e95f1 | GET /api/stats/overview → 200 (3.9ms) role=-
+2026-08-07 10:21:13 | INFO    | amr.request      | c4bda7f2 | GET /api/stats/overview → 200 (5.4ms) role=-
+2026-08-07 10:21:43 | INFO    | amr.request      | a70ed1e3 | GET /api/stats/overview → 200 (8.0ms) role=-
+2026-08-07 10:22:13 | INFO    | amr.request      | 0b54ef0f | GET /api/stats/overview → 200 (8.3ms) role=-
+2026-08-07 10:22:43 | INFO    | amr.request      | 240627e9 | GET /api/stats/overview → 200 (6.9ms) role=-
+2026-08-07 10:23:13 | INFO    | amr.request      | 3d1d76dd | GET /api/stats/overview → 200 (4.6ms) role=-
+2026-08-07 10:23:43 | INFO    | amr.request      | 332d56c2 | GET /api/stats/overview → 200 (15.0ms) role=-
+2026-08-07 10:24:13 | INFO    | amr.request      | 51d135e9 | GET /api/stats/overview → 200 (8.5ms) role=-
+2026-08-07 10:24:43 | INFO    | amr.request      | 8db52c2a | GET /api/stats/overview → 200 (8.2ms) role=-
+2026-08-07 10:25:13 | INFO    | amr.request      | e91b315a | GET /api/stats/overview → 200 (3.6ms) role=-
+2026-08-07 10:25:22 | INFO    | amr.ws           | -        | WS 해제 — 현재 0개 연결
+2026-08-07 10:25:22 | INFO    | amr.request      | 473e6b52 | GET /api/stats/overview → 200 (6.4ms) role=-
+2026-08-07 10:25:22 | INFO    | amr.ws           | -        | WS 접속 — 현재 1개 연결
+2026-08-07 10:25:53 | INFO    | amr.request      | 4901502f | GET /api/stats/overview → 200 (9.0ms) role=-
+2026-08-07 10:26:23 | INFO    | amr.request      | c0c3f8ad | GET /api/stats/overview → 200 (6.7ms) role=-
+2026-08-07 10:26:53 | INFO    | amr.request      | e0211405 | GET /api/stats/overview → 200 (10.8ms) role=-
+2026-08-07 10:27:23 | INFO    | amr.request      | e19f240e | GET /api/stats/overview → 200 (21.2ms) role=-

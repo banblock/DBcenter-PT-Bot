@@ -1,3 +1,5 @@
+# 모든 요청에 붙는 공통 처리
+
 """공통 미들웨어 — 요청 ID 부여 + 요청/응답 1줄 로깅 + 최종 예외 그물."""
 
 from __future__ import annotations

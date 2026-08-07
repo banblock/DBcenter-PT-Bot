@@ -34,3 +34,14 @@ AMENT_IGNORE
 
 #vscode
 .vscode/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Node / frontend
+node_modules/
+dist/

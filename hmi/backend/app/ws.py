@@ -1,3 +1,5 @@
+# /ws/monitor 통로 + SNAPSHOT
+
 """WebSocket 엔드포인트 — /ws/monitor (API 명세서 §9).
 
 접속 직후 SNAPSHOT 을 1회 보낸다. 프론트는 이 한 프레임만으로 화면 전체를 그릴 수

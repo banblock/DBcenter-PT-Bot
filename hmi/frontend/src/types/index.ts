@@ -1,3 +1,5 @@
+// 데이터 모양 정의
+
 export type RobotState =
   | "OFFLINE"
   | "MAPPING"

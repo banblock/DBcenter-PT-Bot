@@ -1,3 +1,23 @@
+# ★로봇단(ROS2) 연동(핵심)
+
+# ════════════════════════════════════════════════════════════════
+# [공부 메모] ★★ 백엔드에서 제일 중요한 파일. 리뷰 하이라이트 ★★
+#
+# 두 덩어리로 나뉨(리뷰 때 이 구분을 먼저 설명):
+#   1) RobotBridge  = §10 "규칙" 자체. 명령 봉투 만들기 / 세션 / ACK 처리.
+#                     순수 파이썬이라 ROS 없이도 pytest로 검증됨.
+#   2) Ros2Bridge   = 그 둘레의 진짜 ROS2 배선 + "비동기 큐 프로듀서-컨슈머".
+#
+# ★ 제일 헷갈렸고 제일 중요한 부분 (Ros2Bridge):
+#   ROS 콜백은 '다른 스레드'(rclpy executor)에서 옴. 근데 DB/WebSocket은 asyncio
+#   '이벤트 루프' 스레드에서 해야 됨. 두 스레드는 세계가 다름.
+#   → 콜백에서 바로 처리하면 (a) 로봇 메시지 받는 게 밀리고 (b) asyncio 객체를
+#     남의 스레드에서 만져서 꼬임.
+#   → 그래서: 콜백(프로듀서)은 값만 뽑아 loop.call_soon_threadsafe로 큐에 "넣기만".
+#     컨슈머 코루틴(루프)이 하나씩 꺼내 처리. = 패스트푸드(주문받기 vs 요리) 분리.
+#   상행은 큐로 받고, 하행(명령 발행)은 Publisher.publish 직접(원래 스레드 안전). 비대칭!
+# ════════════════════════════════════════════════════════════════
+
 """ROS2 인터페이스 (API 명세서 §10 — ``robot_bridge.py``).
 
 명세서 §10 이 규정한 로봇↔백엔드 토픽 계약을 **그대로** 구현한다. 이 파일은
@@ -165,6 +185,9 @@ class RobotBridge:
         기존 라우터가 그대로 쓴다. ``dispatched`` 는 실제로 전송에 성공했는지다
         (세션이 끊겨 있으면 False — 화면이 "정말 전달됐는지"를 구분할 수 있어야 한다).
         """
+        # ← 하행(명령)의 시작. 명세 §10-2 표에 없는 타입이면 바로 거부(오타/규격이탈 차단).
+        #   아래서 envelope {command_id, command_type, payload, issued_at} 만들어 토픽에 발행.
+        #   inflight에 등록해두고 ACK 오면 지움(안 오면 재접속 때 다시 쏨).
         if command_type not in COMMAND_TYPES:
             raise ValueError(f"알 수 없는 command_type: {command_type!r} (§10-2 표 이탈)")
 
@@ -336,48 +359,187 @@ class RobotBridge:
         return value if isinstance(value, dict) else None
 
 
-# ══════════════════════════════════════════════════════════════════════════
-# 실기 연동 커넥터 (rclpy) — ROS2 가 있을 때만 동작
-# ══════════════════════════════════════════════════════════════════════════
-def build_ros2_bridge(robot_ids: list[str], sink: RobotBridgeSink) -> RobotBridge:
-    """rclpy 로 §10 토픽 pub/sub 을 잇는 실기 브리지를 만든다.
+def _yaw_from_quaternion(z: float, w: float) -> float:
+    """평면 주행이라 z·w 만으로 yaw 를 복원한다 (roll·pitch≈0 가정)."""
+    import math
 
-    이 저장소에는 ROS2(rclpy) 가 없으므로 여기서 import 를 시도하고, 없으면 명확한
-    오류를 던진다. 실장비(PC2 ROS2 노드)에서 이 함수가 켜지면 `RobotBridge` 본체는
-    그대로 두고 퍼블리셔/구독만 실제 토픽으로 채워진다.
+    return math.atan2(2.0 * w * z, 1.0 - 2.0 * z * z)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 실기 연동 커넥터 (rclpy) — 프로듀서-컨슈머 (auto-dump-bot 구조 계승)
+# ══════════════════════════════════════════════════════════════════════════
+#
+# 스레드 경계 (auto-dump-bot code/backend/robot_bridge.py 와 동일한 규약)
+# ------------------------------------------------------------------------
+#   상행 (로봇 → 백엔드):  ROS spin 스레드가 콜백을 받는다. 콜백은 asyncio/DB/WS 를
+#     **절대 직접 만지지 않는다.** ROS 메시지에서 원시 값만 뽑아
+#     ``loop.call_soon_threadsafe(_enqueue, item)`` 로 이벤트 루프에 넘긴다(프로듀서).
+#     이벤트 루프의 컨슈머 코루틴이 큐를 비우며 ``bridge.on_*`` (파싱·DB·브로드캐스트)를
+#     실행한다(컨슈머). 고빈도 텔레메트리로 큐가 차면 가장 오래된 것을 버린다.
+#   하행 (백엔드 → 로봇):  라우터가 ``publish_command`` → ``node.publish`` →
+#     ``Publisher.publish`` 를 직접 호출한다. rmw 가 스레드 안전을 보장하므로
+#     call_soon_threadsafe 로 감쌀 필요가 없다(상·하행 비대칭은 의도된 설계).
+INBOUND_QUEUE_SIZE = 2000
+
+
+class Ros2Bridge:
+    """rclpy 노드 + 상행 프로듀서-컨슈머를 묶은 실기 브리지 관리자.
+
+    ``self.bridge`` 가 §10 로직(`RobotBridge`)이고, 이 클래스는 그 둘레의
+    스레드/큐/수명주기만 담당한다. `set_bridge(mgr.bridge)` 로 라우터에 꽂는다.
     """
-    try:  # pragma: no cover - ROS2 미설치 환경에서는 실행되지 않는다
+
+    def __init__(self, robot_ids: list[str], sink: RobotBridgeSink, loop: Any) -> None:  # pragma: no cover
+        import asyncio
+        import threading
+
         import rclpy
+        from geometry_msgs.msg import PoseWithCovarianceStamped
         from rclpy.node import Node
+        from sensor_msgs.msg import BatteryState
         from std_msgs.msg import String
+
+        self._loop = loop
+        self._inbound: asyncio.Queue = asyncio.Queue(maxsize=INBOUND_QUEUE_SIZE)
+        self._stop = threading.Event()
+
+        bridge_ref: dict[str, RobotBridge] = {}
+
+        class _Node(Node):
+            def __init__(self, produce) -> None:
+                super().__init__("robot_bridge")
+                self._produce = produce
+                self._cmd_pubs = {
+                    rid: self.create_publisher(String, COMMAND_TOPIC.format(robot_id=rid), 10)
+                    for rid in robot_ids
+                }
+                for rid in robot_ids:
+                    ns = f"/{rid}"
+                    self.create_subscription(String, f"{ns}/command_ack",
+                                             lambda m, r=rid: produce("on_command_ack", r, m.data), 10)
+                    self.create_subscription(String, f"{ns}/robot_state",
+                                             lambda m, r=rid: produce("on_robot_state", r, m.data), 10)
+                    self.create_subscription(PoseWithCovarianceStamped, f"{ns}/amcl_pose",
+                                             lambda m, r=rid: self._pose(r, m), 10)
+                    self.create_subscription(BatteryState, f"{ns}/battery_state",
+                                             lambda m, r=rid: produce("on_battery_state", r, m.percentage), 10)
+                    self.create_subscription(String, f"{ns}/detection",
+                                             lambda m, r=rid: produce("on_detection", r, m.data), 10)
+                    self.create_subscription(String, f"{ns}/aruco_correction",
+                                             lambda m, r=rid: produce("on_aruco_correction", r, m.data), 10)
+                    self.create_subscription(String, f"{ns}/safety_event",
+                                             lambda m, r=rid: produce("on_safety_event", r, m.data), 10)
+                    self.create_subscription(String, f"{ns}/checkpoint",
+                                             lambda m, r=rid: produce("on_checkpoint", r, m.data), 10)
+
+            def _pose(self, rid, msg) -> None:
+                # 쿼터니언→yaw 변환만 ROS 스레드에서(값만 뽑기). 처리는 컨슈머가 한다.
+                p = msg.pose.pose
+                self._produce("on_amcl_pose", rid,
+                              (p.position.x, p.position.y,
+                               _yaw_from_quaternion(p.orientation.z, p.orientation.w)))
+
+            def publish(self, topic: str, payload: str) -> None:
+                for rid, pub in self._cmd_pubs.items():
+                    if topic == COMMAND_TOPIC.format(robot_id=rid):
+                        pub.publish(String(data=payload))
+                        return
+
+        if not rclpy.ok():
+            rclpy.init()
+        self._node = _Node(self._produce)
+        self.bridge = RobotBridge(
+            robot_ids, publisher=self._node.publish, sink=sink,
+            transport_connected=lambda: rclpy.ok(),
+        )
+        bridge_ref["b"] = self.bridge
+
+        # 컨슈머 코루틴(이벤트 루프) + spin 스레드(ROS) 기동
+        self._consumer_task = loop.create_task(self._consume())
+        self._spin_thread = threading.Thread(target=self._spin, name="rclpy-spin", daemon=True)
+        self._spin_thread.start()
+        log.info("[robot_bridge] ROS2 브리지 기동 — 발행 %d개, 구독 8토픽/로봇, 상행 큐 컨슈머 1", len(robot_ids))
+
+    # ── 프로듀서 (ROS 스레드) ────────────────────────────────────────────
+    # ★★ 여기가 스레드 경계의 핵심. ROS 콜백(다른 스레드) → 이벤트 루프로 넘기는 다리.
+    #    call_soon_threadsafe = "남의 스레드에서 이벤트 루프한테 안전하게 일 시키기"의
+    #    표준 방법. 이거 없이 asyncio.Queue를 딴 스레드에서 만지면 꼬임. (제일 강조할 줄)
+    def _produce(self, method: str, robot_id: str, arg: Any) -> None:  # pragma: no cover
+        """ROS 콜백에서 호출. 이벤트 루프에 안전하게 넘기기만 한다(처리 안 함)."""
+        self._loop.call_soon_threadsafe(self._enqueue, (method, robot_id, arg))
+
+    def _enqueue(self, item: tuple) -> None:  # pragma: no cover
+        """이벤트 루프에서 실행됨. 큐가 차면 가장 오래된 프레임을 버린다(고빈도 대비)."""
+        import asyncio
+
+        try:
+            self._inbound.put_nowait(item)
+        except asyncio.QueueFull:
+            try:
+                self._inbound.get_nowait()
+                self._inbound.put_nowait(item)
+                log.warning("[robot_bridge] 상행 큐 포화 — 오래된 프레임 1건 드롭")
+            except (asyncio.QueueEmpty, asyncio.QueueFull):
+                pass
+
+    # ── 컨슈머 (이벤트 루프) ─────────────────────────────────────────────
+    # ★ "요리사". 큐에서 하나씩 꺼내(await get) 실제 처리(bridge.on_* → DB저장 + 방송).
+    #   여긴 이벤트 루프 위라서 asyncio/DB 만져도 안전. 프로듀서와 여기가 짝.
+    async def _consume(self) -> None:  # pragma: no cover
+        """큐를 비우며 §10 처리(bridge.on_*)를 이벤트 루프에서 수행한다."""
+        import asyncio
+
+        while not self._stop.is_set():
+            try:
+                method, robot_id, arg = await self._inbound.get()
+            except asyncio.CancelledError:
+                break
+            try:
+                fn = getattr(self.bridge, method)
+                if method == "on_amcl_pose":
+                    x, y, theta = arg
+                    fn(robot_id, x=x, y=y, theta=theta)
+                else:
+                    fn(robot_id, arg)
+            except Exception:  # noqa: BLE001 - 한 프레임 실패가 컨슈머를 멈추면 안 된다
+                log.exception("[robot_bridge] 상행 처리 실패 (%s %s)", method, robot_id)
+
+    def _spin(self) -> None:  # pragma: no cover
+        import rclpy
+
+        try:
+            while rclpy.ok() and not self._stop.is_set():
+                rclpy.spin_once(self._node, timeout_sec=0.5)
+        except Exception:  # noqa: BLE001
+            log.exception("[robot_bridge] rclpy spin 종료")
+
+    def stop(self) -> None:  # pragma: no cover
+        """lifespan 종료 시 정리."""
+        import rclpy
+
+        self._stop.set()
+        self._consumer_task.cancel()
+        self._spin_thread.join(timeout=2.0)
+        try:
+            self._node.destroy_node()
+        except Exception:  # noqa: BLE001
+            pass
+        if rclpy.ok():
+            rclpy.shutdown()
+        log.info("[robot_bridge] ROS2 브리지 종료")
+
+
+def build_ros2_bridge(robot_ids: list[str], sink: RobotBridgeSink, loop: Any) -> "Ros2Bridge":
+    """ROS2 실기 브리지(프로듀서-컨슈머)를 만든다. `loop` = FastAPI 이벤트 루프.
+
+    rclpy 가 없으면(개발/CI) 명확한 오류를 던진다 → AMR_BRIDGE_BACKEND=loopback 을 쓸 것.
+    """
+    try:  # pragma: no cover - rclpy 없는 환경(pytest venv)에서는 여기서 끝
+        import rclpy  # noqa: F401
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError(
-            "ROS2(rclpy) 가 설치되어 있지 않습니다. 실기 연동은 PC2 ROS2 Humble 노드에서 "
-            "실행하세요. (개발/CI 에서는 AMR_BRIDGE_BACKEND=loopback 을 쓰십시오.)"
+            "ROS2(rclpy) 를 임포트할 수 없습니다. `source /opt/ros/humble/setup.bash` 후 "
+            "실행하거나, 개발/CI 에서는 AMR_BRIDGE_BACKEND=loopback 을 쓰십시오."
         ) from exc
-
-    # 이 블록은 rclpy 가 있는 환경에서만 의미가 있어 커버리지 대상에서 제외한다.
-    class _Ros2Node(Node):  # pragma: no cover
-        def __init__(self) -> None:
-            super().__init__("robot_bridge")
-            self._cmd_pubs = {
-                rid: self.create_publisher(String, COMMAND_TOPIC.format(robot_id=rid), 10)
-                for rid in robot_ids
-            }
-
-        def publish(self, topic: str, payload: str) -> None:
-            for rid, pub in self._cmd_pubs.items():
-                if topic == COMMAND_TOPIC.format(robot_id=rid):
-                    pub.publish(String(data=payload))
-                    return
-
-    if not rclpy.ok():  # pragma: no cover
-        rclpy.init()
-    node = _Ros2Node()  # pragma: no cover
-    bridge = RobotBridge(  # pragma: no cover
-        robot_ids, publisher=node.publish, sink=sink, transport_connected=lambda: rclpy.ok()
-    )
-    # 구독(§10-1)·ACK(§10-3) 콜백을 node 에 배선하는 코드가 여기 들어간다.
-    # 각 토픽마다 create_subscription(String/PoseWithCovarianceStamped/BatteryState, ...) 로
-    # bridge.on_* 를 호출하도록 연결한다. (실기 노드에서 채운다)
-    return bridge  # pragma: no cover
+    return Ros2Bridge(robot_ids, sink, loop)  # pragma: no cover

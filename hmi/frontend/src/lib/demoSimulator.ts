@@ -1,3 +1,5 @@
+// 백엔드 없을 때 가짜 데이터
+
 import type { AppEvent, Command, InboundMessage, LogTag, Robot, RobotState } from "../types";
 
 /**
