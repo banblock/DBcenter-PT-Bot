@@ -33,4 +33,4 @@ COLCON_IGNORE
 AMENT_IGNORE
 
 #vscode
-.vscode/
+.vscode/.env
