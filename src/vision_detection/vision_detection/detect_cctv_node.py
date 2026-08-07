@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import glob
+import re
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -53,8 +55,12 @@ class DetectCctvNode(Node):
         super().__init__("detect_cctv_node")
 
         # 문자열 배열로 선언하면 카메라 인덱스("0")와 /dev 경로를 모두 사용할 수 있다.
-        self.declare_parameter("camera_devices", ["0", "2"])
+        # 비워두면(기본값) 연결된 웹캠을 자동 탐지한다.
+        self.declare_parameter("camera_devices", [])
         self.declare_parameter("camera_ids", ["cctv1", "cctv2"])
+        # 노트북/PC 내장 카메라가 보통 낮은 인덱스를 차지하므로, 자동 탐지 시 이보다
+        # 낮은 인덱스의 /dev/videoN은 후보에서 제외한다.
+        self.declare_parameter("min_camera_index", 2)
         self.declare_parameter("model_path", "models/cctv_best.pt")
         self.declare_parameter("confidence", 0.5)
         self.declare_parameter("publish_hz", 10.0)
@@ -64,10 +70,14 @@ class DetectCctvNode(Node):
         self.declare_parameter("camera_fps", 30.0)
         self.declare_parameter("inference_size", 640)
 
-        camera_devices = [
+        camera_ids = list(self.get_parameter("camera_ids").value)
+        self.min_camera_index = int(self.get_parameter("min_camera_index").value)
+
+        configured_devices = [
             str(value) for value in self.get_parameter("camera_devices").value
         ]
-        camera_ids = list(self.get_parameter("camera_ids").value)
+        camera_devices = configured_devices or self._discover_camera_devices(len(camera_ids))
+
         configured_model_path = str(self.get_parameter("model_path").value)
         self.model_path = self._resolve_model_path(configured_model_path)
         self.confidence = float(self.get_parameter("confidence").value)
@@ -138,6 +148,53 @@ class DetectCctvNode(Node):
             raise ValueError("camera_ids에는 빈 값을 사용할 수 없습니다.")
         if len(set(camera_ids)) != len(camera_ids):
             raise ValueError("camera_ids는 서로 달라야 합니다.")
+
+    def _discover_camera_devices(self, needed_count: int) -> List[str]:
+        """/dev/video*를 뒤져서 실제로 프레임을 읽을 수 있는 장치를 needed_count개 찾는다.
+
+        내장 카메라는 보통 낮은 인덱스를 차지하므로 min_camera_index 미만은 후보에서 제외한다.
+        """
+        candidates = sorted(
+            glob.glob("/dev/video*"),
+            key=lambda path: int(re.sub(r"\D", "", path) or -1),
+        )
+        candidates = [
+            path for path in candidates
+            if int(re.sub(r"\D", "", path) or -1) >= self.min_camera_index
+        ]
+
+        discovered: List[str] = []
+        for path in candidates:
+            if self._camera_can_capture(path):
+                discovered.append(path)
+            if len(discovered) >= needed_count:
+                break
+
+        if len(discovered) < needed_count:
+            raise RuntimeError(
+                f"연결된 웹캠을 {needed_count}대 찾지 못했습니다 "
+                f"(발견: {discovered}, 탐지 후보: {candidates}). "
+                "camera_devices 파라미터로 직접 지정하거나 min_camera_index를 조정하세요."
+            )
+
+        self.get_logger().info(f"웹캠 자동 탐지: {discovered}")
+        return discovered
+
+    @staticmethod
+    def _camera_can_capture(device_path: str) -> bool:
+        """실제로 프레임을 읽을 수 있는 캡처 노드인지 확인한다.
+
+        웹캠 하나가 캡처용/메타데이터용 두 /dev/video 노드를 함께 만드는 경우가 많아서,
+        단순히 열리는지만으로는 실제 캡처 가능한 노드를 구분할 수 없다.
+        """
+        capture = cv2.VideoCapture(device_path, cv2.CAP_V4L2)
+        if not capture.isOpened():
+            capture.release()
+            return False
+        capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+        success, frame = capture.read()
+        capture.release()
+        return success and frame is not None
 
     @staticmethod
     def _resolve_model_path(configured_path: str) -> str:
