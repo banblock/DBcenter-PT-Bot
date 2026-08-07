@@ -34,7 +34,7 @@ class CameraContext:
     image_publisher: Any
     last_status: Dict[str, bool]
     detection_streaks: Dict[str, int]
-    missed_streaks: Dict[str, int]
+    last_seen_times: Dict[str, float]
     last_warning_time: float = 0.0
 
 
@@ -46,8 +46,8 @@ class DetectCctvNode(Node):
         "smoke": 1,
         "coolant": 2,
     }
-    DETECTION_CONFIRM_FRAMES = 3
-    RELEASE_CONFIRM_FRAMES = 10
+    DETECTION_CONFIRM_FRAMES = 2
+    RELEASE_TIMEOUT_SECONDS = 2.0
 
     def __init__(self) -> None:
         super().__init__("detect_cctv_node")
@@ -59,9 +59,10 @@ class DetectCctvNode(Node):
         self.declare_parameter("confidence", 0.5)
         self.declare_parameter("publish_hz", 10.0)
         self.declare_parameter("device", "")
-        self.declare_parameter("image_width", 640)
-        self.declare_parameter("image_height", 480)
+        self.declare_parameter("image_width", 1280)
+        self.declare_parameter("image_height", 960)
         self.declare_parameter("camera_fps", 15.0)
+        self.declare_parameter("inference_size", 640)
 
         camera_devices = [
             str(value) for value in self.get_parameter("camera_devices").value
@@ -75,6 +76,7 @@ class DetectCctvNode(Node):
         self.image_width = int(self.get_parameter("image_width").value)
         self.image_height = int(self.get_parameter("image_height").value)
         self.camera_fps = float(self.get_parameter("camera_fps").value)
+        self.inference_size = int(self.get_parameter("inference_size").value)
 
         self._validate_camera_parameters(camera_devices, camera_ids)
 
@@ -184,7 +186,7 @@ class DetectCctvNode(Node):
                 "coolant": False,
             },
             detection_streaks={event_name: 0 for event_name in self.STATUS_STATES},
-            missed_streaks={event_name: 0 for event_name in self.STATUS_STATES},
+            last_seen_times={event_name: 0.0 for event_name in self.STATUS_STATES},
         )
 
     def _publish_initial_status(self, camera: CameraContext) -> None:
@@ -197,8 +199,8 @@ class DetectCctvNode(Node):
         camera.detection_streaks = {
             event_name: 0 for event_name in self.STATUS_STATES
         }
-        camera.missed_streaks = {
-            event_name: 0 for event_name in self.STATUS_STATES
+        camera.last_seen_times = {
+            event_name: 0.0 for event_name in self.STATUS_STATES
         }
         for event_name in self.STATUS_STATES:
             self._publish_status_message(camera, event_name, False)
@@ -274,10 +276,47 @@ class DetectCctvNode(Node):
         if not self.task_started:
             return
 
-        for camera in self.cameras:
-            self._process_frame(camera)
+        cameras_with_frames: List[CameraContext] = []
+        frames: List[Any] = []
 
-    def _process_frame(self, camera: CameraContext) -> None:
+        for camera in self.cameras:
+            frame = self._read_frame(camera)
+            if frame is None:
+                continue
+            cameras_with_frames.append(camera)
+            frames.append(frame)
+
+        if not frames:
+            return
+
+        try:
+            predict_kwargs = {
+                "source": frames,
+                "conf": self.confidence,
+                "imgsz": self.inference_size,
+                "verbose": False,
+            }
+            if self.device:
+                predict_kwargs["device"] = self.device
+
+            results = self.model.predict(**predict_kwargs)
+            if len(results) != len(cameras_with_frames):
+                raise RuntimeError(
+                    "YOLO 결과 수가 입력한 카메라 프레임 수와 다릅니다."
+                )
+
+            now = time.monotonic()
+            for camera, result in zip(cameras_with_frames, results):
+                detected_status = self._extract_detected_status(result)
+                stable_status = self._apply_debounce(
+                    camera, detected_status, now
+                )
+                self._publish_status(camera, stable_status)
+                self._publish_image(camera, result.plot())
+        except Exception as exc:
+            self.get_logger().error(f"YOLO 배치 처리 중 오류: {exc}")
+
+    def _read_frame(self, camera: CameraContext) -> Optional[Any]:
         success, frame = camera.capture.read()
 
         if not success or frame is None:
@@ -287,39 +326,26 @@ class DetectCctvNode(Node):
                     f"{camera.camera_id}: 카메라 프레임을 읽지 못했습니다."
                 )
                 camera.last_warning_time = now
-            return
+            return None
 
-        try:
-            predict_kwargs = {
-                "source": frame,
-                "conf": self.confidence,
-                "verbose": False,
-            }
-            if self.device:
-                predict_kwargs["device"] = self.device
+        return frame
 
-            result = self.model.predict(**predict_kwargs)[0]
-            detected_status = {
-                "fire": False,
-                "smoke": False,
-                "coolant": False,
-            }
+    def _extract_detected_status(self, result: Any) -> Dict[str, bool]:
+        detected_status = {
+            "fire": False,
+            "smoke": False,
+            "coolant": False,
+        }
 
-            if result.boxes is not None:
-                for class_index in result.boxes.cls.tolist():
-                    class_name = self._class_name_from_index(
-                        int(class_index), result.names
-                    )
-                    if class_name in detected_status:
-                        detected_status[class_name] = True
+        if result.boxes is not None:
+            for class_index in result.boxes.cls.tolist():
+                class_name = self._class_name_from_index(
+                    int(class_index), result.names
+                )
+                if class_name in detected_status:
+                    detected_status[class_name] = True
 
-            detected_status = self._apply_debounce(camera, detected_status)
-            self._publish_image(camera, result.plot())
-            self._publish_status(camera, detected_status)
-        except Exception as exc:
-            self.get_logger().error(
-                f"{camera.camera_id}: YOLO 처리 중 오류: {exc}"
-            )
+        return detected_status
 
     @staticmethod
     def _class_name_from_index(
@@ -330,7 +356,10 @@ class DetectCctvNode(Node):
         return str(names[class_index])
 
     def _apply_debounce(
-        self, camera: CameraContext, detected_status: Dict[str, bool]
+        self,
+        camera: CameraContext,
+        detected_status: Dict[str, bool],
+        now: float,
     ) -> Dict[str, bool]:
         stable_status = camera.last_status.copy()
 
@@ -340,7 +369,7 @@ class DetectCctvNode(Node):
                     camera.detection_streaks[event_name] + 1,
                     self.DETECTION_CONFIRM_FRAMES,
                 )
-                camera.missed_streaks[event_name] = 0
+                camera.last_seen_times[event_name] = now
                 if (
                     camera.detection_streaks[event_name]
                     >= self.DETECTION_CONFIRM_FRAMES
@@ -349,11 +378,11 @@ class DetectCctvNode(Node):
                 continue
 
             camera.detection_streaks[event_name] = 0
-            camera.missed_streaks[event_name] = min(
-                camera.missed_streaks[event_name] + 1,
-                self.RELEASE_CONFIRM_FRAMES,
-            )
-            if camera.missed_streaks[event_name] >= self.RELEASE_CONFIRM_FRAMES:
+            if (
+                stable_status[event_name]
+                and now - camera.last_seen_times[event_name]
+                >= self.RELEASE_TIMEOUT_SECONDS
+            ):
                 stable_status[event_name] = False
 
         return stable_status
