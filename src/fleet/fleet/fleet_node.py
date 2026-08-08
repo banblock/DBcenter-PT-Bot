@@ -14,10 +14,15 @@
 - 교차 지점 점유를 중재해서 두 로봇이 동시에 같은 지점을 점유하지
   못하게 한다 (교차지점인가? -> 점유돼있는가?)
 - 로봇 상태가 바뀌면 UI용 상태 토픽에 퍼블리시한다 (robot_status.py) -
-  다만 Fleet이 실제로 아는 IDLE/PATROLLING/DISPATCHING 3개 상태
-  한정이고, 나머지 UI팀 robot_state 어휘(INSPECTING/CHARGING/DOCKING
-  등)는 그 정보를 실제로 가진 Control Node 쪽 몫이다
+  다만 Fleet이 실제로 아는 EMERGENCY_STOP/IDLE/PATROLLING/DISPATCHING
+  4개 상태 한정이고, 나머지 UI팀 robot_state 어휘(INSPECTING/CHARGING/
+  DOCKING 등)는 그 정보를 실제로 가진 Control Node 쪽 몫이다
   (로봇 상태 변화 감지? -> 로봇 상태 퍼블리시)
+- 긴급정지 요청을 받으면(비상정지 수신) 등록된 로봇 전체에 정지 신호를
+  전파한다 - 실제로 Nav2를 멈추는 cancelTask() 호출은 Control Node
+  쪽 몫이고(control_node.py의 이상신호 인터럽트 처리와 동일한 패턴),
+  Fleet은 "정지하라"는 신호만 로봇별로 내려준다 (비상정지 수신 ->
+  순찰 진행중인가?)
 
 ROS 2 도메인 어디서든 한 번만 실행하면 된다 (특정 로봇과 같은 위치에
 있을 필요 없음). 각 로봇의 Control Node와는 정식 .srv/.msg 타입이
@@ -81,6 +86,7 @@ class FleetNode(Node):
         # 못 박아둘 수 없음).
         self._mission_pubs = {}
         self._anomaly_pubs = {}
+        self._emergency_pubs = {}
         # 이상신호 로봇 선정용 로봇별 최신 위치. amcl_pose 구독도
         # _ensure_robot_pubs()에서 로봇이 처음 등장할 때 지연 생성한다.
         self._pose_subs = {}
@@ -105,6 +111,16 @@ class FleetNode(Node):
         self.create_subscription(
             String, '/fleet/anomaly_done', self._on_anomaly_done, 10)
 
+        # 긴급정지 - 한 번 정지되면 이 세션에서는 계속 EMERGENCY_STOP으로
+        # 남는다(해제/재개 로직은 남은 작업 4번 UI 명령 연동에서 다룰
+        # 예정이라 아직 없음). "/backend/emergency_stop_all" 토픽명과
+        # {"stop": true} 스키마는 설계도 원본에 이 부분 ROS 브릿지 라벨이
+        # 아직 없어서 기존 /backend/system_start(bool) 패턴을 따라 임시로
+        # 정한 것 - Backend 팀과 확정 필요 (HANDOFF.md 참고).
+        self._emergency_stopped = set()  # 긴급정지된 로봇들
+        self.create_subscription(
+            String, '/backend/emergency_stop_all', self._on_emergency_stop_all, 10)
+
         # 설계도의 실제 Backend 입력 (구역, 지점좌표 -> /backend/map_points),
         # {"zones": [{zone_id, robot, points: [{x,y,yaw,point_type}, ...]}]}
         # 형태. corners(구역 모서리)는 여기서 안 쓴다 - 통로 그래프는
@@ -128,6 +144,9 @@ class FleetNode(Node):
                 String, f'/fleet/{ns}/mission', MISSION_QOS)
         if ns not in self._anomaly_pubs:
             self._anomaly_pubs[ns] = self.create_publisher(String, f'/fleet/{ns}/anomaly', 10)
+        if ns not in self._emergency_pubs:
+            self._emergency_pubs[ns] = self.create_publisher(
+                String, f'/fleet/{ns}/emergency_stop', 10)
         if ns not in self._status_pubs:
             # UI팀이 준 robot_state.msg 인터페이스의 토픽 이름
             # (/control/robot3_State, /control/robot8_state)이 로봇마다
@@ -178,12 +197,14 @@ class FleetNode(Node):
 
     def _check_robot_status(self):
         """설계도 '로봇 상태 변화 감지? -> 로봇 상태 퍼블리시' - robot_status.py
-        참고. Fleet이 아는 IDLE/PATROLLING/DISPATCHING 3개 상태 한정이고,
-        INSPECTING/REPORTING/RESUMING 같은 이상신호 세부 상태나
-        CHARGING/DOCKING/ERROR 등은 Control Node가 같은 /control/<ns>_State
-        토픽에 이어서 퍼블리시할 몫이라 여기서는 다루지 않는다."""
+        참고. Fleet이 아는 EMERGENCY_STOP/IDLE/PATROLLING/DISPATCHING 4개
+        상태 한정이고, INSPECTING/REPORTING/RESUMING 같은 이상신호 세부
+        상태나 CHARGING/DOCKING/ERROR 등은 Control Node가 같은
+        /control/<ns>_State 토픽에 이어서 퍼블리시할 몫이라 여기서는
+        다루지 않는다."""
         changes = robot_status.detect_changes(
-            self._status_pubs.keys(), self.missions, self._anomaly_busy, self._robot_status)
+            self._status_pubs.keys(), self.missions, self._anomaly_busy,
+            self._emergency_stopped, self._robot_status)
         for ns, status in changes:
             self.get_logger().info(f'robot status changed: {ns} -> {status}')
             msg = String()
@@ -253,6 +274,35 @@ class FleetNode(Node):
         robot = payload.get('robot')
         self._anomaly_busy.discard(robot)
         self.get_logger().info(f'{robot} finished handling anomaly, ready for new triggers')
+
+    def _on_emergency_stop_all(self, msg):
+        """설계도 '비상정지 수신' - 순찰 진행 여부와 무관하게(사용자 확인:
+        등록된 로봇 전체 대상) 정지 신호를 로봇별로 전파한다. 실제 Nav2
+        cancelTask() 호출과 도킹/일시정지 세부 처리는 Control Node 몫이라
+        Fleet은 여기서 끝 - _check_robot_status()가 다음 폴링 tick에
+        emergency_stopped를 보고 EMERGENCY_STOP을 퍼블리시한다."""
+        try:
+            payload = json.loads(msg.data) if msg.data else {}
+        except json.JSONDecodeError:
+            payload = {}
+
+        if not payload.get('stop', True):
+            # 해제 요청은 아직 다루지 않는다 (남은 작업 4번에서 구현 예정).
+            self.get_logger().warn(
+                'emergency_stop_all: stop=false ignored, release is not implemented yet')
+            return
+
+        robots = list(self._status_pubs.keys())
+        if not robots:
+            self.get_logger().warn('emergency_stop_all: no registered robot, ignoring')
+            return
+
+        self.get_logger().warn(f'emergency stop-all triggered -> {robots}')
+        out = String()
+        out.data = '{}'
+        for ns in robots:
+            self._emergency_stopped.add(ns)
+            self._emergency_pubs[ns].publish(out)
 
     def _on_release(self, msg):
         rel = json.loads(msg.data)

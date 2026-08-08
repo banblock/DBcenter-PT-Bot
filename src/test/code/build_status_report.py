@@ -26,6 +26,7 @@ STATUS_TAG_CLASS = {
     robot_status.IDLE: 'tag--idle',
     robot_status.PATROLLING: 'tag--patrol',
     robot_status.DISPATCHING: 'tag--dispatch',
+    robot_status.EMERGENCY_STOP: 'tag--emergency',
 }
 
 
@@ -46,7 +47,7 @@ for case in SCENARIOS:
     step_cards = []
     for i, step in enumerate(case['steps']):
         changes = robot_status.detect_changes(
-            [ns], step['missions'], step['anomaly_busy'], previous)
+            [ns], step['missions'], step['anomaly_busy'], step['emergency_stopped'], previous)
         status = previous[ns]
         changed = any(c_ns == ns for c_ns, _ in changes)
         assert status == step['expected_status'] and changed == step['expected_change'], (
@@ -73,7 +74,8 @@ scenarios_html = '\n'.join(scenario_sections)
 # ---- 예외/우선순위 케이스 ----------------------------------------------
 edge_case_rows = []
 for ec in EDGE_CASES:
-    result = robot_status.compute_status(ec['ns'], ec['missions'], ec['anomaly_busy'])
+    result = robot_status.compute_status(
+        ec['ns'], ec['missions'], ec['anomaly_busy'], ec['emergency_stopped'])
     ok = result == ec['expected']
     edge_case_rows.append(f'''
       <li class="edge-case">
@@ -101,7 +103,7 @@ VOCAB_ROWS = [
     (robot_status.REPORTING, '결과 전송 중', 'Control Node (검증 완료 시점 필요)'),
     (robot_status.RESUMING, '순찰 복귀 중', 'Control Node (중단 지점 도달 필요)'),
     (robot_status.CHARGING, '충전 중', 'Control Node (배터리 정보 필요, Fleet 미구독)'),
-    (robot_status.EMERGENCY_STOP, '긴급정지', 'Fleet 예정 (남은 작업 3번 - 긴급정지 처리)'),
+    (robot_status.EMERGENCY_STOP, '긴급정지', 'Fleet ✓ (emergency_stopped 등록 시점, 해제 로직은 아직 없음)'),
     (robot_status.ERROR, '오류', 'Control Node (내비게이션 실패 등)'),
     (robot_status.ALERTING, '현장 경보 중', 'Control Node (관제 ACK 필요)'),
     (robot_status.UNDOCKING, '출발 준비', 'Control Node (도킹 상태 필요, Fleet 미구독)'),
@@ -128,6 +130,7 @@ html = f'''<!doctype html>
   --idle: #5b6b78;
   --patrol: #2e6fa8;
   --dispatch: #b3691e;
+  --emergency: #b3261e;
   --win: #1d8a72;
   --fail: #b3261e;
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
@@ -143,6 +146,7 @@ html = f'''<!doctype html>
     --idle: #90a0ac;
     --patrol: #6fb3e8;
     --dispatch: #e8a166;
+    --emergency: #ff6b5c;
     --win: #55cbac;
     --fail: #ff6b5c;
   }}
@@ -156,6 +160,7 @@ html = f'''<!doctype html>
   --idle: #90a0ac;
   --patrol: #6fb3e8;
   --dispatch: #e8a166;
+  --emergency: #ff6b5c;
   --win: #55cbac;
   --fail: #ff6b5c;
 }}
@@ -246,6 +251,7 @@ tr.row--owned td {{ color: var(--ink); font-weight: 600; }}
 .tag--idle {{ background: color-mix(in srgb, var(--idle) 18%, transparent); color: var(--idle); }}
 .tag--patrol {{ background: color-mix(in srgb, var(--patrol) 18%, transparent); color: var(--patrol); }}
 .tag--dispatch {{ background: color-mix(in srgb, var(--dispatch) 18%, transparent); color: var(--dispatch); }}
+.tag--emergency {{ background: color-mix(in srgb, var(--emergency) 18%, transparent); color: var(--emergency); }}
 .tag--win {{ background: color-mix(in srgb, var(--win) 18%, transparent); color: var(--win); }}
 .tag--fail {{ background: color-mix(in srgb, var(--fail) 18%, transparent); color: var(--fail); }}
 h2.section-title {{ font-family: var(--mono); font-size: 16px; font-weight: 600; margin: 0 0 4px; }}
@@ -268,11 +274,13 @@ footer code {{
     <h1>Fleet은 로봇 상태를 어디까지 아는가</h1>
     <p class="lede">
       UI팀이 준 robot_state 15개 상태 중 Fleet Node가 지금 실제로
-      판정하는 건 IDLE / PATROLLING / DISPATCHING 3개뿐입니다. 미션
-      배정 여부와 이상신호 대응 여부만으로 판정하고, 1Hz 폴링으로 변화가
-      있을 때만 <code>/control/&lt;robot&gt;_State</code>에 퍼블리시합니다.
-      아래는 test_robot_status.py에 정의된 시나리오를 robot_status.py로
-      실제 실행한 결과입니다.
+      판정하는 건 EMERGENCY_STOP / IDLE / PATROLLING / DISPATCHING
+      4개뿐입니다. 미션 배정 여부, 이상신호 대응 여부, 긴급정지 여부만으로
+      판정하고, 1Hz 폴링으로 변화가 있을 때만
+      <code>/control/&lt;robot&gt;_State</code>에 퍼블리시합니다. 긴급정지는
+      해제(재개) 로직이 아직 없어서 한 번 걸리면 다른 상태를 전부
+      덮어쓰고 계속 유지됩니다. 아래는 test_robot_status.py에 정의된
+      시나리오를 robot_status.py로 실제 실행한 결과입니다.
     </p>
     <div class="meta">
       <span>Fleet이 판정하는 상태 {len(robot_status.FLEET_KNOWN_STATES)}개 / UI 전체 어휘 {len(VOCAB_ROWS)}개</span>

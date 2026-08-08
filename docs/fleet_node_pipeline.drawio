@@ -1,6 +1,6 @@
 <mxfile host="app.diagrams.net">
   <diagram name="Fleet Node - 구현 파이프라인" id="fleetNodePipeline">
-    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1450" pageHeight="4450" math="0" shadow="0">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1450" pageHeight="4950" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -111,6 +111,23 @@
         <mxCell id="estat5" value="예" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;" edge="1" parent="1" source="Dstat" target="Nstat3"><mxGeometry relative="1" as="geometry" /></mxCell>
         <mxCell id="estat6" value="아니오" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.9;entryDx=0;entryDy=0;" edge="1" parent="1" source="Dstat" target="Nstat1"><mxGeometry relative="1" as="geometry" /></mxCell>
         <mxCell id="estat7" value="[ROS] robot_state 퍼블리시 / std_msgs/String(JSON) / {robot,status} (IDLE|PATROLLING|DISPATCHING) / /control/&lt;robot&gt;_State 발행, UI 소비 (INSPECTING 이후 상태는 Control Node가 같은 토픽에 이어서 퍼블리시)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;" edge="1" parent="1" source="Nstat3" target="A1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="G⑨" value="⑨ 긴급정지 처리" style="text;html=1;align=left;verticalAlign=middle;fontSize=15;fontStyle=1;fontColor=#666666;" vertex="1" parent="1"><mxGeometry x="440.0" y="4230.0" width="460" height="30" as="geometry" /></mxCell>
+        <mxCell id="NE1" value="_on_emergency_stop_all()&#10;(fleet_node.py)" style="rounded=0;whiteSpace=wrap;html=1;arcSize=6;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1"><mxGeometry x="480.0" y="4275.0" width="260" height="55" as="geometry" /></mxCell>
+        <mxCell id="DE1" value="stop 필드가&#10;True인가?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" vertex="1" parent="1"><mxGeometry x="450.0" y="4375.0" width="200" height="90" as="geometry" /></mxCell>
+        <mxCell id="NE2" value="무시&#10;(해제 로직 없음, 경고 로그만)" style="rounded=0;whiteSpace=wrap;html=1;arcSize=6;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1"><mxGeometry x="780.0" y="4525.0" width="260" height="55" as="geometry" /></mxCell>
+        <mxCell id="NE3" value="등록된 로봇 목록 조회&#10;(self._status_pubs.keys())" style="rounded=0;whiteSpace=wrap;html=1;arcSize=6;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1"><mxGeometry x="480.0" y="4525.0" width="260" height="55" as="geometry" /></mxCell>
+        <mxCell id="DE2" value="등록된 로봇이&#10;있는가?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" vertex="1" parent="1"><mxGeometry x="450.0" y="4630.0" width="200" height="90" as="geometry" /></mxCell>
+        <mxCell id="NE4" value="무시&#10;(등록된 로봇 없음)" style="rounded=0;whiteSpace=wrap;html=1;arcSize=6;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1"><mxGeometry x="780.0" y="4780.0" width="260" height="55" as="geometry" /></mxCell>
+        <mxCell id="NE5" value="_emergency_stopped 전체 추가 +&#10;emergency_stop 발행 (로봇별)" style="rounded=0;whiteSpace=wrap;html=1;arcSize=6;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1"><mxGeometry x="480.0" y="4780.0" width="260" height="55" as="geometry" /></mxCell>
+        <mxCell id="ees0" value="[ROS] emergency_stop_all 수신 / std_msgs/String(JSON) / {stop:true} (스키마 미확정, Backend 팀 확인 필요) / /backend/emergency_stop_all 구독" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;" edge="1" parent="1" source="A1" target="NE1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ees1" value="[내부] payload / dict / {stop?:bool} / stop 필드 존재 여부 확인 (기본값 True)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;" edge="1" parent="1" source="NE1" target="DE1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ees2" value="아니오" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;" edge="1" parent="1" source="DE1" target="NE2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ees3" value="예" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;" edge="1" parent="1" source="DE1" target="NE3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ees4" value="[내부] robots / list[str] / 등록된 로봇 네임스페이스 스냅샷 / 대상 로봇 유무 확인" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;" edge="1" parent="1" source="NE3" target="DE2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ees5" value="아니오" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;" edge="1" parent="1" source="DE2" target="NE4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ees6" value="예" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;" edge="1" parent="1" source="DE2" target="NE5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ees7" value="[ROS] emergency_stop 발행 / std_msgs/String(JSON) / {} / /fleet/&lt;robot&gt;/emergency_stop 발행 (실제 Nav2 cancelTask() 호출은 Control Node 몫)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;" edge="1" parent="1" source="NE5" target="A4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ees8" value="[내부] self._emergency_stopped / set[str] / 긴급정지된 로봇 집합 / 상태 판정 시 최우선 조회" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;dashed=1;" edge="1" parent="1" source="NE5" target="Nstat2"><mxGeometry relative="1" as="geometry" /></mxCell>
       </root>
     </mxGraphModel>
   </diagram>

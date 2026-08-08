@@ -35,19 +35,19 @@ SCENARIOS = [
         'robot': 'robot3',
         'steps': [
             {'when': '초기 상태 (아직 구역 배정 전)',
-             'missions': set(), 'anomaly_busy': set(),
+             'missions': set(), 'anomaly_busy': set(), 'emergency_stopped': set(),
              'expected_status': robot_status.IDLE, 'expected_change': True},
             {'when': 'Backend가 구역 배정 -> 미션 생김',
-             'missions': {'robot3'}, 'anomaly_busy': set(),
+             'missions': {'robot3'}, 'anomaly_busy': set(), 'emergency_stopped': set(),
              'expected_status': robot_status.PATROLLING, 'expected_change': True},
             {'when': '다음 폴링 tick, 아무것도 안 바뀜',
-             'missions': {'robot3'}, 'anomaly_busy': set(),
+             'missions': {'robot3'}, 'anomaly_busy': set(), 'emergency_stopped': set(),
              'expected_status': robot_status.PATROLLING, 'expected_change': False},
             {'when': '이상신호 트리거로 dispatch',
-             'missions': {'robot3'}, 'anomaly_busy': {'robot3'},
+             'missions': {'robot3'}, 'anomaly_busy': {'robot3'}, 'emergency_stopped': set(),
              'expected_status': robot_status.DISPATCHING, 'expected_change': True},
             {'when': '_on_anomaly_done 수신 -> 순찰 복귀',
-             'missions': {'robot3'}, 'anomaly_busy': set(),
+             'missions': {'robot3'}, 'anomaly_busy': set(), 'emergency_stopped': set(),
              'expected_status': robot_status.PATROLLING, 'expected_change': True},
         ],
     },
@@ -61,11 +61,36 @@ SCENARIOS = [
         'robot': 'robot8',
         'steps': [
             {'when': '초기 순찰 중',
-             'missions': {'robot8'}, 'anomaly_busy': set(),
+             'missions': {'robot8'}, 'anomaly_busy': set(), 'emergency_stopped': set(),
              'expected_status': robot_status.PATROLLING, 'expected_change': True},
             {'when': 'Backend 구역 재배정 -> robot8 미션 사라짐',
-             'missions': set(), 'anomaly_busy': set(),
+             'missions': set(), 'anomaly_busy': set(), 'emergency_stopped': set(),
              'expected_status': robot_status.IDLE, 'expected_change': True},
+        ],
+    },
+    {
+        'name': 'emergency_stop_overrides_and_persists',
+        'label': '순찰 중 긴급정지 → 이후 이상신호가 겹쳐도 EMERGENCY_STOP 유지',
+        'why': ('robot8이 순찰 중에 /backend/emergency_stop_all이 오면 즉시 '
+                'EMERGENCY_STOP으로 바뀐다. 해제(재개) 로직이 아직 없어서 그 '
+                '뒤로는 계속 EMERGENCY_STOP이어야 하는데, fleet_node.py가 긴급정지 '
+                '중인 로봇을 anomaly 후보에서 걸러내지 않는 극단 상황(다른 트리거가 '
+                '겹쳐 들어와 anomaly_busy에도 잡힌 경우)까지 가정해도 우선순위상 '
+                'EMERGENCY_STOP이 이겨야 한다는 계약을 고정.'),
+        'robot': 'robot8',
+        'steps': [
+            {'when': '순찰 중',
+             'missions': {'robot8'}, 'anomaly_busy': set(), 'emergency_stopped': set(),
+             'expected_status': robot_status.PATROLLING, 'expected_change': True},
+            {'when': '긴급정지 트리거 수신',
+             'missions': {'robot8'}, 'anomaly_busy': set(), 'emergency_stopped': {'robot8'},
+             'expected_status': robot_status.EMERGENCY_STOP, 'expected_change': True},
+            {'when': '다음 폴링 tick, 아무것도 안 바뀜',
+             'missions': {'robot8'}, 'anomaly_busy': set(), 'emergency_stopped': {'robot8'},
+             'expected_status': robot_status.EMERGENCY_STOP, 'expected_change': False},
+            {'when': '이상신호 트리거가 겹쳐 들어옴 (극단 케이스)',
+             'missions': {'robot8'}, 'anomaly_busy': {'robot8'}, 'emergency_stopped': {'robot8'},
+             'expected_status': robot_status.EMERGENCY_STOP, 'expected_change': False},
         ],
     },
 ]
@@ -77,7 +102,7 @@ def test_scenarios_follow_expected_transitions(case):
     previous = {}
     for step in case['steps']:
         changes = robot_status.detect_changes(
-            [ns], step['missions'], step['anomaly_busy'], previous)
+            [ns], step['missions'], step['anomaly_busy'], step['emergency_stopped'], previous)
         assert previous[ns] == step['expected_status']
         changed = any(c_ns == ns for c_ns, _ in changes)
         assert changed == step['expected_change']
@@ -95,7 +120,7 @@ EDGE_CASES = [
         # 지우지 않고 그대로 재발행함) - 그래도 DISPATCHING이 나와야
         # 한다는 우선순위 규칙을 명시적으로 고정.
         'detail': 'robot3가 missions에도 있고 anomaly_busy에도 있을 때 -> DISPATCHING.',
-        'missions': {'robot3'}, 'anomaly_busy': {'robot3'},
+        'missions': {'robot3'}, 'anomaly_busy': {'robot3'}, 'emergency_stopped': set(),
         'ns': 'robot3', 'expected': robot_status.DISPATCHING,
     },
     {
@@ -105,22 +130,39 @@ EDGE_CASES = [
         # 후보가 됨), 방어적으로 우선순위 규칙이 missions 존재 여부와
         # 무관하다는 걸 확인.
         'detail': 'robot9가 missions에는 없고 anomaly_busy에만 있을 때 -> DISPATCHING.',
-        'missions': set(), 'anomaly_busy': {'robot9'},
+        'missions': set(), 'anomaly_busy': {'robot9'}, 'emergency_stopped': set(),
         'ns': 'robot9', 'expected': robot_status.DISPATCHING,
     },
     {
         'name': 'unknown_robot_is_idle',
         'title': '미션도 이상신호 대응도 없으면 IDLE',
         'detail': 'robot8이 missions에도 anomaly_busy에도 없을 때 -> IDLE.',
-        'missions': set(), 'anomaly_busy': set(),
+        'missions': set(), 'anomaly_busy': set(), 'emergency_stopped': set(),
         'ns': 'robot8', 'expected': robot_status.IDLE,
+    },
+    {
+        'name': 'emergency_stop_wins_over_anomaly_and_mission',
+        'title': '긴급정지가 이상신호 대응·미션 보유보다 최우선',
+        # 긴급정지는 다른 어떤 활동 중이었든 무조건 이겨야 하는 안전
+        # 이벤트라는 걸 세 조건이 모두 겹친 최악의 경우로 고정.
+        'detail': 'robot3가 missions/anomaly_busy/emergency_stopped 세 곳 모두에 있을 때 -> EMERGENCY_STOP.',
+        'missions': {'robot3'}, 'anomaly_busy': {'robot3'}, 'emergency_stopped': {'robot3'},
+        'ns': 'robot3', 'expected': robot_status.EMERGENCY_STOP,
+    },
+    {
+        'name': 'emergency_stop_without_mission_or_anomaly',
+        'title': 'idle 로봇도 긴급정지되면 EMERGENCY_STOP',
+        'detail': 'robot9가 missions/anomaly_busy 어디에도 없고 emergency_stopped에만 있을 때 -> EMERGENCY_STOP.',
+        'missions': set(), 'anomaly_busy': set(), 'emergency_stopped': {'robot9'},
+        'ns': 'robot9', 'expected': robot_status.EMERGENCY_STOP,
     },
 ]
 
 
 @pytest.mark.parametrize('case', EDGE_CASES, ids=[c['name'] for c in EDGE_CASES])
 def test_edge_cases(case):
-    status = robot_status.compute_status(case['ns'], case['missions'], case['anomaly_busy'])
+    status = robot_status.compute_status(
+        case['ns'], case['missions'], case['anomaly_busy'], case['emergency_stopped'])
     assert status == case['expected']
 
 
@@ -131,10 +173,10 @@ def test_detect_changes_only_reports_changed_robots():
     # 퍼블리시가 매초 쌓인다.
     previous = {}
     first = robot_status.detect_changes(
-        ['robot3', 'robot8'], {'robot3', 'robot8'}, set(), previous)
+        ['robot3', 'robot8'], {'robot3', 'robot8'}, set(), set(), previous)
     assert {ns for ns, _ in first} == {'robot3', 'robot8'}
 
     second = robot_status.detect_changes(
-        ['robot3', 'robot8'], {'robot3', 'robot8'}, {'robot3'}, previous)
+        ['robot3', 'robot8'], {'robot3', 'robot8'}, {'robot3'}, set(), previous)
     assert second == [('robot3', robot_status.DISPATCHING)]
     assert previous == {'robot3': robot_status.DISPATCHING, 'robot8': robot_status.PATROLLING}

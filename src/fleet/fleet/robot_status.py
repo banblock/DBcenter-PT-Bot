@@ -4,22 +4,21 @@ zone_router.py / robot_selector.py와 같은 패턴으로 fleet_node.py에서 �
 설계도의 `로봇 상태 변화 감지? -> 로봇 상태 퍼블리시`를 구현한다. UI팀이
 2026-08-06에 스크린샷으로 준 robot_state 15개 상태표(OFFLINE ~ DOCKING)가
 공식 어휘인데, 그중 Fleet Node가 지금 실제로 아는 정보(미션 배정 여부,
-이상신호 대응 여부)만으로 판정 가능한 상태는 IDLE / PATROLLING /
-DISPATCHING 3개뿐이다.
+이상신호 대응 여부, 긴급정지 여부)만으로 판정 가능한 상태는 EMERGENCY_STOP /
+IDLE / PATROLLING / DISPATCHING 4개뿐이다.
 
-나머지 12개는 아래처럼 전부 Fleet이 구독하지 않는 입력이 있어야 판정
+나머지 11개는 아래처럼 전부 Fleet이 구독하지 않는 입력이 있어야 판정
 가능해서 로직을 만들지 않았다 (사용자 확인 후 결정 - "Fleet이 직접 아는
 것만" 스코프):
 - INSPECTING / REPORTING / RESUMING: 이상신호 대응의 세부 진행 상태.
   "존 뷰포인트 도착", "검증 완료", "중단 지점 도달" 같은 이탈 조건은
   Control Node의 nav 피드백이 있어야 아는데, Fleet은 dispatch(트리거)와
   done(완료) 두 끝점만 보고 그 사이는 못 본다.
-- CHARGING / DOCKING / UNDOCKING / MAPPING / ERROR / EMERGENCY_STOP /
-  OFFLINE / ALERTING: 배터리, 도킹 상태, heartbeat, SLAM 진행 등 Fleet에
-  아예 들어오는 토픽이 없다.
+- CHARGING / DOCKING / UNDOCKING / MAPPING / ERROR / OFFLINE / ALERTING:
+  배터리, 도킹 상태, heartbeat, SLAM 진행 등 Fleet에 아예 들어오는 토픽이
+  없다.
 - PATROL_PAUSED: 남은 작업 4번(UI 명령 연동)에서 일시정지/재개 명령이
-  생기면 그때 판정 로직이 생긴다. EMERGENCY_STOP도 남은 작업 3번(긴급정지
-  처리)과 연결.
+  생기면 그때 판정 로직이 생긴다.
 
 /control/<ns>_State 토픽은 Fleet과 Control Node가 같이 쓴다 - 각자 자기가
 실제로 아는 상태만 퍼블리시하는 순차적 소유권 이양 방식(Fleet이
@@ -51,18 +50,22 @@ UNDOCKING = 'UNDOCKING'
 DOCKING = 'DOCKING'
 
 # Fleet Node가 지금 실제로 판정하는 상태만 (compute_status()의 우선순위
-# 순서와 동일하게 나열 - 이상신호 대응 중이면 미션이 있어도 DISPATCHING이
-# 이긴다).
-FLEET_KNOWN_STATES = (DISPATCHING, PATROLLING, IDLE)
+# 순서와 동일하게 나열 - 긴급정지가 최우선이고, 그다음 이상신호 대응 중이면
+# 미션이 있어도 DISPATCHING이 이긴다).
+FLEET_KNOWN_STATES = (EMERGENCY_STOP, DISPATCHING, PATROLLING, IDLE)
 
 
-def compute_status(ns, missions, anomaly_busy):
-    """로봇 하나의 현재 상태를 판정한다 (Fleet이 아는 3개 상태 한정).
+def compute_status(ns, missions, anomaly_busy, emergency_stopped):
+    """로봇 하나의 현재 상태를 판정한다 (Fleet이 아는 4개 상태 한정).
 
-    우선순위: 이상신호 대응 중(anomaly_busy) > 미션 보유(patrolling) >
-    둘 다 아님(idle). 이상신호 대응은 순찰 미션을 일시 이탈하는 상황이라
-    미션이 아직 남아있어도(재발행 중이라도) DISPATCHING이 우선한다.
+    우선순위: 긴급정지(emergency_stopped) > 이상신호 대응 중(anomaly_busy)
+    > 미션 보유(patrolling) > 둘 다 아님(idle). 긴급정지는 다른 어떤
+    활동보다도 우선해야 하는 안전 이벤트라 anomaly_busy/missions 상태와
+    무관하게 최우선으로 판정한다 - 해제(재개) 로직은 아직 없으므로 한 번
+    긴급정지되면 이 세트에서 빠지기 전까지는 계속 EMERGENCY_STOP을 유지한다.
     """
+    if ns in emergency_stopped:
+        return EMERGENCY_STOP
     if ns in anomaly_busy:
         return DISPATCHING
     if ns in missions:
@@ -70,7 +73,7 @@ def compute_status(ns, missions, anomaly_busy):
     return IDLE
 
 
-def detect_changes(robots, missions, anomaly_busy, previous):
+def detect_changes(robots, missions, anomaly_busy, emergency_stopped, previous):
     """전체 로봇에 대해 상태를 새로 계산하고, previous와 달라진 것만
     골라낸다.
 
@@ -84,7 +87,7 @@ def detect_changes(robots, missions, anomaly_busy, previous):
     """
     changes = []
     for ns in robots:
-        status = compute_status(ns, missions, anomaly_busy)
+        status = compute_status(ns, missions, anomaly_busy, emergency_stopped)
         if previous.get(ns) != status:
             previous[ns] = status
             changes.append((ns, status))
