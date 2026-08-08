@@ -399,6 +399,7 @@ class DetectCctvNode(Node):
                 "source": frames,
                 "conf": self.confidence,
                 "imgsz": self.inference_size,
+                "augment": True,
                 "verbose": False,
             }
             if self.device:
