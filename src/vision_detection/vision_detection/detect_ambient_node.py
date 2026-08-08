@@ -5,7 +5,7 @@ import rclpy
 from ament_index_python.packages import get_package_share_directory
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CompressedImage, Image
 from std_msgs.msg import Bool
 from std_srvs.srv import SetBool
 
@@ -46,6 +46,7 @@ class DetectAmbientNode(Node):
         #평상시 1장마다 1번씩 처리, 쓰로틀 시 10장마다 1번씩 처리
         self.declare_parameter('normal_process_every_n', 1)
         self.declare_parameter('throttled_process_every_n', 10)
+        self.declare_parameter('jpeg_quality', 80)
 
         model_path = self.get_parameter('model_path').value
         conf_threshold = CONF_THRESHOLD
@@ -53,6 +54,7 @@ class DetectAmbientNode(Node):
         self.anomaly_classes = set(self.get_parameter('anomaly_classes').value)
         self.normal_process_every_n = self.get_parameter('normal_process_every_n').value
         self.throttled_process_every_n = self.get_parameter('throttled_process_every_n').value
+        self.jpeg_quality = int(self.get_parameter('jpeg_quality').value)
 
         self.detector = YoloDetector(model_path, conf_threshold)
 
@@ -85,7 +87,7 @@ class DetectAmbientNode(Node):
             }
             self._camera_id_by_topic[topic] = CAMERA_ID_BY_ROBOT.get(robot_id)
             self._image_pubs[topic] = self.create_publisher(
-                Image, f'/detection/{robot_id}_cam/detection_image', image_qos)
+                CompressedImage, f'/detection/{robot_id}_cam/detection_image', image_qos)
             self._anomaly_pubs[topic] = self.create_publisher(
                 Bool, f'/detection/{robot_id}_cam/anomaly_detected', 10)
             self._subs.append(self.create_subscription(
@@ -128,7 +130,8 @@ class DetectAmbientNode(Node):
 
             # 이상상황이 감지되는 동안에는 매 프레임 이미지를 계속 보내고, 감지가 끝나면(빈 집합) 멈춘다
             if detected_classes:
-                self._image_pubs[topic].publish(self.detector.to_image_msg(annotated_image))
+                self._image_pubs[topic].publish(
+                    self.detector.to_compressed_image_msg(annotated_image, jpeg_quality=self.jpeg_quality))
 
             # CamState: 감지(켜짐)는 1프레임만 봐도 즉시 발행하되, 이미 진행 중인 상황은 재발행하지
             # 않는다. 진행 중 여부(꺼짐 판정)는 최근 프레임 윈도우의 과반으로만 해제해서,

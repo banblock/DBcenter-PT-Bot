@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import glob
 import re
+import threading
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import cv2
 import rclpy
 from ament_index_python.packages import get_package_share_directory
-from cv_bridge import CvBridge
 from patrol_interfaces.msg import CamState
 from rclpy.node import Node
 from rclpy.qos import (
@@ -21,7 +21,7 @@ from rclpy.qos import (
     QoSProfile,
     ReliabilityPolicy,
 )
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import Bool
 from ultralytics import YOLO
 
@@ -37,6 +37,11 @@ class CameraContext:
     image_publisher: Any
     last_status: Dict[str, bool]
     detection_windows: Dict[str, "deque[bool]"]
+    frame_lock: threading.Lock = field(default_factory=threading.Lock)
+    latest_frame: Optional[Any] = None
+    frame_sequence: int = 0
+    last_inferred_sequence: int = -1
+    capture_thread: Optional[threading.Thread] = None
     last_warning_time: float = 0.0
 
 
@@ -64,6 +69,7 @@ class DetectCctvNode(Node):
         self.declare_parameter("model_path", "models/cctv_best.pt")
         self.declare_parameter("confidence", 0.5)
         self.declare_parameter("publish_hz", 10.0)
+        self.declare_parameter("jpeg_quality", 80)
         self.declare_parameter("device", "")
         self.declare_parameter("image_width", 1280)
         self.declare_parameter("image_height", 960)
@@ -82,6 +88,7 @@ class DetectCctvNode(Node):
         self.model_path = self._resolve_model_path(configured_model_path)
         self.confidence = float(self.get_parameter("confidence").value)
         self.publish_hz = float(self.get_parameter("publish_hz").value)
+        self.jpeg_quality = int(self.get_parameter("jpeg_quality").value)
         self.device = str(self.get_parameter("device").value)
         self.image_width = int(self.get_parameter("image_width").value)
         self.image_height = int(self.get_parameter("image_height").value)
@@ -89,12 +96,15 @@ class DetectCctvNode(Node):
         self.inference_size = int(self.get_parameter("inference_size").value)
 
         self._validate_camera_parameters(camera_devices, camera_ids)
+        if not 1 <= self.jpeg_quality <= 100:
+            raise ValueError("jpeg_quality는 1부터 100 사이여야 합니다.")
 
-        self.bridge = CvBridge()
         # 두 카메라가 동일한 학습 모델을 공유하여 메모리 사용량을 줄인다.
         self.model = YOLO(self.model_path)
         self.cameras: List[CameraContext] = []
         self.task_started = False
+        self.shutdown_event = threading.Event()
+        self._cameras_released = False
 
         self.start_subscription = self.create_subscription(
             Bool,
@@ -117,6 +127,7 @@ class DetectCctvNode(Node):
                     camera_device, camera_id, camera_number
                 )
                 self.cameras.append(camera)
+            self._start_capture_threads()
         except Exception:
             self._release_cameras()
             raise
@@ -131,6 +142,7 @@ class DetectCctvNode(Node):
         self.get_logger().info(
             f"다중 CCTV 준비 완료 | cameras=[{camera_summary}] | "
             f"model={self.model_path} | conf={self.confidence:.2f} | "
+            f"jpeg_quality={self.jpeg_quality} | "
             "/ui/start 대기 중"
         )
 
@@ -227,7 +239,7 @@ class DetectCctvNode(Node):
             depth=1,
         )
         image_publisher = self.create_publisher(
-            Image,
+            CompressedImage,
             f"/detection/{camera_id}/detection_image",
             image_qos,
         )
@@ -318,19 +330,66 @@ class DetectCctvNode(Node):
         )
         return capture
 
+    def _start_capture_threads(self) -> None:
+        """카메라마다 전용 스레드를 시작해 드라이버 버퍼를 계속 비운다.
+
+        타이머 콜백에서 직접 capture.read()를 하면 그 순간 드라이버 버퍼에 남아있던
+        오래된 프레임을 읽을 수 있다(특히 추론이 잠깐 밀리면 버퍼가 쌓임). 이상감지
+        용도라 오래된 프레임으로 판단이 늦어지면 안 되므로, 별도 스레드가 계속
+        최신 프레임 1장만 유지하도록 덮어쓴다.
+        """
+        for camera in self.cameras:
+            camera.capture_thread = threading.Thread(
+                target=self._capture_loop,
+                args=(camera,),
+                name=f"{camera.camera_id}_latest_frame_capture",
+                daemon=True,
+            )
+            camera.capture_thread.start()
+
+    def _capture_loop(self, camera: CameraContext) -> None:
+        while not self.shutdown_event.is_set():
+            success, frame = camera.capture.read()
+
+            if not success or frame is None:
+                now = time.monotonic()
+                if now - camera.last_warning_time >= 5.0:
+                    self.get_logger().warning(
+                        f"{camera.camera_id}: 카메라 프레임을 읽지 못했습니다."
+                    )
+                    camera.last_warning_time = now
+                continue
+
+            with camera.frame_lock:
+                camera.latest_frame = frame
+                camera.frame_sequence += 1
+
+    def _snapshot_latest_frame(self, camera: CameraContext) -> Optional[tuple[Any, int]]:
+        with camera.frame_lock:
+            if camera.latest_frame is None:
+                return None
+            return camera.latest_frame.copy(), camera.frame_sequence
+
     def process_frames(self) -> None:
         if not self.task_started:
             return
 
         cameras_with_frames: List[CameraContext] = []
         frames: List[Any] = []
+        frame_sequences: List[int] = []
 
         for camera in self.cameras:
-            frame = self._read_frame(camera)
-            if frame is None:
+            snapshot = self._snapshot_latest_frame(camera)
+            if snapshot is None:
+                continue
+            frame, sequence = snapshot
+            # 지난 추론 이후 새 프레임이 안 들어왔으면 같은 화면을 다시 추론하지 않는다
+            # (카메라 프레임레이트가 publish_hz보다 낮을 때 GPU 낭비 방지).
+            if sequence == camera.last_inferred_sequence:
                 continue
             cameras_with_frames.append(camera)
             frames.append(frame)
+            frame_sequences.append(sequence)
 
         if not frames:
             return
@@ -351,27 +410,14 @@ class DetectCctvNode(Node):
                     "YOLO 결과 수가 입력한 카메라 프레임 수와 다릅니다."
                 )
 
-            for camera, result in zip(cameras_with_frames, results):
+            for camera, result, sequence in zip(cameras_with_frames, results, frame_sequences):
                 detected_status = self._extract_detected_status(result)
                 stable_status = self._apply_debounce(camera, detected_status)
                 self._publish_status(camera, stable_status)
                 self._publish_image(camera, result.plot())
+                camera.last_inferred_sequence = sequence
         except Exception as exc:
             self.get_logger().error(f"YOLO 배치 처리 중 오류: {exc}")
-
-    def _read_frame(self, camera: CameraContext) -> Optional[Any]:
-        success, frame = camera.capture.read()
-
-        if not success or frame is None:
-            now = time.monotonic()
-            if now - camera.last_warning_time >= 5.0:
-                self.get_logger().warning(
-                    f"{camera.camera_id}: 카메라 프레임을 읽지 못했습니다."
-                )
-                camera.last_warning_time = now
-            return None
-
-        return frame
 
     def _extract_detected_status(self, result: Any) -> Dict[str, bool]:
         detected_status = self._default_status()
@@ -409,9 +455,22 @@ class DetectCctvNode(Node):
         return stable_status
 
     def _publish_image(self, camera: CameraContext, frame: Any) -> None:
-        message = self.bridge.cv2_to_imgmsg(frame, encoding="bgr8")
+        """UI 프레임을 JPEG로 압축해서 발행한다(raw BGR8 대비 DDS 전송량을 크게 줄임 -
+        CCTV 2대를 네트워크로 계속 스트리밍하는 배포 환경에서 대역폭이 실제로 문제됨)."""
+        success, encoded = cv2.imencode(
+            ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality]
+        )
+        if not success:
+            self.get_logger().warning(
+                f"{camera.camera_id}: UI 프레임 JPEG 압축에 실패했습니다."
+            )
+            return
+
+        message = CompressedImage()
         message.header.stamp = self.get_clock().now().to_msg()
         message.header.frame_id = camera.camera_id
+        message.format = "jpeg"
+        message.data = encoded.tobytes()
         camera.image_publisher.publish(message)
 
     def _publish_status(
@@ -440,8 +499,23 @@ class DetectCctvNode(Node):
         self.status_publisher.publish(message)
 
     def _release_cameras(self) -> None:
+        if self._cameras_released:
+            return
+        self._cameras_released = True
+        self.shutdown_event.set()
+
+        # 정상적인 read() 반환을 먼저 기다린 뒤 장치를 해제한다.
+        for camera in self.cameras:
+            if camera.capture_thread is not None:
+                camera.capture_thread.join(timeout=0.5)
+
         for camera in self.cameras:
             camera.capture.release()
+
+        # release()로 read()가 풀린 스레드의 종료를 한 번 더 기다린다.
+        for camera in self.cameras:
+            if camera.capture_thread is not None and camera.capture_thread.is_alive():
+                camera.capture_thread.join(timeout=0.5)
 
     def destroy_node(self) -> bool:
         self._release_cameras()
