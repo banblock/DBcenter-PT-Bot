@@ -1,0 +1,38 @@
+detect_main_node:
+  ros__parameters:
+    service_call_timeout_sec: 5.0
+
+detect_ambient_node:
+  ros__parameters:
+    # model_path, conf_threshold는 여기서 지정하지 않음: detect_ambient_node.py가 자체 값을 사용
+    amr_cam_topics:
+      - "/robot3/oakd/rgb/preview/image_raw"
+      - "/robot8/oakd/rgb/preview/image_raw"
+    anomaly_classes:
+      - "fire"
+      - "smoke"
+      - "coolant"
+    normal_process_every_n: 1
+    throttled_process_every_n: 10
+
+detect_station_node:
+  ros__parameters:
+    amr_cam_topics:
+      - "/robot3/oakd/rgb/preview/image_raw"
+      - "/robot8/oakd/rgb/preview/image_raw"
+    fresh_frame_timeout_sec: 2.0
+    sample_frame_count: 3
+    hough_dp: 1.2
+    hough_min_dist: 50.0
+    hough_param1: 100.0
+    hough_param2: 30.0
+    hough_min_radius: 10
+    hough_max_radius: 100
+    # red wraps around hue 0/180 in OpenCV HSV, so "closed" needs two ranges
+    closed_hsv_lower1: [0, 70, 50]
+    closed_hsv_upper1: [10, 255, 255]
+    closed_hsv_lower2: [170, 70, 50]
+    closed_hsv_upper2: [180, 255, 255]
+    open_hsv_lower: [40, 70, 50]
+    open_hsv_upper: [80, 255, 255]
+    min_color_ratio: 0.3
