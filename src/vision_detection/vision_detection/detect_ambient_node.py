@@ -1,6 +1,7 @@
 import os
 import time
 from collections import deque
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -18,10 +19,20 @@ from patrol_interfaces.msg import CamState
 
 # AMR 주변에서 감지되면 "이상 상황"으로 취급할 클래스 이름들
 DEFAULT_ANOMALY_CLASSES = ['fire', 'smoke', 'coolant']
-# YOLO 모델
-DEFAULT_MODEL_PATH = os.path.join(get_package_share_directory('vision_detection'), 'models', 'ambient_best.pt')
 # 신뢰도 값
-CONF_THRESHOLD = 0.5
+CONF_THRESHOLD = 0.25
+
+# 3모델 WBF(Weighted Boxes Fusion) 앙상블 구성. 서로 다른 학습 버전(v2/v3) +
+# 아키텍처(yolov8n/yolo26n/yolo11n)를 섞어야 앙상블 다양성이 생긴다는 걸 실측으로
+# 확인했음(CCTV에서는 같은 버전 데이터로 학습한 n급 3개를 섞었더니 상관성이 너무
+# 높아서 오히려 단일 모델보다 나빴는데, AMR은 버전을 섞으니 F1이 단일 최고 모델
+# 대비 크게 개선됨: 0.907 -> 0.956, 오탐 6개->0개).
+# AMR 카메라(oakd rgb preview)는 실측상 ~10Hz라 3모델 순차 추론(로봇 2대분 ~60ms)도
+# 프레임 주기(100ms) 안에 충분히 들어와서 실시간성 문제 없음(CCTV처럼 30fps를
+# 맞춰야 하는 상황이 아님).
+ENSEMBLE_MODEL_FILES = ['ambient_yolov8n_v2.pt', 'ambient_yolo26n_v2.pt', 'ambient_yolo11n_v3.pt']
+ENSEMBLE_MODEL_TTA = [True, False, True]  # yolo26 계열은 augment=True 미지원(자동 revert)
+WBF_MERGE_IOU = 0.5
 
 # CamState.msg의 state 값 (detect_cctv_node와 동일한 규칙)
 STATE_BY_CLASS = {'fire': 0, 'smoke': 1, 'coolant': 2}
@@ -31,19 +42,84 @@ CAMERA_ID_BY_ROBOT = {'robot3': 2, 'robot8': 3}
 # 해제(꺼짐)는 최근 이 프레임 수 중 과반이 미검출이어야 확정한다 (detect_cctv_node와 동일한 방식).
 EVENT_WINDOW_SIZE = 3
 
+CLASS_COLORS = {'fire': (0, 0, 255), 'smoke': (0, 255, 255), 'coolant': (255, 128, 0)}
+
+
+def _iou(a, b):
+    ax0, ay0, ax1, ay1 = a
+    bx0, by0, bx1, by1 = b
+    ix0, iy0 = max(ax0, bx0), max(ay0, by0)
+    ix1, iy1 = min(ax1, bx1), min(ay1, by1)
+    iw, ih = max(0.0, ix1 - ix0), max(0.0, iy1 - iy0)
+    inter = iw * ih
+    area_a = max(0.0, ax1 - ax0) * max(0.0, ay1 - ay0)
+    area_b = max(0.0, bx1 - bx0) * max(0.0, by1 - by0)
+    union = area_a + area_b - inter
+    return inter / union if union > 0 else 0.0
+
+
+def weighted_boxes_fusion(boxes_list, scores_list, labels_list, iou_thr=0.5):
+    """모델별 예측을 confidence 가중 평균으로 병합(외부 ensemble-boxes 라이브러리 없이
+    직접 구현 - 검증 환경에서 numba/coverage 패키지 충돌로 그 라이브러리를 못 씀).
+    여러 모델이 동의한 박스일수록 합쳐진 confidence가 높아지는 게 단순 NMS와 다른 점."""
+    all_boxes, all_scores, all_labels, all_model_idx = [], [], [], []
+    for m_idx, (boxes, scores, labels) in enumerate(zip(boxes_list, scores_list, labels_list)):
+        for b, s, l in zip(boxes, scores, labels):
+            all_boxes.append(b)
+            all_scores.append(s)
+            all_labels.append(l)
+            all_model_idx.append(m_idx)
+
+    if not all_boxes:
+        return np.zeros((0, 4)), np.zeros(0), np.zeros(0)
+
+    all_boxes = np.array(all_boxes)
+    all_scores = np.array(all_scores)
+    all_labels = np.array(all_labels)
+    n_models = len(boxes_list)
+
+    order = np.argsort(-all_scores)
+    used = np.zeros(len(order), dtype=bool)
+    fused_boxes, fused_scores, fused_labels = [], [], []
+
+    for idx in order:
+        if used[idx]:
+            continue
+        cluster = [idx]
+        used[idx] = True
+        for jdx in order:
+            if used[jdx] or all_labels[jdx] != all_labels[idx]:
+                continue
+            if _iou(all_boxes[idx], all_boxes[jdx]) >= iou_thr:
+                cluster.append(jdx)
+                used[jdx] = True
+        c_boxes = all_boxes[cluster]
+        c_scores = all_scores[cluster]
+        w = c_scores / c_scores.sum()
+        fused_box = (c_boxes * w[:, None]).sum(axis=0)
+        # 합의한 모델 수 비례로 confidence 보정(여러 모델이 동의할수록 신뢰도 상승)
+        avg_score = c_scores.mean() * (len({all_model_idx[c] for c in cluster}) / n_models)
+        fused_boxes.append(fused_box)
+        fused_scores.append(avg_score)
+        fused_labels.append(all_labels[idx])
+
+    return np.array(fused_boxes), np.array(fused_scores), np.array(fused_labels)
+
 
 class DetectAmbientNode(Node):
     """AMR 주변 이상 상황(화재/연기/냉각수 누출 등)을 상시 감지하는 노드.
 
-    AMR 캠 이미지를 항상 구독하며 YOLO로 추론하고, 결과 이미지와 이상상황 여부를 발행한다.
-    detect_station_node가 차단기 검사를 하는 동안에는 set_throttle 서비스로
-    프레임 처리 비율을 낮춰 리소스를 station_node 쪽에 양보한다.
+    AMR 캠 이미지를 항상 구독하며 서로 다른 버전/아키텍처로 학습된 YOLO 3개를
+    WBF(Weighted Boxes Fusion)로 앙상블해 추론하고, 결과 이미지와 이상상황 여부를
+    발행한다. detect_station_node가 차단기 검사를 하는 동안에는 set_throttle
+    서비스로 프레임 처리 비율을 낮춰 리소스를 station_node 쪽에 양보한다.
     """
 
     def __init__(self):
         super().__init__('detect_ambient_node')
 
-        self.declare_parameter('model_path', DEFAULT_MODEL_PATH)
+        self.declare_parameter('model_paths', ENSEMBLE_MODEL_FILES)
+        self.declare_parameter('model_tta', ENSEMBLE_MODEL_TTA)
         self.declare_parameter('amr_cam_topics', ['/robot3/oakd/rgb/preview/image_raw',
                                                     '/robot8/oakd/rgb/preview/image_raw'])
         self.declare_parameter('anomaly_classes', DEFAULT_ANOMALY_CLASSES)
@@ -52,7 +128,11 @@ class DetectAmbientNode(Node):
         self.declare_parameter('throttled_process_every_n', 10)
         self.declare_parameter('jpeg_quality', 80)
 
-        model_path = self.get_parameter('model_path').value
+        model_paths = list(self.get_parameter('model_paths').value)
+        model_tta = list(self.get_parameter('model_tta').value)
+        if len(model_paths) != len(model_tta):
+            raise ValueError('model_paths와 model_tta의 항목 수가 같아야 합니다.')
+
         self.conf_threshold = CONF_THRESHOLD
         self.amr_cam_topics = self.get_parameter('amr_cam_topics').value
         self.anomaly_classes = set(self.get_parameter('anomaly_classes').value)
@@ -61,8 +141,9 @@ class DetectAmbientNode(Node):
         self.jpeg_quality = int(self.get_parameter('jpeg_quality').value)
 
         self.bridge = CvBridge()
-        self.model = YOLO(model_path)
-        self._warmup_model()
+        self.models = [YOLO(self._resolve_model_path(p)) for p in model_paths]
+        self.model_tta = model_tta
+        self._warmup_models()
 
         image_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -106,18 +187,30 @@ class DetectAmbientNode(Node):
         self.set_throttle_srv = self.create_service(
             SetBool, '/detection/set_throttle', self._set_throttle_callback)
 
-        self.get_logger().info('detect_ambient_node ready')
+        self.get_logger().info(f'detect_ambient_node ready (ensemble={len(self.models)}개 모델)')
 
-    def _warmup_model(self, imgsz=640):
-        """더미 이미지로 한 번 미리 추론해서 CUDA 초기화 비용(첫 실제 추론이
-        ~1.3초까지 걸리는 원인, detect_cctv_node에서 실측 확인됨)을 노드 시작
-        시점으로 옮긴다. 실제 카메라 프레임이 들어오기 전(구독 콜백이 아직 안
-        불린 시점)에 호출해야 효과가 있다."""
+    @staticmethod
+    def _resolve_model_path(configured_path: str) -> str:
+        model_path = Path(configured_path).expanduser()
+        if model_path.is_absolute():
+            resolved_path = model_path
+        else:
+            resolved_path = Path(get_package_share_directory('vision_detection')) / 'models' / model_path.name \
+                if '/' not in configured_path else Path(get_package_share_directory('vision_detection')) / model_path
+        if not resolved_path.is_file():
+            raise FileNotFoundError(f'YOLO 모델 파일을 찾을 수 없습니다: {resolved_path}')
+        return str(resolved_path)
+
+    def _warmup_models(self, imgsz=640):
+        """더미 이미지로 앙상블 모델 전부를 한 번씩 미리 추론해서 CUDA 초기화 비용
+        (첫 실제 추론이 ~1.3초까지 걸리는 원인, detect_cctv_node에서 실측 확인됨)을
+        노드 시작 시점으로 옮긴다."""
         dummy = np.zeros((imgsz, imgsz, 3), dtype=np.uint8)
         started = time.perf_counter()
-        self.model.predict(dummy, conf=self.conf_threshold, augment=True, verbose=False)
+        for model, use_tta in zip(self.models, self.model_tta):
+            model.predict(dummy, conf=self.conf_threshold, augment=use_tta, verbose=False)
         elapsed_ms = (time.perf_counter() - started) * 1000.0
-        self.get_logger().info(f'모델 워밍업 완료 ({elapsed_ms:.0f}ms)')
+        self.get_logger().info(f'모델 워밍업 완료 ({elapsed_ms:.0f}ms, {len(self.models)}개)')
 
     @staticmethod
     def _robot_id_from_topic(topic):
@@ -135,27 +228,58 @@ class DetectAmbientNode(Node):
         return response
 
     def _infer_from_msg(self, image_msg):
-        """sensor_msgs/Image를 받아 추론하고 (박스가 그려진 이미지, 탐지 결과 목록)을 반환.
+        """sensor_msgs/Image를 받아 앙상블 3모델로 추론 후 WBF로 병합하고
+        (박스가 그려진 이미지, 탐지 결과 목록)을 반환한다.
 
         detections는 {class_name, confidence, xyxy} 딕셔너리의 리스트.
-        TTA(augment=True) 적용 - 현재 모델(yolo11n) 기준 실측으로 F1 0.850->0.865
-        개선 확인됨. TTA 효과는 아키텍처마다 달라서(오히려 나빠지는 경우도 있었음)
-        모델을 바꾸면 재검증 필요.
         """
         cv_image = self.bridge.imgmsg_to_cv2(image_msg, desired_encoding='bgr8')
-        result = self.model.predict(cv_image, conf=self.conf_threshold, augment=True, verbose=False)[0]
+        h, w = cv_image.shape[:2]
+
+        boxes_list, scores_list, labels_list = [], [], []
+        names = None
+        for model, use_tta in zip(self.models, self.model_tta):
+            result = model.predict(cv_image, conf=self.conf_threshold, augment=use_tta, verbose=False)[0]
+            names = result.names
+            xyxy = result.boxes.xyxy.cpu().numpy()
+            boxes_list.append((xyxy / np.array([w, h, w, h])).tolist())
+            scores_list.append(result.boxes.conf.cpu().numpy().tolist())
+            labels_list.append(result.boxes.cls.cpu().numpy().astype(int).tolist())
+
+        fused_boxes, fused_scores, fused_labels = weighted_boxes_fusion(
+            boxes_list, scores_list, labels_list, iou_thr=WBF_MERGE_IOU)
+        keep = fused_scores >= self.conf_threshold
+        fused_boxes = (fused_boxes[keep] * np.array([w, h, w, h])) if len(fused_boxes) else fused_boxes
+        fused_scores = fused_scores[keep]
+        fused_labels = fused_labels[keep].astype(int)
 
         detections = []
-        for box in result.boxes:
-            class_id = int(box.cls[0])
+        for box, score, cls_id in zip(fused_boxes, fused_scores, fused_labels):
             detections.append({
-                'class_name': result.names[class_id],
-                'confidence': float(box.conf[0]),
-                'xyxy': [float(v) for v in box.xyxy[0]],
+                'class_name': names[int(cls_id)],
+                'confidence': float(score),
+                'xyxy': [float(v) for v in box],
             })
 
-        annotated_image = result.plot()  # 탐지 박스가 그려진 이미지
+        annotated_image = self._draw_detections(cv_image, detections)
         return annotated_image, detections
+
+    @staticmethod
+    def _draw_detections(frame, detections):
+        annotated = frame.copy()
+        height, width = annotated.shape[:2]
+        for det in detections:
+            x1, y1, x2, y2 = det['xyxy']
+            x1 = max(0, min(int(x1), width - 1))
+            y1 = max(0, min(int(y1), height - 1))
+            x2 = max(0, min(int(x2), width - 1))
+            y2 = max(0, min(int(y2), height - 1))
+            color = CLASS_COLORS.get(det['class_name'], (0, 255, 0))
+            label = f"{det['class_name']} {det['confidence']:.2f}"
+            cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+            cv2.putText(annotated, label, (x1, max(15, y1 - 6)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
+        return annotated
 
     def _to_compressed_image_msg(self, cv_image, frame_id=''):
         """JPEG로 압축해서 발행 - raw Image 대비 대역폭을 30~50배 줄인다.
