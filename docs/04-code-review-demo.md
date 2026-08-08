@@ -21,11 +21,11 @@
 │      ▼                                                                                    │
 │  app/bridge.py (시임) → app/robot_bridge.py  ← §10 규격: envelope 생성·세션·ACK           │
 │      │                                                    ▲                               │
-│      │ publish(/{robot_id}/command)          app/bridge_backend.py (BackendSink)          │
+│      │ publish(/backend/{robot_id}/command)  app/bridge_backend.py (BackendSink)          │
 │      │                                        · 구독 데이터를 DB 반영 + WS 브로드캐스트    │
 │  app/connection_manager.py  ── WS 브로드캐스트(SNAPSHOT/ROBOT_STATUS/EVENT/MISSION …) ────┘
 └───────────────┬──────────────────────────────────────────────▲──────────────────────────┘
-       (하행) /{robot_id}/command (std_msgs/String, JSON)   (상행) /{robot_id}/robot_state·detection …
+       (하행) /backend/{robot_id}/command (std_msgs/String, JSON)   (상행) /{robot_id}/robot_state·detection …
                 │  §10-2 envelope                                 │  §10-1 구독
                 ▼                                                 │
 ┌─────────────────────────── 계층 3: 로봇단 (ROS2 Humble) ─────────────────────────────────┐
@@ -73,7 +73,7 @@
 | # | 브라우저에서 | 터미널 A(백엔드)에서 봐야 할 것 | 증명 |
 |---|---|---|---|
 | 1 | 상단 pill "WS 연결됨" 확인 | `WS 접속 — 현재 1개 연결` | 1↔2 WS 연결 |
-| 2 | [통합 순찰 시작] 클릭 | `[robot_bridge] amr_1 ← START_PATROL CMD-...` (+ amr_2) 그리고 `[loopback] /amr_1/command ← {..."command_type":"START_PATROL"...}` | 1→2→3 하행 |
+| 2 | [통합 순찰 시작] 클릭 | `[robot_bridge] amr_1 ← START_PATROL CMD-...` (+ amr_2) 그리고 `[loopback] /backend/amr_1/command ← {..."command_type":"START_PATROL"...}` | 1→2→3 하행 |
 | 3 | [긴급정지] 클릭 | `[robot_bridge] amr_1 ← ESTOP ...`, `amr_2 ← ESTOP ...` (양쪽) | 1→2→3 하행(항상 동작) |
 | 4 | 지도 클릭 → 로봇 선택 → 전송 | `[robot_bridge] amr_1 ← GOTO ...` + envelope 에 waypoints | 1→2→3 하행 |
 | 5 | 카드 [정지]/[일시정지] 등 | 해당 command_type envelope 로그 | 1→2→3 하행 |
@@ -89,7 +89,7 @@ curl -s -X POST http://localhost:8000/api/events/detect \
 
 ### 실제 확인된 로그 예시(검증본)
 ```
-[loopback] /amr_1/command ← {"command_id":"CMD-...","command_type":"START_PATROL",
+[loopback] /backend/amr_1/command ← {"command_id":"CMD-...","command_type":"START_PATROL",
   "payload":{"mission_id":"MSN-...","nodes":[{"node_id":"N-001","x":2.0,"y":2.0,"theta":0.0,"dwell_sec":0}, ...],"loop":true},
   "issued_at":"2026-08-07T04:31:49+09:00"}
 [robot_bridge] amr_1 ← START_PATROL CMD-...
@@ -141,12 +141,12 @@ cd hmi/backend && ./.venv/bin/python -m pytest -q          # 131 passed
 [B · 테스트 로봇 노드]  cd hmi/backend
   source /opt/ros/humble/setup.bash
   python3 -u scripts/fake_robot_node.py amr_1 amr_2
-  # /{id}/command 구독→출력, command_ack + robot_state/pose/battery 발행(1Hz).
+  # /backend/{id}/command 구독→출력, command_ack + robot_state/pose/battery 발행(1Hz).
   # 이 노드가 텔레메트리를 올리는 순간 로봇이 online/IDLE 로 바뀐다(seed 불필요).
 
 [C · (선택) 원시 DDS 확인]  source /opt/ros/humble/setup.bash
   ros2 topic list | grep /amr_        # 백엔드가 만든 §10 토픽 18개 확인
-  ros2 topic echo /amr_1/command      # 버튼 누르기 전에 켜두면 원시 메시지가 실시간으로 뜸
+  ros2 topic echo /backend/amr_1/command      # 버튼 누르기 전에 켜두면 원시 메시지가 실시간으로 뜸
 
 [브라우저]  http://localhost:5175  (프론트는 그대로 npm run dev)
 ```
@@ -175,7 +175,7 @@ cd hmi/backend && ./.venv/bin/python -m pytest -q          # 131 passed
 | 모드 | 실행 | 로봇단 | 용도 |
 |---|---|---|---|
 | `null`(기본) | `uvicorn app.main:app` | `[NullBridge] … → START_PATROL {…}` 로그만 | 기존 동작 |
-| `loopback` | `AMR_BRIDGE_BACKEND=loopback uvicorn …` | `[loopback] /amr_1/command ← {envelope}` 로그 | ROS 없이 §10 규격 확인 |
+| `loopback` | `AMR_BRIDGE_BACKEND=loopback uvicorn …` | `[loopback] /backend/amr_1/command ← {envelope}` 로그 | ROS 없이 §10 규격 확인 |
 | `ros2` | `bash scripts/run_backend_ros2.sh` + fake_robot_node | **실제 DDS 토픽 왕복** | 진짜 3계층 데모(§6) |
 
 ## 8. 데모 후 DB 초기화(선택)

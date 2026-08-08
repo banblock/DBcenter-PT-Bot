@@ -31,7 +31,8 @@
 
 ### 1-2. 발행 — 백엔드 → 로봇 (§10-2)
 
-토픽 `/{robot_id}/command` (std_msgs/String, JSON). envelope:
+토픽 `/backend/{robot_id}/command` (std_msgs/String, JSON) — 백엔드가 발행하므로 `/backend` prefix
+(patrol_interfaces 규약). envelope:
 
 ```json
 { "command_id": "CMD-...", "command_type": "GOTO",

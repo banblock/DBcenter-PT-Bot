@@ -8,7 +8,7 @@
 #   backend          백엔드 기동 (ROS2 연동 모드)  ← 실 3계층 데모
 #   backend-loopback 백엔드 기동 (loopback: ROS 없이 §10 로그만)
 #   robot [ids...]   테스트 로봇 ROS2 노드 (기본 amr_1 amr_2)
-#   echo [robot]     ros2 topic echo /<robot>/command (기본 amr_1) — 원시 DDS 확인
+#   echo [robot]     ros2 topic echo /backend/<robot>/command (기본 amr_1) — 원시 DDS 확인
 #   db               DB Browser(GUI) 로 amr.db 열기
 #   db-cli [SQL]     터미널로 DB 보기 (요약 / tables / 임의 SQL)
 set -eo pipefail
@@ -43,7 +43,7 @@ case "${1:-help}" in
     source "$ROS_SETUP"; exec python3 -u scripts/fake_robot_node.py "${@:2}" ;;
   echo)
     # shellcheck disable=SC1090
-    source "$ROS_SETUP"; exec ros2 topic echo "/${2:-amr_1}/command" ;;
+    source "$ROS_SETUP"; exec ros2 topic echo "/backend/${2:-amr_1}/command" ;;
   db)
     sqlitebrowser "$DB" >/dev/null 2>&1 & echo "✓ DB Browser 실행: $DB (잠금 경고 뜨면 File→Open Read Only)" ;;
   db-cli)

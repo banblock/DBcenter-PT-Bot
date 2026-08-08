@@ -1042,3 +1042,6 @@ rclpy.executors.ExternalShutdownException
 2026-08-07 10:26:23 | INFO    | amr.request      | c0c3f8ad | GET /api/stats/overview → 200 (6.7ms) role=-
 2026-08-07 10:26:53 | INFO    | amr.request      | e0211405 | GET /api/stats/overview → 200 (10.8ms) role=-
 2026-08-07 10:27:23 | INFO    | amr.request      | e19f240e | GET /api/stats/overview → 200 (21.2ms) role=-
+2026-08-08 15:43:09 | INFO    | amr.bridge       | -        | 브리지 교체 → RobotBridge
+2026-08-08 15:43:09 | INFO    | amr.main         | -        | [loopback] /backend/amr_1/command ← {"command_id": "CMD-20260808-6f97", "command_type": "GOTO", "payload": {"waypoints": [{"x": 1, "y": 2, "theta": 0}], "event_id": null}, "issued_at": "2026-08-08T15:43:09.133632+09:00"}
+2026-08-08 15:43:09 | INFO    | amr.bridge       | -        | [robot_bridge] amr_1 ← GOTO CMD-20260808-6f97

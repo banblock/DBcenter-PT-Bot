@@ -4,8 +4,8 @@
 실제 AMR 없이, 백엔드(robot_bridge, AMR_BRIDGE_BACKEND=ros2)와 진짜 ROS2 토픽으로
 주고받는다. 명세서 §10 의 로봇 쪽 절반을 구현한다:
 
-  구독  /{robot_id}/command       (std_msgs/String)  ← 백엔드 명령 수신 → 화면에 출력
-  발행  /{robot_id}/command_ack   (std_msgs/String)  → §10-3 ACK 되돌림
+  구독  /backend/{robot_id}/command  (std_msgs/String)  ← 백엔드 명령 수신 → 화면에 출력
+  발행  /{robot_id}/command_ack      (std_msgs/String)  → §10-3 ACK 되돌림
   발행  /{robot_id}/robot_state   (std_msgs/String)  → "STATE:msg" 1Hz
   발행  /{robot_id}/amcl_pose     (PoseWithCovarianceStamped)
   발행  /{robot_id}/battery_state (sensor_msgs/BatteryState)
@@ -15,7 +15,7 @@
     python3 hmi/backend/scripts/fake_robot_node.py amr_1 amr_2
 
 확인:
-    ros2 topic echo /amr_1/command      # 백엔드가 실제로 발행하는지 원시 메시지로 확인
+    ros2 topic echo /backend/amr_1/command   # 백엔드가 실제로 발행하는지 원시 메시지로 확인
 """
 
 from __future__ import annotations
@@ -61,7 +61,8 @@ class FakeRobot:
         self.state_pub = node.create_publisher(String, f"{ns}/robot_state", 10)
         self.pose_pub = node.create_publisher(PoseWithCovarianceStamped, f"{ns}/amcl_pose", 10)
         self.batt_pub = node.create_publisher(BatteryState, f"{ns}/battery_state", 10)
-        node.create_subscription(String, f"{ns}/command", self.on_command, 10)
+        # 백엔드가 /backend/{id}/command 로 발행하므로(로봇은 그걸 구독) 여기 토픽명을 맞춘다.
+        node.create_subscription(String, f"/backend/{robot_id}/command", self.on_command, 10)
 
     # 백엔드 → 로봇: 명령 수신 (§10-2)
     def on_command(self, msg: String) -> None:

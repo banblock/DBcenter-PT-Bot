@@ -27,8 +27,9 @@
 명세 대응 (§10)
 --------------
 * §10-1 구독 (로봇 → 백엔드): ``/{robot_id}/robot_state`` 등 7개 토픽
-* §10-2 발행 (백엔드 → 로봇): ``/{robot_id}/command`` (std_msgs/String, JSON 직렬화)
-* §10-3 명령 ACK: ``/{robot_id}/command_ack`` → ``{command_id, accepted, reason, eta_sec}``
+* §10-2 발행 (백엔드 → 로봇): ``/backend/{robot_id}/command`` (std_msgs/String, JSON 직렬화)
+  (백엔드가 발행하므로 /backend prefix — patrol_interfaces 규약)
+* §10-3 명령 ACK: ``/{robot_id}/command_ack`` → ``{command_id, accepted, reason, eta_sec}`` (로봇 발행, 백엔드 구독)
 
 계층 분리
 --------
@@ -57,8 +58,13 @@ from app.logging_config import get_logger
 log = get_logger("bridge")
 
 # ── §10 토픽 이름 (네임스페이스 = robot_id) ─────────────────────────────────
-COMMAND_TOPIC = "/{robot_id}/command"
-ACK_TOPIC = "/{robot_id}/command_ack"
+# [통신 규칙] 백엔드가 "발행(publish)"하는 토픽은 이름 앞에 /backend 를 붙인다.
+#   (patrol_interfaces 규약 — 보내는 쪽 prefix. 백엔드가 로봇/비전으로 보내는 것 = /backend)
+#   → COMMAND_TOPIC 은 백엔드→로봇 발행이라 /backend 를 붙인다.
+#   ↔ ACK_TOPIC(command_ack) 및 아래 INBOUND_TOPICS 는 "로봇이 발행 → 백엔드가 구독"하는
+#     것이라 백엔드가 보내는 게 아니다 → /backend 를 붙이지 않는다(로봇 네임스페이스 그대로).
+COMMAND_TOPIC = "/backend/{robot_id}/command"  # 백엔드 → 로봇 (발행)
+ACK_TOPIC = "/{robot_id}/command_ack"  # 로봇 → 백엔드 (구독)
 
 #: §10-1 구독 토픽 → 타입. 실제 rclpy 구독 생성과 문서화에 함께 쓴다.
 INBOUND_TOPICS: dict[str, str] = {
@@ -179,7 +185,7 @@ class RobotBridge:
             return any(s.connected for s in self._sessions.values())
 
     def publish_command(self, robot_id: str, command_type: str, payload: dict) -> dict:
-        """§10-2 — ``/{robot_id}/command`` 로 명령 envelope 를 발행한다.
+        """§10-2 — ``/backend/{robot_id}/command`` 로 명령 envelope 를 발행한다.
 
         반환은 NullBridge 와 동일한 ``{command_id, accepted, dispatched}`` 모양이라
         기존 라우터가 그대로 쓴다. ``dispatched`` 는 실제로 전송에 성공했는지다
