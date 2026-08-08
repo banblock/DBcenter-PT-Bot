@@ -1,6 +1,6 @@
 <mxfile host="app.diagrams.net">
   <diagram name="Fleet Node - 구현 파이프라인" id="fleetNodePipeline">
-    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1450" pageHeight="3850" math="0" shadow="0">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1450" pageHeight="4450" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -99,6 +99,18 @@
         <mxCell id="e46" value="아니오" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;" edge="1" parent="1" source="D7" target="N28"><mxGeometry relative="1" as="geometry" /></mxCell>
         <mxCell id="e47" value="예" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;" edge="1" parent="1" source="D7" target="N29"><mxGeometry relative="1" as="geometry" /></mxCell>
         <mxCell id="e48" value="[내부] robot / str / 그래프 경로상 가장 가까운 로봇 / 중복 대응 여부 확인 (기존 흐름과 합류)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;" edge="1" parent="1" source="N29" target="D5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="G⑧" value="⑧ 로봇 상태 퍼블리시" style="text;html=1;align=left;verticalAlign=middle;fontSize=15;fontStyle=1;fontColor=#666666;" vertex="1" parent="1"><mxGeometry x="440.0" y="3855.0" width="460" height="30" as="geometry" /></mxCell>
+        <mxCell id="Nstat1" value="_check_robot_status()&#10;(1초 주기 타이머)" style="rounded=0;whiteSpace=wrap;html=1;arcSize=6;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1"><mxGeometry x="480.0" y="3900.0" width="260" height="55" as="geometry" /></mxCell>
+        <mxCell id="Nstat2" value="robot_status.detect_changes()&#10;(compute_status 판정 + 이전 상태와 비교)" style="rounded=0;whiteSpace=wrap;html=1;arcSize=6;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1"><mxGeometry x="480.0" y="4000.0" width="260" height="55" as="geometry" /></mxCell>
+        <mxCell id="Dstat" value="로봇 상태 변화 감지?&#10;(바뀐 로봇이 있는가)" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" vertex="1" parent="1"><mxGeometry x="450.0" y="4100.0" width="200" height="90" as="geometry" /></mxCell>
+        <mxCell id="Nstat3" value="/control/&lt;robot&gt;_State 퍼블리시&#10;(변경된 로봇만)" style="rounded=0;whiteSpace=wrap;html=1;arcSize=6;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1"><mxGeometry x="780.0" y="4100.0" width="260" height="55" as="geometry" /></mxCell>
+        <mxCell id="estat1" value="[내부] tick / - / - / 1초마다 판정 시작" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;" edge="1" parent="1" source="Nstat1" target="Nstat2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="estat2" value="[내부] self.missions / dict[str, list[dict]] / 로봇별 최종 웨이포인트 리스트 / 상태 판정 시 미션 보유 여부 조회" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;dashed=1;" edge="1" parent="1" source="N16" target="Nstat2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="estat3" value="[내부] self._anomaly_busy / set[str] / 이상신호 대응 중인 로봇 집합 / 상태 판정 시 조회" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;dashed=1;" edge="1" parent="1" source="N25" target="Nstat2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="estat4" value="[내부] changes / list[(str,str)] / 변경된 (로봇,상태) 목록 / 빈 리스트면 아니오로" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;" edge="1" parent="1" source="Nstat2" target="Dstat"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="estat5" value="예" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;" edge="1" parent="1" source="Dstat" target="Nstat3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="estat6" value="아니오" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.9;entryDx=0;entryDy=0;" edge="1" parent="1" source="Dstat" target="Nstat1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="estat7" value="[ROS] robot_state 퍼블리시 / std_msgs/String(JSON) / {robot,status} (IDLE|PATROLLING|DISPATCHING) / /control/&lt;robot&gt;_State 발행, UI 소비 (INSPECTING 이후 상태는 Control Node가 같은 토픽에 이어서 퍼블리시)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;" edge="1" parent="1" source="Nstat3" target="A1"><mxGeometry relative="1" as="geometry" /></mxCell>
       </root>
     </mxGraphModel>
   </diagram>

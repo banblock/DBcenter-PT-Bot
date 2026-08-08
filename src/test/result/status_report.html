@@ -1,0 +1,294 @@
+<!doctype html>
+<title>로봇 상태 퍼블리시 검증 — robot_status.py</title>
+<meta name="description" content="Fleet Node가 IDLE/PATROLLING/DISPATCHING 3개 상태를 판정해 /control/<ns>_State에 퍼블리시하는 로직을 실제 시나리오로 검증한 리포트.">
+<style>
+:root {
+  --paper: #f2f5f7;
+  --panel: #ffffff;
+  --ink: #1b242c;
+  --muted: #5b6b78;
+  --line: #c6d0d8;
+  --idle: #5b6b78;
+  --patrol: #2e6fa8;
+  --dispatch: #b3691e;
+  --win: #1d8a72;
+  --fail: #b3261e;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #10161c;
+    --panel: #161e26;
+    --ink: #e8edf1;
+    --muted: #90a0ac;
+    --line: #29343e;
+    --idle: #90a0ac;
+    --patrol: #6fb3e8;
+    --dispatch: #e8a166;
+    --win: #55cbac;
+    --fail: #ff6b5c;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #10161c;
+  --panel: #161e26;
+  --ink: #e8edf1;
+  --muted: #90a0ac;
+  --line: #29343e;
+  --idle: #90a0ac;
+  --patrol: #6fb3e8;
+  --dispatch: #e8a166;
+  --win: #55cbac;
+  --fail: #ff6b5c;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  line-height: 1.55;
+}
+.wrap {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 48px 24px 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+h1 {
+  font-family: var(--mono);
+  font-size: clamp(24px, 4vw, 34px);
+  font-weight: 600;
+  margin: 6px 0 0;
+  text-wrap: balance;
+  letter-spacing: -0.01em;
+}
+.lede { max-width: 68ch; color: var(--muted); font-size: 15px; margin: 4px 0 0; }
+.meta {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; }
+.scenario h2 { font-family: var(--mono); font-size: 15px; font-weight: 600; margin: 0 0 6px; }
+.why { font-size: 13px; color: var(--muted); margin: 0 0 16px; }
+.timeline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.arrow { color: var(--muted); font-size: 18px; }
+.step {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.step--changed { border-color: var(--win); }
+.step-when { font-size: 12px; color: var(--muted); }
+.step-note { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.step--changed .step-note { color: var(--win); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  text-align: left;
+  font-weight: 500;
+  padding: 0 8px 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+td { padding: 8px 8px 8px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: none; }
+tr.row--owned td { color: var(--ink); font-weight: 600; }
+.tag {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  display: inline-block;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.tag--idle { background: color-mix(in srgb, var(--idle) 18%, transparent); color: var(--idle); }
+.tag--patrol { background: color-mix(in srgb, var(--patrol) 18%, transparent); color: var(--patrol); }
+.tag--dispatch { background: color-mix(in srgb, var(--dispatch) 18%, transparent); color: var(--dispatch); }
+.tag--win { background: color-mix(in srgb, var(--win) 18%, transparent); color: var(--win); }
+.tag--fail { background: color-mix(in srgb, var(--fail) 18%, transparent); color: var(--fail); }
+h2.section-title { font-family: var(--mono); font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+.edge-cases { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.edge-case-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.edge-case p { margin: 0; font-size: 13.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+footer { border-top: 1px solid var(--line); padding-top: 16px; font-size: 12.5px; color: var(--muted); }
+footer code {
+  font-family: var(--mono);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Fleet Node · 로봇 상태 퍼블리시 검증</div>
+    <h1>Fleet은 로봇 상태를 어디까지 아는가</h1>
+    <p class="lede">
+      UI팀이 준 robot_state 15개 상태 중 Fleet Node가 지금 실제로
+      판정하는 건 IDLE / PATROLLING / DISPATCHING 3개뿐입니다. 미션
+      배정 여부와 이상신호 대응 여부만으로 판정하고, 1Hz 폴링으로 변화가
+      있을 때만 <code>/control/&lt;robot&gt;_State</code>에 퍼블리시합니다.
+      아래는 test_robot_status.py에 정의된 시나리오를 robot_status.py로
+      실제 실행한 결과입니다.
+    </p>
+    <div class="meta">
+      <span>Fleet이 판정하는 상태 3개 / UI 전체 어휘 15개</span>
+      <span>시나리오 2개 + 우선순위 케이스 3개</span>
+      <span>생성 시각 2026-08-08 23:38</span>
+    </div>
+  </header>
+
+  <section class="scenarios">
+    
+    <article class="panel scenario">
+      <h2>신규 로봇 등장 → 순찰 시작 → 이상신호 대응 → 순찰 복귀</h2>
+      <p class="why">robot3가 아직 구역을 못 받았을 때(IDLE)부터 시작해서, Backend가 구역을 배정하면 PATROLLING으로, 이상신호 트리거로 dispatch되면 DISPATCHING으로, _on_anomaly_done을 받으면 다시 PATROLLING으로 바뀐다. 같은 상태가 유지되는 폴링 tick(3번째 step)에서는 퍼블리시가 일어나지 않아야 한다 - 1Hz 타이머가 매초 무조건 쏘면 안 되고 변화가 있을 때만 쏴야 하기 때문.</p>
+      <div class="timeline">
+        
+        <div class="step step--changed">
+          <div class="step-when">초기 상태 (아직 구역 배정 전)</div>
+          <span class="tag tag--idle">IDLE</span>
+          <div class="step-note">퍼블리시함</div>
+        </div>
+        <span class="arrow">&rarr;</span>
+        <div class="step step--changed">
+          <div class="step-when">Backend가 구역 배정 -> 미션 생김</div>
+          <span class="tag tag--patrol">PATROLLING</span>
+          <div class="step-note">퍼블리시함</div>
+        </div>
+        <span class="arrow">&rarr;</span>
+        <div class="step step--same">
+          <div class="step-when">다음 폴링 tick, 아무것도 안 바뀜</div>
+          <span class="tag tag--patrol">PATROLLING</span>
+          <div class="step-note">변화 없음 (퍼블리시 생략)</div>
+        </div>
+        <span class="arrow">&rarr;</span>
+        <div class="step step--changed">
+          <div class="step-when">이상신호 트리거로 dispatch</div>
+          <span class="tag tag--dispatch">DISPATCHING</span>
+          <div class="step-note">퍼블리시함</div>
+        </div>
+        <span class="arrow">&rarr;</span>
+        <div class="step step--changed">
+          <div class="step-when">_on_anomaly_done 수신 -> 순찰 복귀</div>
+          <span class="tag tag--patrol">PATROLLING</span>
+          <div class="step-note">퍼블리시함</div>
+        </div></div>
+    </article>
+
+    <article class="panel scenario">
+      <h2>구역 재배정으로 미션이 사라지면 IDLE로 돌아감</h2>
+      <p class="why">robot8이 순찰 중(PATROLLING)이던 도중 Backend가 구역 구성을 바꿔서 robot8에게 배정된 구역이 없어지면(예: 2대 구성에서 1대로 축소), 다음 폴링 tick에 missions에서 robot8이 빠지고 IDLE로 떨어져야 한다.</p>
+      <div class="timeline">
+        
+        <div class="step step--changed">
+          <div class="step-when">초기 순찰 중</div>
+          <span class="tag tag--patrol">PATROLLING</span>
+          <div class="step-note">퍼블리시함</div>
+        </div>
+        <span class="arrow">&rarr;</span>
+        <div class="step step--changed">
+          <div class="step-when">Backend 구역 재배정 -> robot8 미션 사라짐</div>
+          <span class="tag tag--idle">IDLE</span>
+          <div class="step-note">퍼블리시함</div>
+        </div></div>
+    </article>
+  </section>
+
+  <section class="panel">
+    <h2 class="section-title">우선순위 케이스</h2>
+    <p class="why">compute_status()의 우선순위 규칙(이상신호 대응 &gt; 미션 보유 &gt; 둘 다 아님)이 의도대로 동작하는지 확인.</p>
+    <ul class="edge-cases">
+      
+      <li class="edge-case">
+        <div class="edge-case-head">
+          <span class="tag tag--win">검증됨</span>
+          <strong>이상신호 대응이 미션 보유보다 우선</strong>
+        </div>
+        <p>robot3가 missions에도 있고 anomaly_busy에도 있을 때 -> DISPATCHING. 결과: <span class="tag tag--dispatch">DISPATCHING</span></p>
+      </li>
+
+      <li class="edge-case">
+        <div class="edge-case-head">
+          <span class="tag tag--win">검증됨</span>
+          <strong>미션 없이 anomaly_busy만 있어도 DISPATCHING</strong>
+        </div>
+        <p>robot9가 missions에는 없고 anomaly_busy에만 있을 때 -> DISPATCHING. 결과: <span class="tag tag--dispatch">DISPATCHING</span></p>
+      </li>
+
+      <li class="edge-case">
+        <div class="edge-case-head">
+          <span class="tag tag--win">검증됨</span>
+          <strong>미션도 이상신호 대응도 없으면 IDLE</strong>
+        </div>
+        <p>robot8이 missions에도 anomaly_busy에도 없을 때 -> IDLE. 결과: <span class="tag tag--idle">IDLE</span></p>
+      </li>
+    </ul>
+  </section>
+
+  <section class="panel">
+    <h2 class="section-title">UI팀 robot_state 어휘 대조표</h2>
+    <p class="why">
+      2026-08-06 스크린샷 원본 표 기준. 굵게 표시된 3개가 Fleet이 지금
+      퍼블리시하는 상태고, 나머지는 Control Node가 같은
+      <code>/control/&lt;robot&gt;_State</code> 토픽에 이어서 퍼블리시할
+      몫이거나(순차적 소유권 이양) Fleet의 다음 작업(긴급정지, UI 명령
+      연동)으로 예정된 상태입니다.
+    </p>
+    <table>
+      <thead><tr><th>상태값</th><th>UI 한글 표기</th><th>담당</th></tr></thead>
+      <tbody>
+        <tr class=""><td><span class="tag ">OFFLINE</span></td><td>연결 끊김</td><td>Control Node (heartbeat 필요, Fleet 미구독)</td></tr>
+          <tr class=""><td><span class="tag ">MAPPING</span></td><td>맵 생성 중 (SLAM)</td><td>Control Node (Fleet 관여 없음)</td></tr>
+          <tr class="row--owned"><td><span class="tag tag--idle">IDLE</span></td><td>대기</td><td>Fleet ✓ (미션 없음)</td></tr>
+          <tr class="row--owned"><td><span class="tag tag--patrol">PATROLLING</span></td><td>순찰 중</td><td>Fleet ✓ (미션 보유, 이상신호 대응 아님)</td></tr>
+          <tr class=""><td><span class="tag ">PATROL_PAUSED</span></td><td>순찰 일시정지</td><td>Fleet 예정 (남은 작업 4번 - UI 명령 연동)</td></tr>
+          <tr class="row--owned"><td><span class="tag tag--dispatch">DISPATCHING</span></td><td>이상지점 이동 중</td><td>Fleet ✓ (anomaly_busy 등록 시점)</td></tr>
+          <tr class=""><td><span class="tag ">INSPECTING</span></td><td>점검 중 (차단기 점검)</td><td>Control Node (nav 도착 피드백 필요)</td></tr>
+          <tr class=""><td><span class="tag ">REPORTING</span></td><td>결과 전송 중</td><td>Control Node (검증 완료 시점 필요)</td></tr>
+          <tr class=""><td><span class="tag ">RESUMING</span></td><td>순찰 복귀 중</td><td>Control Node (중단 지점 도달 필요)</td></tr>
+          <tr class=""><td><span class="tag ">CHARGING</span></td><td>충전 중</td><td>Control Node (배터리 정보 필요, Fleet 미구독)</td></tr>
+          <tr class=""><td><span class="tag ">EMERGENCY_STOP</span></td><td>긴급정지</td><td>Fleet 예정 (남은 작업 3번 - 긴급정지 처리)</td></tr>
+          <tr class=""><td><span class="tag ">ERROR</span></td><td>오류</td><td>Control Node (내비게이션 실패 등)</td></tr>
+          <tr class=""><td><span class="tag ">ALERTING</span></td><td>현장 경보 중</td><td>Control Node (관제 ACK 필요)</td></tr>
+          <tr class=""><td><span class="tag ">UNDOCKING</span></td><td>출발 준비</td><td>Control Node (도킹 상태 필요, Fleet 미구독)</td></tr>
+          <tr class=""><td><span class="tag ">DOCKING</span></td><td>복귀·도킹 중</td><td>Control Node (도킹 상태 필요, Fleet 미구독)</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer>
+    <code>src/test/code/build_status_report.py</code>가
+    <code>test_robot_status.py</code>의 <code>SCENARIOS</code>/<code>EDGE_CASES</code>를
+    그대로 불러와 <code>robot_status.detect_changes()</code> /
+    <code>compute_status()</code>를 실행한 결과로 생성함 - 손으로 옮겨
+    적은 숫자가 아님. 단위 테스트: <code>src/test/code/test_robot_status.py</code>
+    (<code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest test_robot_status.py -v</code>).
+  </footer>
+</div>

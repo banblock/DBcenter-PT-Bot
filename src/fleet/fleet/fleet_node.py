@@ -13,6 +13,11 @@
   (교차 가능 지점 계산 및 저장 -> 각 순찰 포인트에 차단기가 있는가?)
 - 교차 지점 점유를 중재해서 두 로봇이 동시에 같은 지점을 점유하지
   못하게 한다 (교차지점인가? -> 점유돼있는가?)
+- 로봇 상태가 바뀌면 UI용 상태 토픽에 퍼블리시한다 (robot_status.py) -
+  다만 Fleet이 실제로 아는 IDLE/PATROLLING/DISPATCHING 3개 상태
+  한정이고, 나머지 UI팀 robot_state 어휘(INSPECTING/CHARGING/DOCKING
+  등)는 그 정보를 실제로 가진 Control Node 쪽 몫이다
+  (로봇 상태 변화 감지? -> 로봇 상태 퍼블리시)
 
 ROS 2 도메인 어디서든 한 번만 실행하면 된다 (특정 로봇과 같은 위치에
 있을 필요 없음). 각 로봇의 Control Node와는 정식 .srv/.msg 타입이
@@ -33,6 +38,7 @@ from geometry_msgs.msg import PoseWithCovarianceStamped
 from std_msgs.msg import String
 
 from fleet import robot_selector
+from fleet import robot_status
 from fleet import zone_router
 from fleet.route_graph import RouteGraph
 from fleet.default_zones import DEFAULT_ZONES
@@ -79,6 +85,12 @@ class FleetNode(Node):
         # _ensure_robot_pubs()에서 로봇이 처음 등장할 때 지연 생성한다.
         self._pose_subs = {}
         self._robot_pose = {}  # ns -> (x, y)
+        # 로봇 상태 퍼블리시 (robot_status.py). _status_pubs도 다른
+        # 로봇별 퍼블리셔와 마찬가지로 _ensure_robot_pubs()에서 지연
+        # 생성하고, _robot_status는 detect_changes()가 in-place로
+        # 갱신하는 "마지막으로 퍼블리시한 상태" 기록이다.
+        self._status_pubs = {}
+        self._robot_status = {}
         self.grant_pub = self.create_publisher(String, '/fleet/occupancy_grant', 10)
         self.create_subscription(String, '/fleet/occupancy_request', self._on_request, 10)
         self.create_subscription(String, '/fleet/occupancy_release', self._on_release, 10)
@@ -106,6 +118,9 @@ class FleetNode(Node):
         # Control Node도 자기 미션을 받을 수 있도록 주기적으로
         # 재발행한다.
         self.create_timer(1.0, self._publish_missions)
+        # 설계도 '로봇 상태 변화 감지?' - 1Hz로 폴링해서 바뀐 로봇만
+        # 퍼블리시한다 (self-loop 구조를 폴링 타이머로 구현).
+        self.create_timer(1.0, self._check_robot_status)
 
     def _ensure_robot_pubs(self, ns):
         if ns not in self._mission_pubs:
@@ -113,6 +128,12 @@ class FleetNode(Node):
                 String, f'/fleet/{ns}/mission', MISSION_QOS)
         if ns not in self._anomaly_pubs:
             self._anomaly_pubs[ns] = self.create_publisher(String, f'/fleet/{ns}/anomaly', 10)
+        if ns not in self._status_pubs:
+            # UI팀이 준 robot_state.msg 인터페이스의 토픽 이름
+            # (/control/robot3_State, /control/robot8_state)이 로봇마다
+            # 대소문자가 다르게 적혀 있었다(스크린샷 원본 그대로) - 여기서는
+            # 그 오탈자를 따라가지 않고 `_State`로 통일한다.
+            self._status_pubs[ns] = self.create_publisher(String, f'/control/{ns}_State', 10)
         if ns not in self._pose_subs:
             # 설계도의 `localization amcl -> 임무 수행 로봇 선택` 입력.
             # Nav2/AMCL이 각 로봇 네임스페이스 밑에 표준으로 퍼블리시하는
@@ -154,6 +175,20 @@ class FleetNode(Node):
             msg = String()
             msg.data = json.dumps(waypoints)
             self._mission_pubs[ns].publish(msg)
+
+    def _check_robot_status(self):
+        """설계도 '로봇 상태 변화 감지? -> 로봇 상태 퍼블리시' - robot_status.py
+        참고. Fleet이 아는 IDLE/PATROLLING/DISPATCHING 3개 상태 한정이고,
+        INSPECTING/REPORTING/RESUMING 같은 이상신호 세부 상태나
+        CHARGING/DOCKING/ERROR 등은 Control Node가 같은 /control/<ns>_State
+        토픽에 이어서 퍼블리시할 몫이라 여기서는 다루지 않는다."""
+        changes = robot_status.detect_changes(
+            self._status_pubs.keys(), self.missions, self._anomaly_busy, self._robot_status)
+        for ns, status in changes:
+            self.get_logger().info(f'robot status changed: {ns} -> {status}')
+            msg = String()
+            msg.data = json.dumps({'robot': ns, 'status': status})
+            self._status_pubs[ns].publish(msg)
 
     def _on_request(self, msg):
         req = json.loads(msg.data)
