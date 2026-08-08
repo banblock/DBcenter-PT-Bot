@@ -1,0 +1,39 @@
+# Fixed corridor graph for map/datacenter_map/datacenter_map_v4.pgm.
+# 4 server racks (A, B, C, D) in a row, a front aisle and a rear aisle
+# running the length of the room, and 5 cross-aisles (left end, between
+# each pair of racks, right end) connecting them - a ladder graph:
+#
+#   R_left --- R_AB --- R_BC --- R_CD --- R_right      (rear aisle)
+#     |          |         |         |         |
+#   F_left --- F_AB --- F_BC --- F_CD --- F_right      (front aisle)
+#
+# Every edge is a single-file aisle (too narrow for two robots side by
+# side), so any edge used by more than one robot's route is arbitrated
+# via the existing /fleet/occupancy_request-grant-release protocol.
+
+nodes:
+  F_left:  {x: -4.60, y: -0.10}
+  F_AB:    {x: -3.48, y: -0.10}
+  F_BC:    {x: -2.38, y: -0.10}
+  F_CD:    {x: -1.30, y: -0.10}
+  F_right: {x: -0.04, y: -0.10}
+  R_left:  {x: -4.60, y: 1.90}
+  R_AB:    {x: -3.48, y: 1.90}
+  R_BC:    {x: -2.38, y: 1.90}
+  R_CD:    {x: -1.30, y: 1.90}
+  R_right: {x: -0.04, y: 1.90}
+
+edges:
+  - {id: F_left_AB,  a: F_left,  b: F_AB}
+  - {id: F_AB_BC,    a: F_AB,    b: F_BC}
+  - {id: F_BC_CD,    a: F_BC,    b: F_CD}
+  - {id: F_CD_right, a: F_CD,    b: F_right}
+  - {id: R_left_AB,  a: R_left,  b: R_AB}
+  - {id: R_AB_BC,    a: R_AB,    b: R_BC}
+  - {id: R_BC_CD,    a: R_BC,    b: R_CD}
+  - {id: R_CD_right, a: R_CD,    b: R_right}
+  - {id: V_left,  a: F_left,  b: R_left}
+  - {id: V_AB,    a: F_AB,    b: R_AB}
+  - {id: V_BC,    a: F_BC,    b: R_BC}
+  - {id: V_CD,    a: F_CD,    b: R_CD}
+  - {id: V_right, a: F_right, b: R_right}
