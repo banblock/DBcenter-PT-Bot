@@ -20,6 +20,7 @@ ROS 2 도메인 어디서든 한 번만 실행하면 된다 (특정 로봇과 �
 바로 시험해볼 수 있다.
 """
 
+import functools
 import json
 import os
 import threading
@@ -28,8 +29,10 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import (QoSProfile, QoSDurabilityPolicy,
                         QoSReliabilityPolicy, QoSHistoryPolicy)
+from geometry_msgs.msg import PoseWithCovarianceStamped
 from std_msgs.msg import String
 
+from fleet import robot_selector
 from fleet import zone_router
 from fleet.route_graph import RouteGraph
 from fleet.default_zones import DEFAULT_ZONES
@@ -72,6 +75,10 @@ class FleetNode(Node):
         # 못 박아둘 수 없음).
         self._mission_pubs = {}
         self._anomaly_pubs = {}
+        # 이상신호 로봇 선정용 로봇별 최신 위치. amcl_pose 구독도
+        # _ensure_robot_pubs()에서 로봇이 처음 등장할 때 지연 생성한다.
+        self._pose_subs = {}
+        self._robot_pose = {}  # ns -> (x, y)
         self.grant_pub = self.create_publisher(String, '/fleet/occupancy_grant', 10)
         self.create_subscription(String, '/fleet/occupancy_request', self._on_request, 10)
         self.create_subscription(String, '/fleet/occupancy_release', self._on_release, 10)
@@ -106,6 +113,17 @@ class FleetNode(Node):
                 String, f'/fleet/{ns}/mission', MISSION_QOS)
         if ns not in self._anomaly_pubs:
             self._anomaly_pubs[ns] = self.create_publisher(String, f'/fleet/{ns}/anomaly', 10)
+        if ns not in self._pose_subs:
+            # 설계도의 `localization amcl -> 임무 수행 로봇 선택` 입력.
+            # Nav2/AMCL이 각 로봇 네임스페이스 밑에 표준으로 퍼블리시하는
+            # 토픽이라 별도 인터페이스 정의 없이 그대로 구독한다.
+            self._pose_subs[ns] = self.create_subscription(
+                PoseWithCovarianceStamped, f'/{ns}/amcl_pose',
+                functools.partial(self._on_robot_pose, ns), 10)
+
+    def _on_robot_pose(self, ns, msg):
+        p = msg.pose.pose.position
+        self._robot_pose[ns] = (p.x, p.y)
 
     def _apply_zones(self, zones):
         """zone_router로 구역/지점 데이터를 실제 로봇별 미션으로 라우팅하고,
@@ -162,15 +180,25 @@ class FleetNode(Node):
         except json.JSONDecodeError:
             payload = {}
 
-        # 임무 수행 로봇 선택: 아직 실시간 위치 추적 기반 선정 로직이
-        # 없어서, 트리거 메시지에 지정된 로봇을 그대로 쓰고 없으면
-        # 미션 목록의 첫 번째 로봇으로 대체한다.
-        robot = payload.get('robot') or next(iter(self.missions), None)
         loc = {
             'x': payload.get('x', DEFAULT_ANOMALY['x']),
             'y': payload.get('y', DEFAULT_ANOMALY['y']),
             'yaw': payload.get('yaw', DEFAULT_ANOMALY['yaw']),
         }
+
+        # 임무 수행 로봇 선택: 트리거가 로봇을 직접 지정하면(수동 테스트용
+        # 대역) 그대로 쓰고, 아니면 이미 다른 이상신호를 처리 중이 아닌
+        # 로봇들 중 통로 그래프 최단 경로 기준으로 이상신호 좌표에 가장
+        # 가까운 로봇을 고른다 (robot_selector.py, amcl_pose 기반).
+        robot = payload.get('robot')
+        if robot is None:
+            candidates = [ns for ns in self.missions if ns not in self._anomaly_busy]
+            if not candidates:
+                self.get_logger().warn('anomaly trigger: no idle robot available, ignoring')
+                return
+            robot = robot_selector.select_nearest_robot(
+                self.graph.copy(), loc, self._robot_pose, candidates)
+
         if robot not in self._anomaly_pubs:
             self.get_logger().warn(f'anomaly trigger: unknown robot {robot!r}, ignoring')
             return
