@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import cv2
+import numpy as np
 import rclpy
 from ament_index_python.packages import get_package_share_directory
 from patrol_interfaces.msg import CamState
@@ -107,6 +108,7 @@ class DetectCctvNode(Node):
 
         # 두 카메라가 동일한 학습 모델을 공유하여 메모리 사용량을 줄인다.
         self.model = YOLO(self.model_path)
+        self._warmup_model(len(camera_ids))
         self.cameras: List[CameraContext] = []
         self.task_started = False
         self.shutdown_event = threading.Event()
@@ -249,6 +251,33 @@ class DetectCctvNode(Node):
             )
 
         return str(resolved_path)
+
+    def _warmup_model(self, batch_size: int) -> None:
+        """실제 카메라 프레임이 들어오기 전에 더미 이미지로 한 번 추론해서 CUDA
+        초기화(커널 컴파일, cuDNN 알고리즘 탐색, 가중치 GPU 전송 등) 비용을 노드
+        시작 시점으로 옮겨둔다.
+
+        실측 결과 이 초기화 비용을 워밍업 없이 그대로 두면 '첫 실제 추론'이
+        ~1.3초 걸린다(이후 정상 상태는 10~15ms) - 하필 노드가 막 시작된 직후
+        들어오는 첫 프레임에 실제 화재가 찍혀 있으면 경보가 1초 넘게 늦어질 수
+        있다는 뜻이라, 그 비용을 부팅 시점(어차피 /ui/start 대기 중이라 실사용에
+        영향 없는 구간)으로 옮기는 게 이득이다.
+        """
+        dummy_frame = np.zeros((self.image_height, self.image_width, 3), dtype=np.uint8)
+        predict_kwargs = {
+            "source": [dummy_frame] * max(batch_size, 1),
+            "conf": self.confidence,
+            "imgsz": self.inference_size,
+            "augment": True,
+            "verbose": False,
+        }
+        if self.device:
+            predict_kwargs["device"] = self.device
+
+        started = time.perf_counter()
+        self.model.predict(**predict_kwargs)
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        self.get_logger().info(f"모델 워밍업 완료 ({elapsed_ms:.0f}ms)")
 
     def _create_camera_context(
         self,

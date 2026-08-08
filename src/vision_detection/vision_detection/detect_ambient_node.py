@@ -1,15 +1,19 @@
 import os
+import time
 from collections import deque
 
+import cv2
+import numpy as np
 import rclpy
 from ament_index_python.packages import get_package_share_directory
+from cv_bridge import CvBridge
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import CompressedImage, Image
 from std_msgs.msg import Bool
 from std_srvs.srv import SetBool
+from ultralytics import YOLO
 
-from vision_detection.yolo_utils import YoloDetector
 from patrol_interfaces.msg import CamState
 
 # AMR 주변에서 감지되면 "이상 상황"으로 취급할 클래스 이름들
@@ -49,14 +53,16 @@ class DetectAmbientNode(Node):
         self.declare_parameter('jpeg_quality', 80)
 
         model_path = self.get_parameter('model_path').value
-        conf_threshold = CONF_THRESHOLD
+        self.conf_threshold = CONF_THRESHOLD
         self.amr_cam_topics = self.get_parameter('amr_cam_topics').value
         self.anomaly_classes = set(self.get_parameter('anomaly_classes').value)
         self.normal_process_every_n = self.get_parameter('normal_process_every_n').value
         self.throttled_process_every_n = self.get_parameter('throttled_process_every_n').value
         self.jpeg_quality = int(self.get_parameter('jpeg_quality').value)
 
-        self.detector = YoloDetector(model_path, conf_threshold)
+        self.bridge = CvBridge()
+        self.model = YOLO(model_path)
+        self._warmup_model()
 
         image_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -102,6 +108,17 @@ class DetectAmbientNode(Node):
 
         self.get_logger().info('detect_ambient_node ready')
 
+    def _warmup_model(self, imgsz=640):
+        """더미 이미지로 한 번 미리 추론해서 CUDA 초기화 비용(첫 실제 추론이
+        ~1.3초까지 걸리는 원인, detect_cctv_node에서 실측 확인됨)을 노드 시작
+        시점으로 옮긴다. 실제 카메라 프레임이 들어오기 전(구독 콜백이 아직 안
+        불린 시점)에 호출해야 효과가 있다."""
+        dummy = np.zeros((imgsz, imgsz, 3), dtype=np.uint8)
+        started = time.perf_counter()
+        self.model.predict(dummy, conf=self.conf_threshold, augment=True, verbose=False)
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        self.get_logger().info(f'모델 워밍업 완료 ({elapsed_ms:.0f}ms)')
+
     @staticmethod
     def _robot_id_from_topic(topic):
         # e.g. '/robot3/oakd/rgb/preview/image_raw' -> 'robot3'
@@ -117,6 +134,45 @@ class DetectAmbientNode(Node):
         response.success = True
         return response
 
+    def _infer_from_msg(self, image_msg):
+        """sensor_msgs/Image를 받아 추론하고 (박스가 그려진 이미지, 탐지 결과 목록)을 반환.
+
+        detections는 {class_name, confidence, xyxy} 딕셔너리의 리스트.
+        TTA(augment=True) 적용 - yolo11n_amr_v3 기준 실측으로 F1 0.850->0.865
+        개선 확인됨(vision_train/isaac_sim 프로젝트에서 검증, 아키텍처별로 효과가
+        다르니 모델을 바꾸면 재검증 필요).
+        """
+        cv_image = self.bridge.imgmsg_to_cv2(image_msg, desired_encoding='bgr8')
+        result = self.model.predict(cv_image, conf=self.conf_threshold, augment=True, verbose=False)[0]
+
+        detections = []
+        for box in result.boxes:
+            class_id = int(box.cls[0])
+            detections.append({
+                'class_name': result.names[class_id],
+                'confidence': float(box.conf[0]),
+                'xyxy': [float(v) for v in box.xyxy[0]],
+            })
+
+        annotated_image = result.plot()  # 탐지 박스가 그려진 이미지
+        return annotated_image, detections
+
+    def _to_compressed_image_msg(self, cv_image, frame_id=''):
+        """JPEG로 압축해서 발행 - raw Image 대비 대역폭을 30~50배 줄인다.
+
+        AMR은 WiFi로 붙어있고 nav2/lidar 등 로봇 제어 트래픽과 대역폭을 같이 쓰는데,
+        하필 실제 이상상황이 감지되는 동안에만 매 프레임 이미지를 계속 보내므로
+        raw로 두면 정작 중요한 순간에 대역폭을 잡아먹는다.
+        """
+        ok, encoded = cv2.imencode('.jpg', cv_image, [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality])
+        if not ok:
+            raise RuntimeError('JPEG 압축 실패')
+        msg = CompressedImage()
+        msg.header.frame_id = frame_id
+        msg.format = 'jpeg'
+        msg.data = encoded.tobytes()
+        return msg
+
     def _make_image_callback(self, topic):
         def callback(msg):
             # process_every_n 프레임마다 한 번만 실제 추론을 수행 (쓰로틀 적용 시 N이 커짐)
@@ -124,14 +180,13 @@ class DetectAmbientNode(Node):
             if self._frame_counters[topic] % self.process_every_n != 0:
                 return
 
-            annotated_image, detections = self.detector.infer_from_msg(msg)
+            annotated_image, detections = self._infer_from_msg(msg)
             detected_classes = {d['class_name'] for d in detections if d['class_name'] in self.anomaly_classes}
             self._anomaly_pubs[topic].publish(Bool(data=bool(detected_classes)))
 
             # 이상상황이 감지되는 동안에는 매 프레임 이미지를 계속 보내고, 감지가 끝나면(빈 집합) 멈춘다
             if detected_classes:
-                self._image_pubs[topic].publish(
-                    self.detector.to_compressed_image_msg(annotated_image, jpeg_quality=self.jpeg_quality))
+                self._image_pubs[topic].publish(self._to_compressed_image_msg(annotated_image))
 
             # CamState: 감지(켜짐)는 1프레임만 봐도 즉시 발행하되, 이미 진행 중인 상황은 재발행하지
             # 않는다. 진행 중 여부(꺼짐 판정)는 최근 프레임 윈도우의 과반으로만 해제해서,
