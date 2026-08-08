@@ -138,9 +138,9 @@ class DetectAmbientNode(Node):
         """sensor_msgs/Image를 받아 추론하고 (박스가 그려진 이미지, 탐지 결과 목록)을 반환.
 
         detections는 {class_name, confidence, xyxy} 딕셔너리의 리스트.
-        TTA(augment=True) 적용 - yolo11n_amr_v3 기준 실측으로 F1 0.850->0.865
-        개선 확인됨(vision_train/isaac_sim 프로젝트에서 검증, 아키텍처별로 효과가
-        다르니 모델을 바꾸면 재검증 필요).
+        TTA(augment=True) 적용 - 현재 모델(yolo11n) 기준 실측으로 F1 0.850->0.865
+        개선 확인됨. TTA 효과는 아키텍처마다 달라서(오히려 나빠지는 경우도 있었음)
+        모델을 바꾸면 재검증 필요.
         """
         cv_image = self.bridge.imgmsg_to_cv2(image_msg, desired_encoding='bgr8')
         result = self.model.predict(cv_image, conf=self.conf_threshold, augment=True, verbose=False)[0]

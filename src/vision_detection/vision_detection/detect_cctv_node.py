@@ -40,16 +40,21 @@ class CameraContext:
     detection_windows: Dict[str, "deque[bool]"]
     frame_lock: threading.Lock = field(default_factory=threading.Lock)
     latest_frame: Optional[Any] = None
-    latest_capture_ns: int = 0
     frame_sequence: int = 0
     last_inferred_sequence: int = -1
     capture_thread: Optional[threading.Thread] = None
-    capture_count: int = 0
     last_warning_time: float = 0.0
 
 
 class DetectCctvNode(Node):
-    """한 ROS 2 노드에서 웹캠 여러 대의 YOLO 이상 감지를 수행한다."""
+    """한 ROS 2 노드에서 웹캠 여러 대의 YOLO 이상 감지를 수행한다.
+
+    카메라마다 전용 스레드가 계속 프레임을 읽어 최신 프레임 1장만 유지하고,
+    타이머가 그 프레임들을 모아 한 번에 배치로 추론한다(카메라 대수만큼 모델을
+    따로 부르는 것보다 GPU 효율이 좋음). 결과 이미지는 JPEG로 압축해서 발행하고
+    (네트워크 대역폭 절감), 판정은 detect_ambient_node와 동일하게 최근 프레임
+    윈도우의 과반수로 확정한다(순간적인 오검출/흔들림 방지).
+    """
 
     STATUS_STATES = {
         "fire": 0,
@@ -73,7 +78,6 @@ class DetectCctvNode(Node):
         self.declare_parameter("confidence", 0.5)
         self.declare_parameter("publish_hz", 10.0)
         self.declare_parameter("jpeg_quality", 80)
-        self.declare_parameter("stats_interval_sec", 5.0)
         self.declare_parameter("device", "")
         self.declare_parameter("image_width", 1280)
         self.declare_parameter("image_height", 960)
@@ -93,7 +97,6 @@ class DetectCctvNode(Node):
         self.confidence = float(self.get_parameter("confidence").value)
         self.publish_hz = float(self.get_parameter("publish_hz").value)
         self.jpeg_quality = int(self.get_parameter("jpeg_quality").value)
-        self.stats_interval_sec = float(self.get_parameter("stats_interval_sec").value)
         self.device = str(self.get_parameter("device").value)
         self.image_width = int(self.get_parameter("image_width").value)
         self.image_height = int(self.get_parameter("image_height").value)
@@ -103,8 +106,6 @@ class DetectCctvNode(Node):
         self._validate_camera_parameters(camera_devices, camera_ids)
         if not 1 <= self.jpeg_quality <= 100:
             raise ValueError("jpeg_quality는 1부터 100 사이여야 합니다.")
-        if self.stats_interval_sec <= 0.0:
-            raise ValueError("stats_interval_sec는 0보다 커야 합니다.")
 
         # 두 카메라가 동일한 학습 모델을 공유하여 메모리 사용량을 줄인다.
         self.model = YOLO(self.model_path)
@@ -113,18 +114,6 @@ class DetectCctvNode(Node):
         self.task_started = False
         self.shutdown_event = threading.Event()
         self._cameras_released = False
-
-        # 디버그용 실시간 성능 통계 (process_frames/_publish_image에서 누적)
-        self.inference_batch_count = 0
-        self.inference_total_ms = 0.0
-        self.ui_publish_counts: Dict[str, int] = {}
-        self.compressed_byte_counts: Dict[str, int] = {}
-        self.last_stats_time = time.monotonic()
-        self.last_inference_batch_count = 0
-        self.last_inference_total_ms = 0.0
-        self.last_capture_counts: Dict[str, int] = {}
-        self.last_ui_publish_counts: Dict[str, int] = {}
-        self.last_compressed_byte_counts: Dict[str, int] = {}
 
         self.start_subscription = self.create_subscription(
             Bool,
@@ -147,11 +136,6 @@ class DetectCctvNode(Node):
                     camera_device, camera_id, camera_number
                 )
                 self.cameras.append(camera)
-                self.ui_publish_counts[camera_id] = 0
-                self.compressed_byte_counts[camera_id] = 0
-                self.last_capture_counts[camera_id] = 0
-                self.last_ui_publish_counts[camera_id] = 0
-                self.last_compressed_byte_counts[camera_id] = 0
             self._start_capture_threads()
         except Exception:
             self._release_cameras()
@@ -159,7 +143,6 @@ class DetectCctvNode(Node):
 
         timer_period = 1.0 / self.publish_hz
         self.timer = self.create_timer(timer_period, self.process_frames)
-        self.stats_timer = self.create_timer(self.stats_interval_sec, self.report_performance)
 
         camera_summary = ", ".join(
             f"{camera.camera_id}={camera.camera_device}"
@@ -415,11 +398,10 @@ class DetectCctvNode(Node):
 
             with camera.frame_lock:
                 camera.latest_frame = frame
-                camera.latest_capture_ns = time.monotonic_ns()
                 camera.frame_sequence += 1
-                camera.capture_count += 1
 
     def _snapshot_latest_frame(self, camera: CameraContext) -> Optional[tuple[Any, int]]:
+        """다른 스레드가 교체해도 안전하도록 최신 프레임 복사본을 반환한다."""
         with camera.frame_lock:
             if camera.latest_frame is None:
                 return None
@@ -454,17 +436,16 @@ class DetectCctvNode(Node):
                 "source": frames,
                 "conf": self.confidence,
                 "imgsz": self.inference_size,
+                # TTA(augment=True) - 현재 모델(yolov8n) 기준 실측으로 F1 0.659->0.713
+                # 개선 확인됨. TTA 효과는 아키텍처마다 달라서(오히려 나빠지는 경우도
+                # 있었음) 모델을 바꾸면 재검증 필요.
                 "augment": True,
                 "verbose": False,
             }
             if self.device:
                 predict_kwargs["device"] = self.device
 
-            inference_started = time.perf_counter()
             results = self.model.predict(**predict_kwargs)
-            inference_ms = (time.perf_counter() - inference_started) * 1000.0
-            self.inference_batch_count += 1
-            self.inference_total_ms += inference_ms
             if len(results) != len(cameras_with_frames):
                 raise RuntimeError(
                     "YOLO 결과 수가 입력한 카메라 프레임 수와 다릅니다."
@@ -532,8 +513,6 @@ class DetectCctvNode(Node):
         message.format = "jpeg"
         message.data = encoded.tobytes()
         camera.image_publisher.publish(message)
-        self.ui_publish_counts[camera.camera_id] += 1
-        self.compressed_byte_counts[camera.camera_id] += len(message.data)
 
     def _publish_status(
         self, camera: CameraContext, detected_status: Dict[str, bool]
@@ -559,70 +538,6 @@ class DetectCctvNode(Node):
         message.camera_id = camera.camera_number
         message.state = self.STATUS_STATES[event_name]
         self.status_publisher.publish(message)
-
-    def report_performance(self) -> None:
-        """실제 캡처·추론·UI 발행 속도와 최신 프레임 나이를 출력한다(디버그용).
-
-        capture_hz(카메라 실제 캡처 속도)와 process_hz(추론+UI발행 배치 처리 속도)를
-        비교하면 카메라가 publish_hz보다 빠른데 GPU가 못 따라가는지, 반대로 카메라
-        자체가 느려서 병목인지 구분할 수 있다.
-        """
-        now = time.monotonic()
-        elapsed = now - self.last_stats_time
-        if elapsed <= 0.0:
-            return
-
-        process_delta = self.inference_batch_count - self.last_inference_batch_count
-        process_hz = process_delta / elapsed
-
-        capture_parts = []
-        ui_parts = []
-        bandwidth_parts = []
-        age_parts = []
-        now_ns = time.monotonic_ns()
-        for camera in self.cameras:
-            with camera.frame_lock:
-                capture_count = camera.capture_count
-                latest_capture_ns = camera.latest_capture_ns
-
-            capture_delta = capture_count - self.last_capture_counts[camera.camera_id]
-            ui_count = self.ui_publish_counts[camera.camera_id]
-            ui_delta = ui_count - self.last_ui_publish_counts[camera.camera_id]
-            compressed_bytes = self.compressed_byte_counts[camera.camera_id]
-            compressed_delta = compressed_bytes - self.last_compressed_byte_counts[camera.camera_id]
-            age_ms = (
-                (now_ns - latest_capture_ns) / 1_000_000.0
-                if latest_capture_ns > 0
-                else float("nan")
-            )
-
-            capture_parts.append(f"{camera.camera_id}={capture_delta / elapsed:.1f}")
-            ui_parts.append(f"{camera.camera_id}={ui_delta / elapsed:.1f}")
-            bandwidth_mbps = compressed_delta * 8.0 / elapsed / 1_000_000.0
-            bandwidth_parts.append(f"{camera.camera_id}={bandwidth_mbps:.1f}Mbps")
-            age_parts.append(f"{camera.camera_id}={age_ms:.1f}ms")
-
-            self.last_capture_counts[camera.camera_id] = capture_count
-            self.last_ui_publish_counts[camera.camera_id] = ui_count
-            self.last_compressed_byte_counts[camera.camera_id] = compressed_bytes
-
-        inference_time_delta = self.inference_total_ms - self.last_inference_total_ms
-        average_inference_ms = (
-            inference_time_delta / process_delta if process_delta > 0 else 0.0
-        )
-        self.get_logger().info(
-            "실시간 성능 | "
-            f"capture_hz=[{', '.join(capture_parts)}] | "
-            f"process_hz={process_hz:.1f} | "
-            f"inference_avg={average_inference_ms:.1f}ms | "
-            f"ui_hz=[{', '.join(ui_parts)}] | "
-            f"stream=[{', '.join(bandwidth_parts)}] | "
-            f"latest_age=[{', '.join(age_parts)}]"
-        )
-
-        self.last_stats_time = now
-        self.last_inference_batch_count = self.inference_batch_count
-        self.last_inference_total_ms = self.inference_total_ms
 
     def _release_cameras(self) -> None:
         if self._cameras_released:
