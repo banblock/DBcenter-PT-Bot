@@ -4,31 +4,45 @@ from __future__ import annotations
 
 import glob
 import re
+import threading
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import cv2
 import rclpy
 from ament_index_python.packages import get_package_share_directory
-from cv_bridge import CvBridge
 from patrol_interfaces.msg import CamState
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import (
     HistoryPolicy,
     QoSProfile,
     ReliabilityPolicy,
 )
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import Bool
 from ultralytics import YOLO
 
 
+@dataclass(frozen=True)
+class DetectionBox:
+    """UI 프레임에 다시 그릴 최신 YOLO 박스 한 개."""
+
+    x1: int
+    y1: int
+    x2: int
+    y2: int
+    class_name: str
+    confidence: float
+
+
 @dataclass
 class CameraContext:
-    """카메라 한 대에 속한 캡처 및 ROS 퍼블리셔 상태."""
+    """카메라 한 대의 최신 프레임, 추론 결과 및 ROS 상태."""
 
     camera_id: str
     camera_number: int
@@ -37,11 +51,21 @@ class CameraContext:
     image_publisher: Any
     last_status: Dict[str, bool]
     detection_windows: Dict[str, "deque[bool]"]
+    frame_lock: threading.Lock = field(default_factory=threading.Lock)
+    result_lock: threading.Lock = field(default_factory=threading.Lock)
+    latest_frame: Optional[Any] = None
+    latest_capture_ns: int = 0
+    frame_sequence: int = 0
+    last_inferred_sequence: int = -1
+    last_published_sequence: int = -1
+    latest_detections: List[DetectionBox] = field(default_factory=list)
+    capture_thread: Optional[threading.Thread] = None
+    capture_count: int = 0
     last_warning_time: float = 0.0
 
 
 class DetectCctvNode(Node):
-    """한 ROS 2 노드에서 웹캠 여러 대의 YOLO 이상 감지를 수행한다."""
+    """최신 프레임 캡처, YOLO 추론, UI 발행을 분리한 CCTV 노드."""
 
     STATUS_STATES = {
         "fire": 0,
@@ -63,7 +87,11 @@ class DetectCctvNode(Node):
         self.declare_parameter("min_camera_index", 2)
         self.declare_parameter("model_path", "models/cctv_best.pt")
         self.declare_parameter("confidence", 0.5)
-        self.declare_parameter("publish_hz", 10.0)
+        self.declare_parameter("inference_hz", 15.0)
+        # 기존 publish_hz 이름을 유지하며 UI 압축 영상 발행 목표 주기로 사용한다.
+        self.declare_parameter("publish_hz", 30.0)
+        self.declare_parameter("jpeg_quality", 80)
+        self.declare_parameter("stats_interval_sec", 5.0)
         self.declare_parameter("device", "")
         self.declare_parameter("image_width", 1280)
         self.declare_parameter("image_height", 960)
@@ -81,7 +109,12 @@ class DetectCctvNode(Node):
         configured_model_path = str(self.get_parameter("model_path").value)
         self.model_path = self._resolve_model_path(configured_model_path)
         self.confidence = float(self.get_parameter("confidence").value)
+        self.inference_hz = float(self.get_parameter("inference_hz").value)
         self.publish_hz = float(self.get_parameter("publish_hz").value)
+        self.jpeg_quality = int(self.get_parameter("jpeg_quality").value)
+        self.stats_interval_sec = float(
+            self.get_parameter("stats_interval_sec").value
+        )
         self.device = str(self.get_parameter("device").value)
         self.image_width = int(self.get_parameter("image_width").value)
         self.image_height = int(self.get_parameter("image_height").value)
@@ -89,18 +122,43 @@ class DetectCctvNode(Node):
         self.inference_size = int(self.get_parameter("inference_size").value)
 
         self._validate_camera_parameters(camera_devices, camera_ids)
+        if self.inference_hz <= 0.0 or self.publish_hz <= 0.0:
+            raise ValueError("inference_hz와 publish_hz는 0보다 커야 합니다.")
+        if self.stats_interval_sec <= 0.0:
+            raise ValueError("stats_interval_sec는 0보다 커야 합니다.")
+        if not 1 <= self.jpeg_quality <= 100:
+            raise ValueError("jpeg_quality는 1부터 100 사이여야 합니다.")
 
-        self.bridge = CvBridge()
         # 두 카메라가 동일한 학습 모델을 공유하여 메모리 사용량을 줄인다.
         self.model = YOLO(self.model_path)
         self.cameras: List[CameraContext] = []
         self.task_started = False
+        self.shutdown_event = threading.Event()
+        self._cameras_released = False
+
+        # 추론이 진행 중이어도 UI 타이머가 다른 실행 스레드에서 동작하도록 그룹을 분리한다.
+        self.start_callback_group = MutuallyExclusiveCallbackGroup()
+        self.inference_callback_group = MutuallyExclusiveCallbackGroup()
+        self.ui_callback_group = MutuallyExclusiveCallbackGroup()
+        self.stats_callback_group = MutuallyExclusiveCallbackGroup()
+
+        self.inference_batch_count = 0
+        self.inference_total_ms = 0.0
+        self.ui_publish_counts: Dict[str, int] = {}
+        self.compressed_byte_counts: Dict[str, int] = {}
+        self.last_stats_time = time.monotonic()
+        self.last_inference_batch_count = 0
+        self.last_inference_total_ms = 0.0
+        self.last_capture_counts: Dict[str, int] = {}
+        self.last_ui_publish_counts: Dict[str, int] = {}
+        self.last_compressed_byte_counts: Dict[str, int] = {}
 
         self.start_subscription = self.create_subscription(
             Bool,
             "/ui/start",
             self._start_callback,
             1,
+            callback_group=self.start_callback_group,
         )
 
         self.status_publisher = self.create_publisher(
@@ -117,12 +175,31 @@ class DetectCctvNode(Node):
                     camera_device, camera_id, camera_number
                 )
                 self.cameras.append(camera)
+                self.ui_publish_counts[camera_id] = 0
+                self.compressed_byte_counts[camera_id] = 0
+                self.last_capture_counts[camera_id] = 0
+                self.last_ui_publish_counts[camera_id] = 0
+                self.last_compressed_byte_counts[camera_id] = 0
+            self._start_capture_threads()
         except Exception:
             self._release_cameras()
             raise
 
-        timer_period = 1.0 / self.publish_hz
-        self.timer = self.create_timer(timer_period, self.process_frames)
+        self.inference_timer = self.create_timer(
+            1.0 / self.inference_hz,
+            self.process_inference,
+            callback_group=self.inference_callback_group,
+        )
+        self.ui_timer = self.create_timer(
+            1.0 / self.publish_hz,
+            self.publish_ui_frames,
+            callback_group=self.ui_callback_group,
+        )
+        self.stats_timer = self.create_timer(
+            self.stats_interval_sec,
+            self.report_performance,
+            callback_group=self.stats_callback_group,
+        )
 
         camera_summary = ", ".join(
             f"{camera.camera_id}={camera.camera_device}"
@@ -131,6 +208,9 @@ class DetectCctvNode(Node):
         self.get_logger().info(
             f"다중 CCTV 준비 완료 | cameras=[{camera_summary}] | "
             f"model={self.model_path} | conf={self.confidence:.2f} | "
+            f"inference={self.inference_hz:.1f}Hz | "
+            f"ui={self.publish_hz:.1f}Hz | "
+            f"jpeg_quality={self.jpeg_quality} | "
             "/ui/start 대기 중"
         )
 
@@ -227,7 +307,7 @@ class DetectCctvNode(Node):
             depth=1,
         )
         image_publisher = self.create_publisher(
-            Image,
+            CompressedImage,
             f"/detection/{camera_id}/detection_image",
             image_qos,
         )
@@ -252,8 +332,10 @@ class DetectCctvNode(Node):
 
     def _publish_initial_status(self, camera: CameraContext) -> None:
         """구독자가 시작 시 정상 상태(False)를 받을 수 있게 발행한다."""
-        camera.last_status = self._default_status()
-        camera.detection_windows = self._new_detection_windows()
+        with camera.result_lock:
+            camera.last_status = self._default_status()
+            camera.detection_windows = self._new_detection_windows()
+            camera.latest_detections = []
         for event_name in self.STATUS_STATES:
             self._publish_status_message(camera, event_name)
 
@@ -261,10 +343,11 @@ class DetectCctvNode(Node):
         if message.data == self.task_started:
             return
 
-        self.task_started = message.data
-
+        # 상태 초기화 중 추론/UI 콜백이 중간 상태를 사용하지 않도록 잠시 정지한다.
+        self.task_started = False
         for camera in self.cameras:
             self._publish_initial_status(camera)
+        self.task_started = message.data
 
         action = "시작" if self.task_started else "중지"
         self.get_logger().info(
@@ -318,21 +401,75 @@ class DetectCctvNode(Node):
         )
         return capture
 
-    def process_frames(self) -> None:
+    def _start_capture_threads(self) -> None:
+        """카메라마다 전용 스레드를 시작해 드라이버 버퍼를 계속 비운다."""
+        for camera in self.cameras:
+            camera.capture_thread = threading.Thread(
+                target=self._capture_loop,
+                args=(camera,),
+                name=f"{camera.camera_id}_latest_frame_capture",
+                daemon=True,
+            )
+            camera.capture_thread.start()
+
+    def _capture_loop(self, camera: CameraContext) -> None:
+        """프레임을 계속 읽고 이전 값 위에 최신 프레임만 덮어쓴다."""
+        while not self.shutdown_event.is_set():
+            success, frame = camera.capture.read()
+
+            if not success or frame is None:
+                now = time.monotonic()
+                if now - camera.last_warning_time >= 5.0:
+                    self.get_logger().warning(
+                        f"{camera.camera_id}: 카메라 프레임을 읽지 못했습니다."
+                    )
+                    camera.last_warning_time = now
+                continue
+
+            captured_ns = time.monotonic_ns()
+            with camera.frame_lock:
+                # 큐에 추가하지 않고 최신 한 장만 교체하므로 과거 프레임이 누적되지 않는다.
+                camera.latest_frame = frame
+                camera.latest_capture_ns = captured_ns
+                camera.frame_sequence += 1
+                camera.capture_count += 1
+
+    def _snapshot_latest_frame(
+        self, camera: CameraContext
+    ) -> Optional[tuple[Any, int, int]]:
+        """다른 스레드가 교체해도 안전하도록 최신 프레임 복사본을 반환한다."""
+        with camera.frame_lock:
+            if camera.latest_frame is None:
+                return None
+            return (
+                camera.latest_frame.copy(),
+                camera.frame_sequence,
+                camera.latest_capture_ns,
+            )
+
+    def process_inference(self) -> None:
+        """최신 카메라 프레임 묶음만 YOLO로 배치 추론한다."""
         if not self.task_started:
             return
 
         cameras_with_frames: List[CameraContext] = []
         frames: List[Any] = []
+        frame_sequences: List[int] = []
 
+        any_new_frame = False
         for camera in self.cameras:
-            frame = self._read_frame(camera)
-            if frame is None:
+            snapshot = self._snapshot_latest_frame(camera)
+            if snapshot is None:
                 continue
+            frame, sequence, _ = snapshot
+            if sequence != camera.last_inferred_sequence:
+                any_new_frame = True
             cameras_with_frames.append(camera)
             frames.append(frame)
+            frame_sequences.append(sequence)
 
-        if not frames:
+        # 카메라가 새 프레임을 만들지 않았다면 같은 화면을 다시 추론하지 않는다.
+        if not frames or not any_new_frame:
             return
 
         try:
@@ -345,33 +482,182 @@ class DetectCctvNode(Node):
             if self.device:
                 predict_kwargs["device"] = self.device
 
+            inference_started = time.perf_counter()
             results = self.model.predict(**predict_kwargs)
+            inference_ms = (time.perf_counter() - inference_started) * 1000.0
             if len(results) != len(cameras_with_frames):
                 raise RuntimeError(
                     "YOLO 결과 수가 입력한 카메라 프레임 수와 다릅니다."
                 )
 
-            for camera, result in zip(cameras_with_frames, results):
+            for camera, result, sequence in zip(
+                cameras_with_frames, results, frame_sequences
+            ):
                 detected_status = self._extract_detected_status(result)
-                stable_status = self._apply_debounce(camera, detected_status)
-                self._publish_status(camera, stable_status)
-                self._publish_image(camera, result.plot())
+                detections = self._extract_detection_boxes(result)
+                with camera.result_lock:
+                    stable_status = self._apply_debounce(camera, detected_status)
+                    self._publish_status(camera, stable_status)
+                    camera.latest_detections = detections
+                    camera.last_inferred_sequence = sequence
+
+            self.inference_batch_count += 1
+            self.inference_total_ms += inference_ms
         except Exception as exc:
             self.get_logger().error(f"YOLO 배치 처리 중 오류: {exc}")
 
-    def _read_frame(self, camera: CameraContext) -> Optional[Any]:
-        success, frame = camera.capture.read()
+    def publish_ui_frames(self) -> None:
+        """YOLO 완료를 기다리지 않고 최신 프레임에 최근 박스를 그려 발행한다."""
+        if not self.task_started:
+            return
 
-        if not success or frame is None:
-            now = time.monotonic()
-            if now - camera.last_warning_time >= 5.0:
-                self.get_logger().warning(
-                    f"{camera.camera_id}: 카메라 프레임을 읽지 못했습니다."
+        for camera in self.cameras:
+            snapshot = self._snapshot_latest_frame(camera)
+            if snapshot is None:
+                continue
+            frame, sequence, _ = snapshot
+
+            # 새 카메라 프레임이 없으면 동일 영상을 중복 발행하지 않는다.
+            if sequence == camera.last_published_sequence:
+                continue
+
+            with camera.result_lock:
+                detections = list(camera.latest_detections)
+
+            annotated_frame = self._draw_detections(frame, detections)
+            if self._publish_image(camera, annotated_frame):
+                camera.last_published_sequence = sequence
+                self.ui_publish_counts[camera.camera_id] += 1
+
+    def _extract_detection_boxes(self, result: Any) -> List[DetectionBox]:
+        """Ultralytics 결과를 UI 스레드에서 안전하게 쓸 일반 Python 값으로 복사한다."""
+        detections: List[DetectionBox] = []
+        if result.boxes is None:
+            return detections
+
+        coordinates = result.boxes.xyxy.tolist()
+        confidences = result.boxes.conf.tolist()
+        class_indices = result.boxes.cls.tolist()
+        for xyxy, confidence, class_index in zip(
+            coordinates, confidences, class_indices
+        ):
+            detections.append(
+                DetectionBox(
+                    x1=int(xyxy[0]),
+                    y1=int(xyxy[1]),
+                    x2=int(xyxy[2]),
+                    y2=int(xyxy[3]),
+                    class_name=self._class_name_from_index(
+                        int(class_index), result.names
+                    ),
+                    confidence=float(confidence),
                 )
-                camera.last_warning_time = now
-            return None
+            )
+        return detections
+
+    @staticmethod
+    def _draw_detections(
+        frame: Any, detections: List[DetectionBox]
+    ) -> Any:
+        """최신 원본 프레임 위에 가장 최근 추론 박스를 그린다."""
+        colors = {
+            "fire": (0, 0, 255),
+            "smoke": (0, 255, 255),
+            "coolant": (255, 128, 0),
+        }
+        height, width = frame.shape[:2]
+
+        for detection in detections:
+            x1 = max(0, min(detection.x1, width - 1))
+            y1 = max(0, min(detection.y1, height - 1))
+            x2 = max(0, min(detection.x2, width - 1))
+            y2 = max(0, min(detection.y2, height - 1))
+            color = colors.get(detection.class_name, (0, 255, 0))
+            label = f"{detection.class_name} {detection.confidence:.2f}"
+
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            label_y = max(20, y1 - 8)
+            cv2.putText(
+                frame,
+                label,
+                (x1, label_y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                color,
+                2,
+                cv2.LINE_AA,
+            )
 
         return frame
+
+    def report_performance(self) -> None:
+        """실제 캡처·추론·UI 발행 속도와 최신 프레임 나이를 출력한다."""
+        now = time.monotonic()
+        elapsed = now - self.last_stats_time
+        if elapsed <= 0.0:
+            return
+
+        inference_delta = (
+            self.inference_batch_count - self.last_inference_batch_count
+        )
+        inference_hz = inference_delta / elapsed
+
+        capture_parts = []
+        ui_parts = []
+        bandwidth_parts = []
+        age_parts = []
+        now_ns = time.monotonic_ns()
+        for camera in self.cameras:
+            with camera.frame_lock:
+                capture_count = camera.capture_count
+                latest_capture_ns = camera.latest_capture_ns
+
+            capture_delta = capture_count - self.last_capture_counts[camera.camera_id]
+            ui_count = self.ui_publish_counts[camera.camera_id]
+            ui_delta = ui_count - self.last_ui_publish_counts[camera.camera_id]
+            compressed_bytes = self.compressed_byte_counts[camera.camera_id]
+            compressed_delta = (
+                compressed_bytes
+                - self.last_compressed_byte_counts[camera.camera_id]
+            )
+            age_ms = (
+                (now_ns - latest_capture_ns) / 1_000_000.0
+                if latest_capture_ns > 0
+                else float("nan")
+            )
+
+            capture_parts.append(f"{camera.camera_id}={capture_delta / elapsed:.1f}")
+            ui_parts.append(f"{camera.camera_id}={ui_delta / elapsed:.1f}")
+            bandwidth_mbps = compressed_delta * 8.0 / elapsed / 1_000_000.0
+            bandwidth_parts.append(
+                f"{camera.camera_id}={bandwidth_mbps:.1f}Mbps"
+            )
+            age_parts.append(f"{camera.camera_id}={age_ms:.1f}ms")
+            self.last_capture_counts[camera.camera_id] = capture_count
+            self.last_ui_publish_counts[camera.camera_id] = ui_count
+            self.last_compressed_byte_counts[camera.camera_id] = compressed_bytes
+
+        inference_time_delta = (
+            self.inference_total_ms - self.last_inference_total_ms
+        )
+        average_inference_ms = (
+            inference_time_delta / inference_delta
+            if inference_delta > 0
+            else 0.0
+        )
+        self.get_logger().info(
+            "실시간 성능 | "
+            f"capture_hz=[{', '.join(capture_parts)}] | "
+            f"inference_hz={inference_hz:.1f} | "
+            f"inference_avg={average_inference_ms:.1f}ms | "
+            f"ui_hz=[{', '.join(ui_parts)}] | "
+            f"stream=[{', '.join(bandwidth_parts)}] | "
+            f"latest_age=[{', '.join(age_parts)}]"
+        )
+
+        self.last_stats_time = now
+        self.last_inference_batch_count = self.inference_batch_count
+        self.last_inference_total_ms = self.inference_total_ms
 
     def _extract_detected_status(self, result: Any) -> Dict[str, bool]:
         detected_status = self._default_status()
@@ -408,11 +694,27 @@ class DetectCctvNode(Node):
 
         return stable_status
 
-    def _publish_image(self, camera: CameraContext, frame: Any) -> None:
-        message = self.bridge.cv2_to_imgmsg(frame, encoding="bgr8")
+    def _publish_image(self, camera: CameraContext, frame: Any) -> bool:
+        """UI 프레임을 JPEG로 압축하여 DDS 전송량을 줄인다."""
+        success, encoded = cv2.imencode(
+            ".jpg",
+            frame,
+            [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality],
+        )
+        if not success:
+            self.get_logger().warning(
+                f"{camera.camera_id}: UI 프레임 JPEG 압축에 실패했습니다."
+            )
+            return False
+
+        message = CompressedImage()
         message.header.stamp = self.get_clock().now().to_msg()
         message.header.frame_id = camera.camera_id
+        message.format = "jpeg"
+        message.data = encoded.tobytes()
         camera.image_publisher.publish(message)
+        self.compressed_byte_counts[camera.camera_id] += len(message.data)
+        return True
 
     def _publish_status(
         self, camera: CameraContext, detected_status: Dict[str, bool]
@@ -440,8 +742,23 @@ class DetectCctvNode(Node):
         self.status_publisher.publish(message)
 
     def _release_cameras(self) -> None:
+        if self._cameras_released:
+            return
+        self._cameras_released = True
+        self.shutdown_event.set()
+
+        # 정상적인 read() 반환을 먼저 기다린 뒤 장치를 해제한다.
+        for camera in self.cameras:
+            if camera.capture_thread is not None:
+                camera.capture_thread.join(timeout=0.5)
+
         for camera in self.cameras:
             camera.capture.release()
+
+        # release()로 read()가 풀린 스레드의 종료를 한 번 더 기다린다.
+        for camera in self.cameras:
+            if camera.capture_thread is not None and camera.capture_thread.is_alive():
+                camera.capture_thread.join(timeout=0.5)
 
     def destroy_node(self) -> bool:
         self._release_cameras()
@@ -451,10 +768,13 @@ class DetectCctvNode(Node):
 def main(args: Optional[list] = None) -> None:
     rclpy.init(args=args)
     node: Optional[DetectCctvNode] = None
+    executor: Optional[MultiThreadedExecutor] = None
 
     try:
         node = DetectCctvNode()
-        rclpy.spin(node)
+        executor = MultiThreadedExecutor(num_threads=4)
+        executor.add_node(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     except Exception as exc:
@@ -464,6 +784,8 @@ def main(args: Optional[list] = None) -> None:
             print(f"detect_cctv_node 시작 실패: {exc}")
         raise
     finally:
+        if executor is not None:
+            executor.shutdown()
         if node is not None:
             node.destroy_node()
         if rclpy.ok():
