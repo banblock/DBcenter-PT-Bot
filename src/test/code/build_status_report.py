@@ -103,7 +103,7 @@ VOCAB_ROWS = [
     (robot_status.REPORTING, '결과 전송 중', 'Control Node (검증 완료 시점 필요)'),
     (robot_status.RESUMING, '순찰 복귀 중', 'Control Node (중단 지점 도달 필요)'),
     (robot_status.CHARGING, '충전 중', 'Control Node (배터리 정보 필요, Fleet 미구독)'),
-    (robot_status.EMERGENCY_STOP, '긴급정지', 'Fleet ✓ (emergency_stopped 등록 시점, 해제 로직은 아직 없음)'),
+    (robot_status.EMERGENCY_STOP, '긴급정지', 'Fleet ✓ (emergency_stopped 등록/해제 시점)'),
     (robot_status.ERROR, '오류', 'Control Node (내비게이션 실패 등)'),
     (robot_status.ALERTING, '현장 경보 중', 'Control Node (관제 ACK 필요)'),
     (robot_status.UNDOCKING, '출발 준비', 'Control Node (도킹 상태 필요, Fleet 미구독)'),
@@ -278,8 +278,9 @@ footer code {{
       4개뿐입니다. 미션 배정 여부, 이상신호 대응 여부, 긴급정지 여부만으로
       판정하고, 1Hz 폴링으로 변화가 있을 때만
       <code>/control/&lt;robot&gt;_State</code>에 퍼블리시합니다. 긴급정지는
-      해제(재개) 로직이 아직 없어서 한 번 걸리면 다른 상태를 전부
-      덮어쓰고 계속 유지됩니다. 아래는 test_robot_status.py에 정의된
+      해제되기 전까지 다른 상태를 전부 덮어쓰고 유지되며, 해제되면
+      emergency_stopped 세트에서 빠져 다음 순위(이상신호 대응/미션 보유
+      여부)로 자연스럽게 떨어집니다. 아래는 test_robot_status.py에 정의된
       시나리오를 robot_status.py로 실제 실행한 결과입니다.
     </p>
     <div class="meta">
@@ -307,8 +308,8 @@ footer code {{
       2026-08-06 스크린샷 원본 표 기준. 굵게 표시된 3개가 Fleet이 지금
       퍼블리시하는 상태고, 나머지는 Control Node가 같은
       <code>/control/&lt;robot&gt;_State</code> 토픽에 이어서 퍼블리시할
-      몫이거나(순차적 소유권 이양) Fleet의 다음 작업(긴급정지, UI 명령
-      연동)으로 예정된 상태입니다.
+      몫이거나(순차적 소유권 이양) Fleet의 다음 작업(도킹 복귀, 1시간
+      자동 순찰 재개 등 UI 명령 연동)으로 예정된 상태입니다.
     </p>
     <table>
       <thead><tr><th>상태값</th><th>UI 한글 표기</th><th>담당</th></tr></thead>

@@ -19,10 +19,20 @@
   DOCKING 등)는 그 정보를 실제로 가진 Control Node 쪽 몫이다
   (로봇 상태 변화 감지? -> 로봇 상태 퍼블리시)
 - 긴급정지 요청을 받으면(비상정지 수신) 등록된 로봇 전체에 정지 신호를
-  전파한다 - 실제로 Nav2를 멈추는 cancelTask() 호출은 Control Node
-  쪽 몫이고(control_node.py의 이상신호 인터럽트 처리와 동일한 패턴),
-  Fleet은 "정지하라"는 신호만 로봇별로 내려준다 (비상정지 수신 ->
-  순찰 진행중인가?)
+  전파하고, 해제 요청(전체 재개)이 오면 긴급정지 중이던 로봇만 골라
+  해제 신호를 내려준다 - 실제로 Nav2를 멈추거나 재개하는 처리는 Control
+  Node 쪽 몫이고(control_node.py의 이상신호 인터럽트 처리와 동일한
+  패턴), Fleet은 "정지하라"/"해제됐다"는 신호만 로봇별로 내려준다
+  (비상정지 수신 -> 순찰 진행중인가?)
+- 도킹 복귀 요청을 받으면(명령 분기 -> 도킹 복귀) 대상 로봇에게 고정된
+  도킹 스테이션 대기 지점(DOCK_STATIONS)을 내려준다 - 그 지점까지
+  이동해서 실제 irobot_create_msgs/action/Dock을 호출하는 건 Control
+  Node 몫이다
+- 이상신호를 받으면(이상신호 감지 비전노드 -> 임무 수행 로봇 선택)
+  HMI가 보낸 페이로드 모양으로 AMR 자체 감지({"robot"}만 있음, 그
+  로봇을 제자리에 세움)와 CCTV 감지({"x","y"}만 있음, 가장 가까운
+  로봇을 급파)를 구분해서 처리한다 (anomaly_control.py) - 긴급정지
+  중인 로봇은 두 경로 모두에서 제외한다
 
 ROS 2 도메인 어디서든 한 번만 실행하면 된다 (특정 로봇과 같은 위치에
 있을 필요 없음). 각 로봇의 Control Node와는 정식 .srv/.msg 타입이
@@ -42,6 +52,8 @@ from rclpy.qos import (QoSProfile, QoSDurabilityPolicy,
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from std_msgs.msg import String
 
+from fleet import anomaly_control
+from fleet import dock_control
 from fleet import robot_selector
 from fleet import robot_status
 from fleet import zone_router
@@ -58,6 +70,7 @@ MISSION_QOS = QoSProfile(
 # /fleet/anomaly_trigger 메시지에 좌표가 안 실려 왔을 때 쓰는 기본값 -
 # 실제 비전 노드가 감지한 좌표 대신 쓰는 자리표시자.
 DEFAULT_ANOMALY = {'x': -2.33, 'y': 0.0313, 'yaw': 0.0}
+
 
 
 def _default_graph_path():
@@ -87,6 +100,7 @@ class FleetNode(Node):
         self._mission_pubs = {}
         self._anomaly_pubs = {}
         self._emergency_pubs = {}
+        self._dock_pubs = {}
         # 이상신호 로봇 선정용 로봇별 최신 위치. amcl_pose 구독도
         # _ensure_robot_pubs()에서 로봇이 처음 등장할 때 지연 생성한다.
         self._pose_subs = {}
@@ -101,25 +115,37 @@ class FleetNode(Node):
         self.create_subscription(String, '/fleet/occupancy_request', self._on_request, 10)
         self.create_subscription(String, '/fleet/occupancy_release', self._on_release, 10)
 
-        # 실제 비전 노드(이상신호 감지 비전노드)가 연결되기 전까지 쓰는
-        # 수동 대역. {"robot":"robot3","x":-0.3,"y":2,"yaw":0} 같은
-        # JSON을 /fleet/anomaly_trigger에 퍼블리시하면 감지 상황을
-        # 흉내낼 수 있다.
+        # 이상신호 감지 비전노드가 아직 Fleet에 직접 연결되지 않아서,
+        # HMI(Backend)가 감지 결과를 대신 중계해준다 - 페이로드 모양으로
+        # 두 경로를 구분한다: {"robot":"robot3"}만 있으면 AMR 자체 감지,
+        # {"x":-0.3,"y":2}만 있으면 CCTV 감지 (자세한 판정은
+        # _on_anomaly_trigger()/anomaly_control.py 참고). 같은 JSON을
+        # 손으로 퍼블리시해도 그대로 감지 상황을 흉내낼 수 있다.
         self._anomaly_busy = set()  # 현재 이상 상황 대응 중이라 순찰을 이탈한 로봇들
         self.create_subscription(
             String, '/fleet/anomaly_trigger', self._on_anomaly_trigger, 10)
         self.create_subscription(
             String, '/fleet/anomaly_done', self._on_anomaly_done, 10)
 
-        # 긴급정지 - 한 번 정지되면 이 세션에서는 계속 EMERGENCY_STOP으로
-        # 남는다(해제/재개 로직은 남은 작업 4번 UI 명령 연동에서 다룰
-        # 예정이라 아직 없음). "/backend/emergency_stop_all" 토픽명과
-        # {"stop": true} 스키마는 설계도 원본에 이 부분 ROS 브릿지 라벨이
-        # 아직 없어서 기존 /backend/system_start(bool) 패턴을 따라 임시로
-        # 정한 것 - Backend 팀과 확정 필요 (HANDOFF.md 참고).
+        # 긴급정지 - {"stop": true}면 등록된 로봇 전체를 정지시키고,
+        # {"stop": false}면 그중 긴급정지 중이던 로봇만 골라 해제한다.
+        # "/backend/emergency_stop_all" 토픽명과 {"stop": bool} 스키마는
+        # 설계도 원본에 이 부분 ROS 브릿지 라벨이 아직 없어서 기존
+        # /backend/system_start(bool) 패턴을 따라 임시로 정한 것 - Backend
+        # 팀과 확정 필요 (HANDOFF.md 참고). 같은 스키마를 로봇별
+        # /fleet/<ns>/emergency_stop에도 그대로 실어보내므로, Control
+        # Node는 stop 필드만 보고 정지/재개를 구분하면 된다 (아직 Control
+        # 쪽에 이 토픽 구독이 없음 - lee 브랜치 기준, 통합 시 추가 필요).
         self._emergency_stopped = set()  # 긴급정지된 로봇들
         self.create_subscription(
             String, '/backend/emergency_stop_all', self._on_emergency_stop_all, 10)
+
+        # 도킹 복귀 - "AMR 순찰 정지 및 도킹". {"robots": [...]}로 특정
+        # 로봇만 지정할 수 있고, robots 필드가 없거나 비어 있으면 등록된
+        # 로봇 전체가 대상이다. Fleet은 DOCK_STATIONS의 고정 좌표를 그대로
+        # 내려줄 뿐, 그 지점까지 이동해서 실제 Dock 액션을 호출하는 건
+        # Control Node 몫이다.
+        self.create_subscription(String, '/backend/dock', self._on_dock_return, 10)
 
         # 설계도의 실제 Backend 입력 (구역, 지점좌표 -> /backend/map_points),
         # {"zones": [{zone_id, robot, points: [{x,y,yaw,point_type}, ...]}]}
@@ -147,6 +173,8 @@ class FleetNode(Node):
         if ns not in self._emergency_pubs:
             self._emergency_pubs[ns] = self.create_publisher(
                 String, f'/fleet/{ns}/emergency_stop', 10)
+        if ns not in self._dock_pubs:
+            self._dock_pubs[ns] = self.create_publisher(String, f'/fleet/{ns}/dock', 10)
         if ns not in self._status_pubs:
             # UI팀이 준 robot_state.msg 인터페이스의 토픽 이름
             # (/control/robot3_State, /control/robot8_state)이 로봇마다
@@ -231,32 +259,46 @@ class FleetNode(Node):
         self.grant_pub.publish(msg)
 
     def _on_anomaly_trigger(self, msg):
+        """이상신호는 HMI가 보내는 페이로드 모양으로 두 경로가 갈린다
+        (anomaly_control.py 참고):
+        - {"robot": ns} 만 있으면 AMR 자체 감지 - 그 로봇 자신의 카메라가
+          감지한 것이므로 좌표 없이 로봇 id만 온다. 그 로봇의 최근 위치를
+          그대로 이상 위치로 써서 제자리에 세운다.
+        - {"x", "y"} 만 있으면 CCTV 감지 - 좌표만 오므로, 순찰 중이고
+          이상신호 대응 중도 긴급정지 중도 아닌 로봇 중 통로 그래프
+          최단경로 기준으로 가장 가까운 로봇을 골라 급파한다
+          (robot_selector.py, amcl_pose 기반).
+        두 경로 모두 최종 로봇이 긴급정지 중이면 무시한다 - 이미 멈춰서
+        대기 중인 로봇에 새 이동 명령을 얹으면 안 된다(도킹 복귀와 달리
+        운영자의 명시적 override가 아니라 자동 판단이라 안전하게 제외)."""
         try:
             payload = json.loads(msg.data) if msg.data else {}
         except json.JSONDecodeError:
             payload = {}
 
-        loc = {
-            'x': payload.get('x', DEFAULT_ANOMALY['x']),
-            'y': payload.get('y', DEFAULT_ANOMALY['y']),
-            'yaw': payload.get('yaw', DEFAULT_ANOMALY['yaw']),
-        }
-
-        # 임무 수행 로봇 선택: 트리거가 로봇을 직접 지정하면(수동 테스트용
-        # 대역) 그대로 쓰고, 아니면 이미 다른 이상신호를 처리 중이 아닌
-        # 로봇들 중 통로 그래프 최단 경로 기준으로 이상신호 좌표에 가장
-        # 가까운 로봇을 고른다 (robot_selector.py, amcl_pose 기반).
         robot = payload.get('robot')
-        if robot is None:
-            candidates = [ns for ns in self.missions if ns not in self._anomaly_busy]
+        if robot is not None:
+            loc = anomaly_control.resolve_self_location(
+                robot, self._robot_pose, DEFAULT_ANOMALY)
+        else:
+            loc = {
+                'x': payload.get('x', DEFAULT_ANOMALY['x']),
+                'y': payload.get('y', DEFAULT_ANOMALY['y']),
+                'yaw': payload.get('yaw', DEFAULT_ANOMALY['yaw']),
+            }
+            candidates = anomaly_control.eligible_candidates(
+                self.missions, self._anomaly_busy, self._emergency_stopped)
             if not candidates:
-                self.get_logger().warn('anomaly trigger: no idle robot available, ignoring')
+                self.get_logger().warn('anomaly trigger: no eligible robot available, ignoring')
                 return
             robot = robot_selector.select_nearest_robot(
                 self.graph.copy(), loc, self._robot_pose, candidates)
 
         if robot not in self._anomaly_pubs:
             self.get_logger().warn(f'anomaly trigger: unknown robot {robot!r}, ignoring')
+            return
+        if robot in self._emergency_stopped:
+            self.get_logger().warn(f'anomaly trigger: {robot} is emergency-stopped, ignoring')
             return
         if robot in self._anomaly_busy:
             self.get_logger().info(
@@ -276,22 +318,24 @@ class FleetNode(Node):
         self.get_logger().info(f'{robot} finished handling anomaly, ready for new triggers')
 
     def _on_emergency_stop_all(self, msg):
-        """설계도 '비상정지 수신' - 순찰 진행 여부와 무관하게(사용자 확인:
-        등록된 로봇 전체 대상) 정지 신호를 로봇별로 전파한다. 실제 Nav2
-        cancelTask() 호출과 도킹/일시정지 세부 처리는 Control Node 몫이라
-        Fleet은 여기서 끝 - _check_robot_status()가 다음 폴링 tick에
-        emergency_stopped를 보고 EMERGENCY_STOP을 퍼블리시한다."""
+        """설계도 '비상정지 수신'(정지) / '전채 재개'(해제) - stop 필드로
+        분기한다. 실제 Nav2 cancelTask()/재개 호출과 도킹/일시정지 세부
+        처리는 Control Node 몫이라 Fleet은 신호만 내려주고 끝 -
+        _check_robot_status()가 다음 폴링 tick에 emergency_stopped 변화를
+        보고 EMERGENCY_STOP <-> DISPATCHING/PATROLLING/IDLE을 퍼블리시한다
+        (compute_status()의 우선순위 규칙이 그대로 처리하므로, 해제 후
+        어떤 상태로 돌아갈지는 여기서 따로 계산하지 않는다)."""
         try:
             payload = json.loads(msg.data) if msg.data else {}
         except json.JSONDecodeError:
             payload = {}
 
-        if not payload.get('stop', True):
-            # 해제 요청은 아직 다루지 않는다 (남은 작업 4번에서 구현 예정).
-            self.get_logger().warn(
-                'emergency_stop_all: stop=false ignored, release is not implemented yet')
-            return
+        if payload.get('stop', True):
+            self._stop_all_robots()
+        else:
+            self._release_all_robots()
 
+    def _stop_all_robots(self):
         robots = list(self._status_pubs.keys())
         if not robots:
             self.get_logger().warn('emergency_stop_all: no registered robot, ignoring')
@@ -299,10 +343,77 @@ class FleetNode(Node):
 
         self.get_logger().warn(f'emergency stop-all triggered -> {robots}')
         out = String()
-        out.data = '{}'
+        out.data = json.dumps({'stop': True})
         for ns in robots:
             self._emergency_stopped.add(ns)
             self._emergency_pubs[ns].publish(out)
+
+    def _release_all_robots(self):
+        # 긴급정지 중이 아니었던 로봇에는 해제 신호를 보낼 이유가 없으니
+        # _emergency_stopped에 실제로 들어있는 로봇만 대상으로 한다.
+        robots = list(self._emergency_stopped)
+        if not robots:
+            self.get_logger().warn(
+                'emergency_stop_all: no robot is emergency-stopped, ignoring release')
+            return
+
+        self.get_logger().warn(f'emergency stop released -> {robots}')
+        self._release_emergency(robots)
+
+    def _release_emergency(self, robots):
+        """_emergency_stopped에서 robots를 빼고 /fleet/<ns>/emergency_stop에
+        해제 신호를 내려보낸다 - _release_all_robots()(전체 재개)와
+        _on_dock_return()(긴급정지 중인 로봇에 도킹 복귀, 암묵적 해제) 둘 다
+        같은 해제 절차를 타야 하므로 공통 함수로 뺐다."""
+        out = String()
+        out.data = json.dumps({'stop': False})
+        for ns in robots:
+            self._emergency_stopped.discard(ns)
+            self._emergency_pubs[ns].publish(out)
+
+    def _on_dock_return(self, msg):
+        """설계도 '명령 분기 -(도킹 복귀)-> AMR 순찰 정지 및 도킹'. 대상
+        로봇 판정은 dock_control.resolve_dock_targets()(순수 로직, ROS
+        의존 없이 test_dock_control.py로 검증됨)에 맡기고, Fleet은 그
+        결과대로 로봇별 도킹 스테이션 좌표를 퍼블리시하기만 한다.
+
+        도킹 복귀는 운영자가 명시적으로 내리는 복귀 명령이라 긴급정지
+        중인 로봇도 대상에서 빼지 않는다 - 대신 그런 로봇은 도킹 복귀와
+        함께 긴급정지도 암묵적으로 해제한다(_release_emergency()) -
+        그렇지 않으면 Control이 "정지하라"는 신호만 받은 채로 dock 명령을
+        받는 모순이 생긴다.
+
+        payload: {"robots": ["robot3", ...]} - robots가 없거나 비어 있으면
+        등록된 로봇 전체가 대상이다 (긴급정지-전체와 동일 패턴).
+        """
+        try:
+            payload = json.loads(msg.data) if msg.data else {}
+        except json.JSONDecodeError:
+            payload = {}
+
+        dispatched, unknown, released_from_emergency, skipped_no_station = (
+            dock_control.resolve_dock_targets(
+                payload.get('robots'), self._status_pubs.keys(), self._emergency_stopped))
+
+        if unknown:
+            self.get_logger().warn(f'dock: unregistered robot(s) {unknown}, ignoring those')
+        for ns in skipped_no_station:
+            self.get_logger().warn(f'dock: no dock station configured for {ns}, skipping')
+
+        if not dispatched:
+            self.get_logger().warn('dock: no target robot, ignoring')
+            return
+
+        if released_from_emergency:
+            self.get_logger().warn(
+                f'dock: implicitly releasing emergency stop for {released_from_emergency}')
+            self._release_emergency(released_from_emergency)
+
+        for ns in dispatched:
+            out = String()
+            out.data = json.dumps(dock_control.DOCK_STATIONS[ns])
+            self._dock_pubs[ns].publish(out)
+        self.get_logger().warn(f'dock return triggered -> {dispatched}')
 
     def _on_release(self, msg):
         rel = json.loads(msg.data)

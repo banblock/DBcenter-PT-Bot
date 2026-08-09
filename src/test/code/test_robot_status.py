@@ -70,13 +70,12 @@ SCENARIOS = [
     },
     {
         'name': 'emergency_stop_overrides_and_persists',
-        'label': '순찰 중 긴급정지 → 이후 이상신호가 겹쳐도 EMERGENCY_STOP 유지',
+        'label': '순찰 중 긴급정지 → 해제 전까지는 이상신호가 겹쳐도 EMERGENCY_STOP 유지',
         'why': ('robot8이 순찰 중에 /backend/emergency_stop_all이 오면 즉시 '
-                'EMERGENCY_STOP으로 바뀐다. 해제(재개) 로직이 아직 없어서 그 '
-                '뒤로는 계속 EMERGENCY_STOP이어야 하는데, fleet_node.py가 긴급정지 '
-                '중인 로봇을 anomaly 후보에서 걸러내지 않는 극단 상황(다른 트리거가 '
-                '겹쳐 들어와 anomaly_busy에도 잡힌 경우)까지 가정해도 우선순위상 '
-                'EMERGENCY_STOP이 이겨야 한다는 계약을 고정.'),
+                'EMERGENCY_STOP으로 바뀐다. 해제되기 전까지는 계속 EMERGENCY_STOP이어야 '
+                '하는데, fleet_node.py가 긴급정지 중인 로봇을 anomaly 후보에서 걸러내지 '
+                '않는 극단 상황(다른 트리거가 겹쳐 들어와 anomaly_busy에도 잡힌 경우)까지 '
+                '가정해도 우선순위상 EMERGENCY_STOP이 이겨야 한다는 계약을 고정.'),
         'robot': 'robot8',
         'steps': [
             {'when': '순찰 중',
@@ -91,6 +90,28 @@ SCENARIOS = [
             {'when': '이상신호 트리거가 겹쳐 들어옴 (극단 케이스)',
              'missions': {'robot8'}, 'anomaly_busy': {'robot8'}, 'emergency_stopped': {'robot8'},
              'expected_status': robot_status.EMERGENCY_STOP, 'expected_change': False},
+        ],
+    },
+    {
+        'name': 'emergency_stop_then_released_resumes_patrol',
+        'label': '긴급정지 → 전체 재개 → 미션이 남아있으면 순찰 복귀',
+        'why': ('/backend/emergency_stop_all이 {"stop": false}로 오면 '
+                'fleet_node.py의 _release_all_robots()가 emergency_stopped에서 '
+                '해당 로봇만 제거한다. robot_status.py는 그 해제를 별도로 알 필요 '
+                '없이, 세트에서 빠진 다음 폴링 tick에 missions를 보고 그냥 다음 '
+                '순위(PATROLLING)로 자연스럽게 떨어져야 한다 - 해제 후 상태를 '
+                '따로 계산하는 코드가 없다는 게 이 테스트의 핵심.'),
+        'robot': 'robot8',
+        'steps': [
+            {'when': '순찰 중',
+             'missions': {'robot8'}, 'anomaly_busy': set(), 'emergency_stopped': set(),
+             'expected_status': robot_status.PATROLLING, 'expected_change': True},
+            {'when': '긴급정지 트리거 수신',
+             'missions': {'robot8'}, 'anomaly_busy': set(), 'emergency_stopped': {'robot8'},
+             'expected_status': robot_status.EMERGENCY_STOP, 'expected_change': True},
+            {'when': '전체 재개(stop=false) 수신 -> emergency_stopped에서 제거됨',
+             'missions': {'robot8'}, 'anomaly_busy': set(), 'emergency_stopped': set(),
+             'expected_status': robot_status.PATROLLING, 'expected_change': True},
         ],
     },
 ]

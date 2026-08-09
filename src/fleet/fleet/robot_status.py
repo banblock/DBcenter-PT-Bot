@@ -61,8 +61,11 @@ def compute_status(ns, missions, anomaly_busy, emergency_stopped):
     우선순위: 긴급정지(emergency_stopped) > 이상신호 대응 중(anomaly_busy)
     > 미션 보유(patrolling) > 둘 다 아님(idle). 긴급정지는 다른 어떤
     활동보다도 우선해야 하는 안전 이벤트라 anomaly_busy/missions 상태와
-    무관하게 최우선으로 판정한다 - 해제(재개) 로직은 아직 없으므로 한 번
-    긴급정지되면 이 세트에서 빠지기 전까지는 계속 EMERGENCY_STOP을 유지한다.
+    무관하게 최우선으로 판정한다. 해제는 fleet_node.py의
+    _release_all_robots()가 emergency_stopped에서 로봇을 빼는 것으로
+    처리하므로, 이 함수 입장에서는 그냥 세트에 없으면 다음 순위(이상신호
+    대응/미션 보유/idle)로 자연스럽게 떨어진다 - 해제 후 어느 상태로
+    돌아갈지를 여기서 따로 계산하지 않는다.
     """
     if ns in emergency_stopped:
         return EMERGENCY_STOP

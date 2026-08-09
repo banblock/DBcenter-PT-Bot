@@ -159,14 +159,15 @@ footer code {
       4개뿐입니다. 미션 배정 여부, 이상신호 대응 여부, 긴급정지 여부만으로
       판정하고, 1Hz 폴링으로 변화가 있을 때만
       <code>/control/&lt;robot&gt;_State</code>에 퍼블리시합니다. 긴급정지는
-      해제(재개) 로직이 아직 없어서 한 번 걸리면 다른 상태를 전부
-      덮어쓰고 계속 유지됩니다. 아래는 test_robot_status.py에 정의된
+      해제되기 전까지 다른 상태를 전부 덮어쓰고 유지되며, 해제되면
+      emergency_stopped 세트에서 빠져 다음 순위(이상신호 대응/미션 보유
+      여부)로 자연스럽게 떨어집니다. 아래는 test_robot_status.py에 정의된
       시나리오를 robot_status.py로 실제 실행한 결과입니다.
     </p>
     <div class="meta">
       <span>Fleet이 판정하는 상태 4개 / UI 전체 어휘 15개</span>
-      <span>시나리오 3개 + 우선순위 케이스 5개</span>
-      <span>생성 시각 2026-08-09 00:04</span>
+      <span>시나리오 4개 + 우선순위 케이스 5개</span>
+      <span>생성 시각 2026-08-09 12:06</span>
     </div>
   </header>
 
@@ -227,8 +228,8 @@ footer code {
     </article>
 
     <article class="panel scenario">
-      <h2>순찰 중 긴급정지 → 이후 이상신호가 겹쳐도 EMERGENCY_STOP 유지</h2>
-      <p class="why">robot8이 순찰 중에 /backend/emergency_stop_all이 오면 즉시 EMERGENCY_STOP으로 바뀐다. 해제(재개) 로직이 아직 없어서 그 뒤로는 계속 EMERGENCY_STOP이어야 하는데, fleet_node.py가 긴급정지 중인 로봇을 anomaly 후보에서 걸러내지 않는 극단 상황(다른 트리거가 겹쳐 들어와 anomaly_busy에도 잡힌 경우)까지 가정해도 우선순위상 EMERGENCY_STOP이 이겨야 한다는 계약을 고정.</p>
+      <h2>순찰 중 긴급정지 → 해제 전까지는 이상신호가 겹쳐도 EMERGENCY_STOP 유지</h2>
+      <p class="why">robot8이 순찰 중에 /backend/emergency_stop_all이 오면 즉시 EMERGENCY_STOP으로 바뀐다. 해제되기 전까지는 계속 EMERGENCY_STOP이어야 하는데, fleet_node.py가 긴급정지 중인 로봇을 anomaly 후보에서 걸러내지 않는 극단 상황(다른 트리거가 겹쳐 들어와 anomaly_busy에도 잡힌 경우)까지 가정해도 우선순위상 EMERGENCY_STOP이 이겨야 한다는 계약을 고정.</p>
       <div class="timeline">
         
         <div class="step step--changed">
@@ -253,6 +254,30 @@ footer code {
           <div class="step-when">이상신호 트리거가 겹쳐 들어옴 (극단 케이스)</div>
           <span class="tag tag--emergency">EMERGENCY_STOP</span>
           <div class="step-note">변화 없음 (퍼블리시 생략)</div>
+        </div></div>
+    </article>
+
+    <article class="panel scenario">
+      <h2>긴급정지 → 전체 재개 → 미션이 남아있으면 순찰 복귀</h2>
+      <p class="why">/backend/emergency_stop_all이 {"stop": false}로 오면 fleet_node.py의 _release_all_robots()가 emergency_stopped에서 해당 로봇만 제거한다. robot_status.py는 그 해제를 별도로 알 필요 없이, 세트에서 빠진 다음 폴링 tick에 missions를 보고 그냥 다음 순위(PATROLLING)로 자연스럽게 떨어져야 한다 - 해제 후 상태를 따로 계산하는 코드가 없다는 게 이 테스트의 핵심.</p>
+      <div class="timeline">
+        
+        <div class="step step--changed">
+          <div class="step-when">순찰 중</div>
+          <span class="tag tag--patrol">PATROLLING</span>
+          <div class="step-note">퍼블리시함</div>
+        </div>
+        <span class="arrow">&rarr;</span>
+        <div class="step step--changed">
+          <div class="step-when">긴급정지 트리거 수신</div>
+          <span class="tag tag--emergency">EMERGENCY_STOP</span>
+          <div class="step-note">퍼블리시함</div>
+        </div>
+        <span class="arrow">&rarr;</span>
+        <div class="step step--changed">
+          <div class="step-when">전체 재개(stop=false) 수신 -> emergency_stopped에서 제거됨</div>
+          <span class="tag tag--patrol">PATROLLING</span>
+          <div class="step-note">퍼블리시함</div>
         </div></div>
     </article>
   </section>
@@ -310,8 +335,8 @@ footer code {
       2026-08-06 스크린샷 원본 표 기준. 굵게 표시된 3개가 Fleet이 지금
       퍼블리시하는 상태고, 나머지는 Control Node가 같은
       <code>/control/&lt;robot&gt;_State</code> 토픽에 이어서 퍼블리시할
-      몫이거나(순차적 소유권 이양) Fleet의 다음 작업(긴급정지, UI 명령
-      연동)으로 예정된 상태입니다.
+      몫이거나(순차적 소유권 이양) Fleet의 다음 작업(도킹 복귀, 1시간
+      자동 순찰 재개 등 UI 명령 연동)으로 예정된 상태입니다.
     </p>
     <table>
       <thead><tr><th>상태값</th><th>UI 한글 표기</th><th>담당</th></tr></thead>
@@ -326,7 +351,7 @@ footer code {
           <tr class=""><td><span class="tag ">REPORTING</span></td><td>결과 전송 중</td><td>Control Node (검증 완료 시점 필요)</td></tr>
           <tr class=""><td><span class="tag ">RESUMING</span></td><td>순찰 복귀 중</td><td>Control Node (중단 지점 도달 필요)</td></tr>
           <tr class=""><td><span class="tag ">CHARGING</span></td><td>충전 중</td><td>Control Node (배터리 정보 필요, Fleet 미구독)</td></tr>
-          <tr class="row--owned"><td><span class="tag tag--emergency">EMERGENCY_STOP</span></td><td>긴급정지</td><td>Fleet ✓ (emergency_stopped 등록 시점, 해제 로직은 아직 없음)</td></tr>
+          <tr class="row--owned"><td><span class="tag tag--emergency">EMERGENCY_STOP</span></td><td>긴급정지</td><td>Fleet ✓ (emergency_stopped 등록/해제 시점)</td></tr>
           <tr class=""><td><span class="tag ">ERROR</span></td><td>오류</td><td>Control Node (내비게이션 실패 등)</td></tr>
           <tr class=""><td><span class="tag ">ALERTING</span></td><td>현장 경보 중</td><td>Control Node (관제 ACK 필요)</td></tr>
           <tr class=""><td><span class="tag ">UNDOCKING</span></td><td>출발 준비</td><td>Control Node (도킹 상태 필요, Fleet 미구독)</td></tr>
