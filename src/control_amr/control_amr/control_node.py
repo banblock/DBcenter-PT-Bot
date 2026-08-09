@@ -1,0 +1,413 @@
+"""
+Run the AMR Control Node for one namespaced robot.
+
+Each instance runs on that robot's laptop and receives a namespace as a CLI
+argument:
+
+    python3 control_node.py robot3
+    python3 control_node.py robot8
+
+It waits for its mission (waypoint list with gate/crossing tags) from the
+Fleet Node, then walks the waypoints one at a time:
+  - if a waypoint is a shared crossing point, requests occupancy from the
+    Fleet Node and waits for a grant before moving (교차지점인가? ->
+    점유돼있는가?)
+  - navigates to the waypoint
+  - if the waypoint is tagged has_gate, requests a vision-based gate check
+    (해당 위치 차단기 유무 확인 -> 차단기 점검)
+  - releases the crossing point once past it
+"""
+
+import json
+import math
+import sys
+import time
+
+import rclpy
+from rclpy.qos import (QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile,
+                       QoSReliabilityPolicy)
+from std_msgs.msg import String
+from turtlebot4_navigation.turtlebot4_navigator import TurtleBot4Navigator
+
+try:
+    from control_amr.gate_alignment_flow import GateAlignmentFlowSupport
+    from control_amr.inspection_flow import InspectionFlowSupport
+    from control_amr.mission_flow import MissionFlowSupport
+    from control_amr.navigation_flow import NavigationFlowSupport
+    from control_amr.state_flow import StateFlowSupport
+except ModuleNotFoundError:
+    from gate_alignment_flow import GateAlignmentFlowSupport
+    from inspection_flow import InspectionFlowSupport
+    from mission_flow import MissionFlowSupport
+    from navigation_flow import NavigationFlowSupport
+    from state_flow import StateFlowSupport
+
+MISSION_QOS = QoSProfile(
+    durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+    reliability=QoSReliabilityPolicy.RELIABLE,
+    history=QoSHistoryPolicy.KEEP_LAST,
+    depth=1,
+)
+
+
+class ControlNode:
+    def __init__(self, namespace):
+        self.namespace = namespace
+        self.navigator = TurtleBot4Navigator(namespace=namespace)
+        # AMCL is assumed to already be localized by hand in RViz beforehand -
+        # see multi_robot_nav.py for why this matters.
+        self.navigator.initial_pose_received = True
+        self.mission_flow = MissionFlowSupport(namespace, self.navigator)
+        self.navigation_flow = NavigationFlowSupport(namespace, self.navigator)
+        self.inspection_flow = InspectionFlowSupport(namespace, self.navigator)
+        self.state_flow = StateFlowSupport(namespace, self.navigator)
+        self.gate_alignment_flow = GateAlignmentFlowSupport(
+            namespace, self.navigator)
+        self.navigation_interrupt_reason = None
+        self.crossing_request_timeout_sec = 15.0
+        self.mission_aborted = False
+
+        self.mission = None
+        self.navigator.create_subscription(
+            String, f'/fleet/{namespace}/mission',
+            self._on_mission, MISSION_QOS)
+
+        self.granted_point = None
+        self.navigator.create_subscription(
+            String, '/fleet/occupancy_grant', self._on_grant, 10)
+        self.request_pub = self.navigator.create_publisher(
+            String, '/fleet/occupancy_request', 10)
+        self.release_pub = self.navigator.create_publisher(
+            String, '/fleet/occupancy_release', 10)
+
+        # Dispatched by Fleet Node when it wants this robot to break off
+        # patrol and go check an anomaly (이상신호 감지 -> 임무 수행 로봇 선택).
+        self.anomaly_pending = False
+        self.anomaly_location = None
+        self.navigator.create_subscription(
+            String, f'/fleet/{namespace}/anomaly', self._on_anomaly, 10)
+        self.anomaly_done_pub = self.navigator.create_publisher(
+            String, '/fleet/anomaly_done', 10)
+
+    def _on_mission(self, msg):
+        try:
+            mission = json.loads(msg.data)
+        except json.JSONDecodeError as exc:
+            self._report_failure('invalid_mission_json', {'error': str(exc)})
+            return
+        if self._validate_mission(mission):
+            self.mission = mission
+
+    def _on_anomaly(self, msg):
+        try:
+            location = json.loads(msg.data)
+            if not self._is_valid_pose(location):
+                raise ValueError('x, y, yaw must be finite numbers')
+        except (json.JSONDecodeError, ValueError) as exc:
+            self._report_failure('invalid_anomaly_json', {'error': str(exc)})
+            return
+        self.anomaly_location = location
+        self.anomaly_pending = True
+
+    @staticmethod
+    def _is_valid_pose(value):
+        if not isinstance(value, dict):
+            return False
+        if any(isinstance(value.get(field), bool)
+               for field in ('x', 'y', 'yaw')):
+            return False
+        try:
+            coordinates = [float(value[field]) for field in ('x', 'y', 'yaw')]
+        except (KeyError, TypeError, ValueError):
+            return False
+        return all(math.isfinite(coordinate) for coordinate in coordinates)
+
+    def _on_grant(self, msg):
+        try:
+            grant = json.loads(msg.data)
+            robot = grant['robot']
+            granted = grant['granted']
+            point = grant['point']
+            if not isinstance(robot, str) or not isinstance(granted, bool):
+                raise ValueError('robot/granted types are invalid')
+            if not isinstance(point, str):
+                raise ValueError('point must be a string')
+        except (json.JSONDecodeError, KeyError, ValueError) as exc:
+            self._report_failure(
+                'invalid_occupancy_grant', {'error': str(exc)})
+            return
+        if robot == self.namespace and granted:
+            self.granted_point = point
+
+    def _wait_for_mission(self):
+        self._publish_state('waiting_mission')
+        self.navigator.info(
+            f'[{self.namespace}] waiting for mission from Fleet Node...')
+        while self.mission is None:
+            rclpy.spin_once(self.navigator, timeout_sec=0.5)
+
+    def _request_crossing(self, point_id):
+        # spin_once(timeout_sec=X) returns as soon as ANY callback fires, not
+        # after X seconds - with other subscriptions active it returns almost
+        # immediately, turning this into a publish busy-loop. Rate-limit the
+        # publish explicitly instead of relying on spin_once for pacing.
+        self._publish_state('crossing_wait', {'point_id': point_id})
+        self.navigator.info(
+            f'[{self.namespace}] requesting crossing point {point_id}...')
+        req = String()
+        req.data = json.dumps({'robot': self.namespace, 'point': point_id})
+        last_publish = 0.0
+        started_at = time.monotonic()
+        while self.granted_point != point_id:
+            now = time.monotonic()
+            if (self.crossing_request_timeout_sec is not None and
+                    now - started_at >= self.crossing_request_timeout_sec):
+                self._report_failure(
+                    'crossing_grant_timeout', {'point_id': point_id})
+                return False
+            if now - last_publish >= 0.5:
+                self.request_pub.publish(req)
+                last_publish = now
+            rclpy.spin_once(self.navigator, timeout_sec=0.1)
+        self.navigator.info(
+            f'[{self.namespace}] granted crossing point {point_id}')
+        self._publish_state('crossing_granted', {'point_id': point_id})
+        return True
+
+    def _release_crossing(self, point_id):
+        msg = String()
+        msg.data = json.dumps({'robot': self.namespace, 'point': point_id})
+        self.release_pub.publish(msg)
+        self.granted_point = None
+        self._publish_state('crossing_released', {'point_id': point_id})
+
+    def _check_gate(self):
+        # Stub for the real gate/breaker inspection (camera/vision node).
+        self._publish_state('gate_checking')
+        self.navigator.info(
+            f'[{self.namespace}] gate present - running gate check...')
+        gate_ok = self.inspection_flow.inspect_gate()
+        if not gate_ok:
+            self._report_failure('gate_check_failed')
+            return False
+        time.sleep(2.0)
+        self.navigator.info(f'[{self.namespace}] gate check done')
+        return True
+
+    def _prepare_gate_alignment(self, waypoint):
+        self._publish_state('gate_aligning', waypoint)
+        if not self.gate_alignment_flow.prepare_for_gate_check(waypoint):
+            self._report_failure('gate_alignment_failed', waypoint)
+            return False
+        self._publish_state('gate_alignment_done', waypoint)
+        return True
+
+    def _move_to(self, pose):
+        """
+        Navigate to a pose while allowing anomaly and collision interrupts.
+
+        Return whether the goal was reached successfully.
+        """
+        self.navigation_interrupt_reason = None
+        self.navigator.goToPose(pose)
+        while not self.navigator.isTaskComplete():
+            if self._check_collision_risk():
+                self.navigation_interrupt_reason = 'collision_risk'
+                self._cancel_navigation_task()
+                self._handle_collision_risk()
+                return False
+            if self.anomaly_pending:
+                self.navigation_interrupt_reason = 'anomaly'
+                self.navigator.info(
+                    f'[{self.namespace}] anomaly signal received - '
+                    'interrupting patrol')
+                self.navigator.cancelTask()
+                while not self.navigator.isTaskComplete():
+                    time.sleep(0.1)
+                return False
+        result = self._get_navigation_result()
+        return self._handle_navigation_result(result)
+
+    def _handle_anomaly(self):
+        loc = self.anomaly_location
+        self.anomaly_pending = False
+        self._publish_state('anomaly_moving', loc)
+        self.navigator.info(
+            f'[{self.namespace}] heading to anomaly at '
+            f'({loc["x"]}, {loc["y"]})')
+        pose = self.navigator.getPoseStamped(
+            [float(loc['x']), float(loc['y'])], float(loc['yaw']))
+        self.navigator.startToPose(pose)
+        # Stub for the real anomaly inspection (camera/vision node).
+        if not self._wait_for_anomaly_arrival():
+            self._report_failure('anomaly_arrival_failed', loc)
+            return
+        self._publish_state('anomaly_checking', loc)
+        self.navigator.info(f'[{self.namespace}] checking anomaly...')
+        inspection = self.inspection_flow.inspect_anomaly(loc)
+        if inspection['confirmed'] is None:
+            self._report_failure('anomaly_check_failed', loc)
+            return
+        self.navigator.info(
+            f'[{self.namespace}] anomaly check done, resuming patrol')
+
+        done = String()
+        done.data = json.dumps({
+            'robot': self.namespace,
+            'confirmed': inspection['confirmed'],
+            'location': loc,
+        })
+        self.anomaly_done_pub.publish(done)
+        self._publish_state('patrol_resuming')
+
+    def _validate_mission(self, mission):
+        return self.mission_flow.validate_mission(mission)
+
+    def _publish_state(self, state, detail=None):
+        return self.state_flow.publish_state(state, detail)
+
+    def _check_collision_risk(self):
+        return self.navigation_flow.check_collision_risk()
+
+    def _handle_collision_risk(self):
+        self.navigation_flow.handle_collision_risk()
+
+    def _cancel_navigation_task(self):
+        self.navigator.cancelTask()
+        while not self.navigator.isTaskComplete():
+            time.sleep(0.1)
+
+    def _request_route_update(self, reason, current_waypoint=None):
+        return self.mission_flow.request_route_update(reason, current_waypoint)
+
+    def _get_navigation_result(self):
+        return self.navigation_flow.get_navigation_result()
+
+    def _handle_navigation_result(self, result):
+        return self.navigation_flow.handle_navigation_result(result)
+
+    def _wait_for_anomaly_arrival(self):
+        return self.navigation_flow.wait_until_pose_reached()
+
+    def _handle_navigation_interrupt(self, waypoint):
+        if self.navigation_interrupt_reason == 'anomaly':
+            self._handle_anomaly()
+            return True
+        if self.navigation_interrupt_reason == 'collision_risk':
+            return self._request_route_update('collision_risk', waypoint)
+        recovered = self.navigation_flow.recover_from_navigation_failure(
+            'navigation_failed')
+        if recovered:
+            return True
+        return self._request_route_update('navigation_failed', waypoint)
+
+    def _report_waypoint_reached(self, waypoint_index, waypoint):
+        return self.state_flow.report_waypoint_reached(
+            waypoint_index, waypoint)
+
+    def _report_failure(self, reason, detail=None):
+        return self.state_flow.report_failure(reason, detail)
+
+    def _handle_mission_complete(self):
+        self.mission_flow.handle_mission_complete()
+
+    def run(self):
+        self._wait_for_mission()
+        self.navigator.waitUntilNav2Active()
+
+        if self.navigator.getDockedStatus():
+            self.navigator.info(f'[{self.namespace}] docked, undocking...')
+            self.navigator.undock()
+
+        while rclpy.ok():
+            self.mission_aborted = False
+            if not self._run_current_mission():
+                return
+            self.mission = None
+            self._publish_state('patrol_waiting', {
+                'delay_sec': self.mission_flow.get_next_patrol_delay_sec()})
+            self.mission_flow.wait_until_next_patrol()
+            self.mission_flow.request_next_mission()
+            self._wait_for_mission()
+
+    def _run_current_mission(self):
+
+        waypoints = list(self.mission)
+        i = 0
+        while i < len(waypoints):
+            wp = waypoints[i]
+            point_id = wp.get('point_id')
+            if point_id and not self._request_crossing(point_id):
+                self.mission_aborted = True
+                break
+
+            self._publish_state(
+                'moving', {'waypoint_index': i, 'waypoint': wp})
+            self.navigator.info(
+                f'[{self.namespace}] moving to waypoint '
+                f'{i + 1}/{len(waypoints)}')
+            pose = self.navigator.getPoseStamped([wp['x'], wp['y']], wp['yaw'])
+            route_replaced = False
+            while not self._move_to(pose):
+                interrupt_result = self._handle_navigation_interrupt(wp)
+                if isinstance(interrupt_result, list):
+                    if point_id and self.granted_point == point_id:
+                        self._release_crossing(point_id)
+                    waypoints = interrupt_result
+                    self.mission = waypoints
+                    i = 0
+                    route_replaced = True
+                    break
+                if not interrupt_result:
+                    self._report_failure('navigation_interrupt_unresolved', wp)
+                    self.mission_aborted = True
+                    break
+            if route_replaced:
+                continue
+            if self.mission_aborted:
+                break
+
+            if point_id:
+                self._release_crossing(point_id)
+
+            if wp.get('has_gate'):
+                if not self._prepare_gate_alignment(wp):
+                    self.mission_aborted = True
+                    break
+                if not self._check_gate():
+                    self.mission_aborted = True
+                    break
+
+            self._report_waypoint_reached(i, wp)
+            i += 1
+
+        if self.mission_aborted:
+            self._report_failure('mission_aborted')
+            return False
+        self._handle_mission_complete()
+        return True
+
+
+def main():
+    if len(sys.argv) != 2:
+        print(
+            'Usage: python3 control_node.py <namespace> '
+            '(e.g. robot3 or robot8)')
+        sys.exit(1)
+    namespace = sys.argv[1]
+
+    rclpy.init()
+    node = None
+    try:
+        node = ControlNode(namespace)
+        node.run()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if node is not None:
+            node.navigator.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
