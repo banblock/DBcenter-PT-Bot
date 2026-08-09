@@ -529,7 +529,12 @@ def main():
     finally:
         if node is not None:
             node.navigator.destroy_node()
-        rclpy.shutdown()
+        # Ctrl+C(SIGINT)를 받으면 rclpy.init()이 걸어둔 기본 핸들러가 이미
+        # context를 shutdown 해버리는 경우가 있어서, 그 뒤에 또
+        # shutdown()을 부르면 "rcl_shutdown already called" 에러로 죽는다
+        # - rclpy.ok()로 아직 살아있을 때만 호출한다.
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':
