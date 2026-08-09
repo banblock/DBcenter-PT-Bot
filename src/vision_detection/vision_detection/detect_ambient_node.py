@@ -6,46 +6,42 @@ from pathlib import Path
 import cv2
 import numpy as np
 import rclpy
-from ament_index_python.packages import get_package_share_directory
-from cv_bridge import CvBridge
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+
+from ultralytics import YOLO
+from cv_bridge import CvBridge
+
+from ament_index_python.packages import get_package_share_directory
+
 from sensor_msgs.msg import CompressedImage, Image
 from std_msgs.msg import Bool
 from std_srvs.srv import SetBool
-from ultralytics import YOLO
-
 from patrol_interfaces.msg import CamState
 
-# AMR 주변에서 감지되면 "이상 상황"으로 취급할 클래스 이름들
+# AMR cam에서 감지되면 "이상 상황"으로 취급할 클래스 이름들
 DEFAULT_ANOMALY_CLASSES = ['fire', 'smoke', 'coolant']
 # 신뢰도 값
 CONF_THRESHOLD = 0.25
 
-# 3모델 WBF(Weighted Boxes Fusion) 앙상블 구성. 서로 다른 학습 버전(v2/v3) +
-# 아키텍처(yolov8n/yolo26n/yolo11n)를 섞어야 앙상블 다양성이 생긴다는 걸 실측으로
-# 확인했음(CCTV에서는 같은 버전 데이터로 학습한 n급 3개를 섞었더니 상관성이 너무
-# 높아서 오히려 단일 모델보다 나빴는데, AMR은 버전을 섞으니 F1이 단일 최고 모델
-# 대비 크게 개선됨: 0.907 -> 0.956, 오탐 6개->0개).
-# AMR 카메라(oakd rgb preview)는 실측상 ~10Hz라 3모델 순차 추론(로봇 2대분 ~60ms)도
-# 프레임 주기(100ms) 안에 충분히 들어와서 실시간성 문제 없음(CCTV처럼 30fps를
-# 맞춰야 하는 상황이 아님).
+# 3모델 WBF(Weighted Boxes Fusion) 앙상블 구성
 ENSEMBLE_MODEL_FILES = ['ambient_yolov8n_v2.pt', 'ambient_yolo26n_v2.pt', 'ambient_yolo11n_v3.pt']
 ENSEMBLE_MODEL_TTA = [True, False, True]  # yolo26 계열은 augment=True 미지원(자동 revert)
 WBF_MERGE_IOU = 0.5
 
-# CamState.msg의 state 값 (detect_cctv_node와 동일한 규칙)
+# CamState.msg의 state 값
 STATE_BY_CLASS = {'fire': 0, 'smoke': 1, 'coolant': 2}
 # CamState.msg의 camera_id 값 (0/1은 cctv1/cctv2가 사용, AMR 캠은 2번부터)
 CAMERA_ID_BY_ROBOT = {'robot3': 2, 'robot8': 3}
 # 감지 해제 판단용 윈도우 크기. 감지(켜짐)는 1프레임만 봐도 즉시 반응하지만,
-# 해제(꺼짐)는 최근 이 프레임 수 중 과반이 미검출이어야 확정한다 (detect_cctv_node와 동일한 방식).
+# 해제(꺼짐)는 최근 이 프레임 수 중 과반이 미검출이어야 확정한다.
 EVENT_WINDOW_SIZE = 3
 
 CLASS_COLORS = {'fire': (0, 0, 255), 'smoke': (0, 255, 255), 'coolant': (255, 128, 0)}
 
 
 def _iou(a, b):
+    """박스 두 개(xyxy) 간 IoU(교집합/합집합 비율)를 계산."""
     ax0, ay0, ax1, ay1 = a
     bx0, by0, bx1, by1 = b
     ix0, iy0 = max(ax0, bx0), max(ay0, by0)
@@ -116,7 +112,10 @@ class DetectAmbientNode(Node):
     """
 
     def __init__(self):
+        """파라미터 로드, 모델 3개 로드+워밍업, 카메라별 구독/퍼블리셔, 서비스/토픽 등록."""
         super().__init__('detect_ambient_node')
+
+        self.task_started = False
 
         self.declare_parameter('model_paths', ENSEMBLE_MODEL_FILES)
         self.declare_parameter('model_tta', ENSEMBLE_MODEL_TTA)
@@ -164,7 +163,6 @@ class DetectAmbientNode(Node):
 
         self._subs = []
         self._image_pubs = {}
-        self._anomaly_pubs = {}
         for topic in self.amr_cam_topics:
             robot_id = self._robot_id_from_topic(topic)
             self._frame_counters[topic] = 0
@@ -175,22 +173,29 @@ class DetectAmbientNode(Node):
             self._camera_id_by_topic[topic] = CAMERA_ID_BY_ROBOT.get(robot_id)
             self._image_pubs[topic] = self.create_publisher(
                 CompressedImage, f'/detection/{robot_id}_cam/detection_image', image_qos)
-            self._anomaly_pubs[topic] = self.create_publisher(
-                Bool, f'/detection/{robot_id}_cam/anomaly_detected', 10)
             self._subs.append(self.create_subscription(
                 Image, topic, self._make_image_callback(topic), image_qos))
 
-        # detect_cctv_node와 동일한 이상상황 이벤트 토픽 (fire/smoke/coolant 새로 인식 시 발행)
+        # 이상상황 이벤트 토픽 (fire/smoke/coolant 새로 인식 시 발행)
         self.cam_state_pub = self.create_publisher(CamState, '/detection/cam_state', 10)
 
         # detect_main_node가 차단기 검사 전/후에 호출해 쓰로틀을 켜고 끄는 서비스
         self.set_throttle_srv = self.create_service(
             SetBool, '/detection/set_throttle', self._set_throttle_callback)
 
-        self.get_logger().info(f'detect_ambient_node ready (ensemble={len(self.models)}개 모델)')
+        # detect_cctv_node와 동일하게 /ui/start(True=시작/False=정지)로 감지 on/off
+        self.start_subscription = self.create_subscription(
+            Bool, '/ui/start', self._start_callback, 1)
+
+    def _start_callback(self, message: Bool) -> None:
+        """/ui/start 수신 시 task_started를 갱신(True=이미지 콜백 처리 시작, False=중지)."""
+        if message.data == self.task_started:
+            return
+        self.task_started = message.data
 
     @staticmethod
     def _resolve_model_path(configured_path: str) -> str:
+        """상대경로면 패키지 share/models 디렉토리 기준으로, 절대경로면 그대로 실제 모델 파일 위치를 반환."""
         model_path = Path(configured_path).expanduser()
         if model_path.is_absolute():
             resolved_path = model_path
@@ -202,22 +207,20 @@ class DetectAmbientNode(Node):
         return str(resolved_path)
 
     def _warmup_models(self, imgsz=640):
-        """더미 이미지로 앙상블 모델 전부를 한 번씩 미리 추론해서 CUDA 초기화 비용
-        (첫 실제 추론이 ~1.3초까지 걸리는 원인, detect_cctv_node에서 실측 확인됨)을
-        노드 시작 시점으로 옮긴다."""
+        """더미 이미지로 앙상블 모델 전부를 한 번씩 미리 추론해서 CUDA 초기화 비용을
+        노드 시작 시점으로 옮긴다 - 안 그러면 첫 실제 추론이 몇 초씩 늦어질 수 있다."""
         dummy = np.zeros((imgsz, imgsz, 3), dtype=np.uint8)
-        started = time.perf_counter()
         for model, use_tta in zip(self.models, self.model_tta):
             model.predict(dummy, conf=self.conf_threshold, augment=use_tta, verbose=False)
-        elapsed_ms = (time.perf_counter() - started) * 1000.0
-        self.get_logger().info(f'모델 워밍업 완료 ({elapsed_ms:.0f}ms, {len(self.models)}개)')
+
 
     @staticmethod
     def _robot_id_from_topic(topic):
-        # e.g. '/robot3/oakd/rgb/preview/image_raw' -> 'robot3'
+        """토픽 문자열에서 로봇 id를 뽑는다. e.g. '/robot3/oakd/rgb/preview/image_raw' -> 'robot3'"""
         return topic.strip('/').split('/')[0]
 
     def _set_throttle_callback(self, request, response):
+        """main_node가 station 검사 전/후에 호출: 프레임 처리 주기를 낮췄다/복구한다."""
         if request.data:
             self.process_every_n = self.throttled_process_every_n
             response.message = 'ambient throttled down'
@@ -266,6 +269,7 @@ class DetectAmbientNode(Node):
 
     @staticmethod
     def _draw_detections(frame, detections):
+        """WBF 병합 결과(Result 객체가 아님)를 프레임 위에 클래스별 색상 박스+라벨로 직접 그린다."""
         annotated = frame.copy()
         height, width = annotated.shape[:2]
         for det in detections:
@@ -282,12 +286,7 @@ class DetectAmbientNode(Node):
         return annotated
 
     def _to_compressed_image_msg(self, cv_image, frame_id=''):
-        """JPEG로 압축해서 발행 - raw Image 대비 대역폭을 30~50배 줄인다.
-
-        AMR은 WiFi로 붙어있고 nav2/lidar 등 로봇 제어 트래픽과 대역폭을 같이 쓰는데,
-        하필 실제 이상상황이 감지되는 동안에만 매 프레임 이미지를 계속 보내므로
-        raw로 두면 정작 중요한 순간에 대역폭을 잡아먹는다.
-        """
+        """JPEG로 압축해서 발행 - raw Image 대비 대역폭을 30~50배 줄인다."""
         ok, encoded = cv2.imencode('.jpg', cv_image, [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality])
         if not ok:
             raise RuntimeError('JPEG 압축 실패')
@@ -298,7 +297,11 @@ class DetectAmbientNode(Node):
         return msg
 
     def _make_image_callback(self, topic):
+        """토픽별 이미지 콜백 클로저를 생성: 추론 → 이상상황 이미지 발행 → CamState 진입/해제 판단."""
         def callback(msg):
+            if not self.task_started:
+                return
+
             # process_every_n 프레임마다 한 번만 실제 추론을 수행 (쓰로틀 적용 시 N이 커짐)
             self._frame_counters[topic] += 1
             if self._frame_counters[topic] % self.process_every_n != 0:
@@ -306,7 +309,6 @@ class DetectAmbientNode(Node):
 
             annotated_image, detections = self._infer_from_msg(msg)
             detected_classes = {d['class_name'] for d in detections if d['class_name'] in self.anomaly_classes}
-            self._anomaly_pubs[topic].publish(Bool(data=bool(detected_classes)))
 
             # 이상상황이 감지되는 동안에는 매 프레임 이미지를 계속 보내고, 감지가 끝나면(빈 집합) 멈춘다
             if detected_classes:
@@ -327,7 +329,7 @@ class DetectAmbientNode(Node):
                     active_classes.add(class_name)
                     # AMR 캠은 CCTV처럼 고정 설치가 아니라 호모그래피(픽셀->맵) 캘리브레이션이
                     # 없어서 bbox를 실어 보내도 백엔드가 맵 좌표로 못 바꾼다. 그래서 항상
-                    # 무효 bbox(-1)+confidence 0으로 보낸다(CCTV의 "해제" 케이스와 동일한 표현).
+                    # 무효 bbox(-1)+confidence 0으로 보낸다.
                     self.cam_state_pub.publish(CamState(
                         camera_id=camera_id, state=STATE_BY_CLASS[class_name],
                         bbox_x1=-1.0, bbox_y1=-1.0, bbox_x2=-1.0, bbox_y2=-1.0, confidence=0.0))

@@ -6,11 +6,12 @@ from cv_bridge import CvBridge
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
-from sensor_msgs.msg import Image
 
-from vision_detection.gate_color_detector import GateColorDetector
+from sensor_msgs.msg import Image
+from std_msgs.msg import Bool
 from patrol_interfaces.srv import CheckGate
 
+from vision_detection.gate_color_detector import GateColorDetector
 
 class DetectStationNode(Node):
     """차단기(gate) 상태를 검사하는 노드.
@@ -23,7 +24,10 @@ class DetectStationNode(Node):
     """
 
     def __init__(self):
+        """파라미터 로드, GateColorDetector 생성, robot_id→토픽 매핑, 서비스/토픽 등록."""
         super().__init__('detect_station_node')
+
+        self.task_started = False
 
         self.declare_parameter('amr_cam_topics', ['/robot3/oakd/rgb/preview/image_raw',
                                                     '/robot8/oakd/rgb/preview/image_raw'])
@@ -96,15 +100,24 @@ class DetectStationNode(Node):
             CheckGate, '/detection/inspect_gate', self._inspect_gate_callback,
             callback_group=ReentrantCallbackGroup())
 
-        self.get_logger().info('detect_station_node ready')
+        # detect_cctv_node와 동일하게 /ui/start(True=시작/False=정지)로 검사 요청 수락 여부를 제어
+        self.start_subscription = self.create_subscription(
+            Bool, '/ui/start', self._start_callback, 1)
+
+    def _start_callback(self, message: Bool) -> None:
+        """/ui/start 수신 시 task_started를 갱신(True=검사 요청 수락, False=거부)."""
+        if message.data == self.task_started:
+            return
+        self.task_started = message.data
 
     @staticmethod
     def _robot_num_from_topic(topic):
-        # e.g. '/robot3/oakd/rgb/preview/image_raw' -> 3
+        """토픽 문자열에서 로봇 번호(정수)를 뽑는다. e.g. '/robot3/oakd/rgb/preview/image_raw' -> 3"""
         robot_str = topic.strip('/').split('/')[0]
         return int(''.join(filter(str.isdigit, robot_str)))
 
     def _make_image_callback(self, topic):
+        """토픽별 이미지 콜백 클로저를 생성: 검사 중에만 최신 프레임을 캐싱하고 새 프레임 도착을 알린다."""
         def callback(msg):
             with self._frame_lock:
                 self._latest_frames[topic] = msg
@@ -143,9 +156,14 @@ class DetectStationNode(Node):
         return frames
 
     def _inspect_gate_callback(self, request, response):
+        """main_node의 검사 요청 진입점: 캠 구독을 열고 프레임을 모아 색상 판정 후 구독을 닫고 응답."""
+        if not self.task_started:
+            response.gate_state_equal = False
+            response.error_state = 3  # 로봇 cam 연결 안 됨(감지 미시작도 같은 코드로 취급)
+            return response
+
         topic = self._topic_by_robot_id.get(request.robot_id)
         if topic is None:
-            self.get_logger().error(f'unknown robot_id {request.robot_id}: no camera mapped')
             response.gate_state_equal = False
             response.error_state = 3  # 로봇 cam 연결 안 됨
             return response
@@ -154,7 +172,6 @@ class DetectStationNode(Node):
         try:
             frames = self._collect_frames(topic)
             if not frames:
-                self.get_logger().error(f'timed out waiting for frames on {topic}')
                 response.gate_state_equal = False
                 response.error_state = 3  # 로봇 cam 연결 안 됨
                 return response
@@ -163,14 +180,12 @@ class DetectStationNode(Node):
             results = []
             for msg in frames:
                 cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-                _, gate_closed = self.detector.detect(cv_image)
+                _, gate_closed = self.detector.detect(cv_image, draw=False)
                 if gate_closed is not None:
                     results.append(gate_closed)
 
             majority = len(frames) // 2 + 1
             if len(results) < majority:
-                self.get_logger().error(
-                    f'gate indicator circle only found in {len(results)}/{len(frames)} sampled frames on {topic}')
                 response.gate_state_equal = False
                 response.error_state = 2  # 차단기 못 찾음
                 return response
@@ -186,6 +201,7 @@ class DetectStationNode(Node):
 
 
 def main(args=None):
+    """노드 진입점. 서비스 콜백 안에서 구독 콜백을 동시에 처리해야 하므로 MultiThreadedExecutor 사용."""
     rclpy.init(args=args)
     node = DetectStationNode()
     executor = rclpy.executors.MultiThreadedExecutor()

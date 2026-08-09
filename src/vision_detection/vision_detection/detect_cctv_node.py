@@ -5,7 +5,6 @@ from __future__ import annotations
 import glob
 import re
 import threading
-import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -43,7 +42,6 @@ class CameraContext:
     frame_sequence: int = 0
     last_inferred_sequence: int = -1
     capture_thread: Optional[threading.Thread] = None
-    last_warning_time: float = 0.0
 
 
 class DetectCctvNode(Node):
@@ -65,6 +63,7 @@ class DetectCctvNode(Node):
     DETECTION_WINDOW_SIZE = 3
 
     def __init__(self) -> None:
+        """파라미터 로드, 모델 로드+워밍업, 카메라 오픈, 캡처 스레드 시작, 타이머 등록까지 한 번에 수행."""
         super().__init__("detect_cctv_node")
 
         # 문자열 배열로 선언하면 카메라 인덱스("0")와 /dev 경로를 모두 사용할 수 있다.
@@ -76,7 +75,6 @@ class DetectCctvNode(Node):
         self.declare_parameter("min_camera_index", 2)
         self.declare_parameter("model_path", "models/cctv_best.pt")
         self.declare_parameter("confidence", 0.5)
-        self.declare_parameter("publish_hz", 10.0)
         self.declare_parameter("jpeg_quality", 80)
         self.declare_parameter("device", "")
         self.declare_parameter("image_width", 1280)
@@ -95,7 +93,6 @@ class DetectCctvNode(Node):
         configured_model_path = str(self.get_parameter("model_path").value)
         self.model_path = self._resolve_model_path(configured_model_path)
         self.confidence = float(self.get_parameter("confidence").value)
-        self.publish_hz = float(self.get_parameter("publish_hz").value)
         self.jpeg_quality = int(self.get_parameter("jpeg_quality").value)
         self.device = str(self.get_parameter("device").value)
         self.image_width = int(self.get_parameter("image_width").value)
@@ -104,8 +101,6 @@ class DetectCctvNode(Node):
         self.inference_size = int(self.get_parameter("inference_size").value)
 
         self._validate_camera_parameters(camera_devices, camera_ids)
-        if not 1 <= self.jpeg_quality <= 100:
-            raise ValueError("jpeg_quality는 1부터 100 사이여야 합니다.")
 
         # 두 카메라가 동일한 학습 모델을 공유하여 메모리 사용량을 줄인다.
         self.model = YOLO(self.model_path)
@@ -116,17 +111,10 @@ class DetectCctvNode(Node):
         self._cameras_released = False
 
         self.start_subscription = self.create_subscription(
-            Bool,
-            "/ui/start",
-            self._start_callback,
-            1,
-        )
+            Bool, "/ui/start", self._start_callback, 1,)
 
         self.status_publisher = self.create_publisher(
-            CamState,
-            "/detection/cam_state",
-            10,
-        )
+            CamState, "/detection/cam_state", 10,)
 
         self._image_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -147,24 +135,15 @@ class DetectCctvNode(Node):
             self._release_cameras()
             raise
 
-        timer_period = 1.0 / self.publish_hz
+        # 처리 주기를 camera_fps에 맞춰서 카메라가 새 프레임을 주는 만큼 매번 추론한다.
+        timer_period = 1.0 / self.camera_fps
         self.timer = self.create_timer(timer_period, self.process_frames)
-
-        camera_summary = ", ".join(
-            f"{camera.camera_id}={camera.camera_device}"
-            for camera in self.cameras
-        )
-        self.get_logger().info(
-            f"다중 CCTV 준비 완료 | cameras=[{camera_summary}] | "
-            f"model={self.model_path} | conf={self.confidence:.2f} | "
-            f"jpeg_quality={self.jpeg_quality} | "
-            "/ui/start 대기 중"
-        )
 
     @staticmethod
     def _validate_camera_parameters(
         camera_devices: List[str], camera_ids: List[str]
     ) -> None:
+        """camera_devices/camera_ids 파라미터 조합이 유효한지(개수 일치, 중복/빈값 없음) 검사."""
         if not camera_devices:
             raise ValueError("camera_devices에는 하나 이상의 장치가 필요합니다.")
         if len(camera_devices) != len(camera_ids):
@@ -204,7 +183,6 @@ class DetectCctvNode(Node):
                 "camera_devices 파라미터로 직접 지정하거나 min_camera_index를 조정하세요."
             )
 
-        self.get_logger().info(f"웹캠 자동 탐지: {discovered}")
         return discovered
 
     @staticmethod
@@ -225,6 +203,7 @@ class DetectCctvNode(Node):
 
     @staticmethod
     def _resolve_model_path(configured_path: str) -> str:
+        """상대경로면 패키지 share 디렉토리 기준으로, 절대경로면 그대로 실제 모델 파일 위치를 반환."""
         model_path = Path(configured_path).expanduser()
 
         if model_path.is_absolute():
@@ -244,13 +223,8 @@ class DetectCctvNode(Node):
     def _warmup_model(self, batch_size: int) -> None:
         """실제 카메라 프레임이 들어오기 전에 더미 이미지로 한 번 추론해서 CUDA
         초기화(커널 컴파일, cuDNN 알고리즘 탐색, 가중치 GPU 전송 등) 비용을 노드
-        시작 시점으로 옮겨둔다.
-
-        실측 결과 이 초기화 비용을 워밍업 없이 그대로 두면 '첫 실제 추론'이
-        ~1.3초 걸린다(이후 정상 상태는 10~15ms) - 하필 노드가 막 시작된 직후
-        들어오는 첫 프레임에 실제 화재가 찍혀 있으면 경보가 1초 넘게 늦어질 수
-        있다는 뜻이라, 그 비용을 부팅 시점(어차피 /ui/start 대기 중이라 실사용에
-        영향 없는 구간)으로 옮기는 게 이득이다.
+        시작 시점(어차피 /ui/start 대기 중이라 실사용에 영향 없는 구간)으로 옮겨둔다 -
+        안 그러면 노드 시작 직후 들어오는 첫 프레임의 추론이 몇 초씩 늦어질 수 있다.
         """
         dummy_frame = np.zeros((self.image_height, self.image_width, 3), dtype=np.uint8)
         predict_kwargs = {
@@ -263,17 +237,10 @@ class DetectCctvNode(Node):
         if self.device:
             predict_kwargs["device"] = self.device
 
-        started = time.perf_counter()
         self.model.predict(**predict_kwargs)
-        elapsed_ms = (time.perf_counter() - started) * 1000.0
-        self.get_logger().info(f"모델 워밍업 완료 ({elapsed_ms:.0f}ms)")
 
-    def _create_camera_context(
-        self,
-        camera_device: str,
-        camera_id: str,
-        camera_number: int,
-    ) -> CameraContext:
+    def _create_camera_context(self, camera_device: str, camera_id: str, camera_number: int,) -> CameraContext:
+        """카메라 1대를 열고 전용 퍼블리셔/상태를 묶은 CameraContext를 만든다."""
         capture = self._open_camera(camera_device, camera_id)
         image_publisher = self.create_publisher(
             CompressedImage,
@@ -291,12 +258,14 @@ class DetectCctvNode(Node):
         )
 
     def _new_detection_windows(self) -> Dict[str, "deque[bool]"]:
+        """클래스별로 최근 프레임 감지 여부를 담을 빈 debounce 윈도우를 생성."""
         return {
             event_name: deque(maxlen=self.DETECTION_WINDOW_SIZE)
             for event_name in self.STATUS_STATES
         }
 
     def _default_status(self) -> Dict[str, bool]:
+        """모든 클래스가 미검출(False)인 초기 상태 딕셔너리를 생성."""
         return dict.fromkeys(self.STATUS_STATES, False)
 
     def _publish_initial_status(self, camera: CameraContext) -> None:
@@ -307,6 +276,7 @@ class DetectCctvNode(Node):
             self._publish_status_message(camera, event_name)
 
     def _start_callback(self, message: Bool) -> None:
+        """/ui/start 수신 시 task_started를 갱신하고, 상태가 바뀌면 모든 카메라의 초기 상태를 재발행."""
         if message.data == self.task_started:
             return
 
@@ -315,13 +285,9 @@ class DetectCctvNode(Node):
         for camera in self.cameras:
             self._publish_initial_status(camera)
 
-        action = "시작" if self.task_started else "중지"
-        self.get_logger().info(
-            f"/ui/start={self.task_started} 수신: CCTV 탐지 및 토픽 발행을 {action}합니다."
-        )
-
     @staticmethod
     def _convert_camera_device(value: Union[int, str]) -> Union[int, str]:
+        """"0"처럼 숫자로만 된 문자열은 정수 인덱스로, 그 외(/dev/videoN 등)는 문자열 그대로 사용."""
         if isinstance(value, int):
             return value
 
@@ -333,6 +299,7 @@ class DetectCctvNode(Node):
     def _open_camera(
         self, camera_device: Union[int, str], camera_id: str
     ) -> cv2.VideoCapture:
+        """cv2.VideoCapture를 열고 해상도/FPS/버퍼 크기 등 캡처 옵션을 설정."""
         device = self._convert_camera_device(camera_device)
         capture = cv2.VideoCapture(device, cv2.CAP_V4L2)
 
@@ -353,23 +320,10 @@ class DetectCctvNode(Node):
                 f"{camera_id}: 카메라를 열 수 없습니다: {camera_device}. "
             )
 
-        actual_fourcc = int(capture.get(cv2.CAP_PROP_FOURCC))
-        actual_format = "".join(
-            chr((actual_fourcc >> (8 * index)) & 0xFF) for index in range(4)
-        )
-        actual_width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
-        actual_height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        actual_fps = capture.get(cv2.CAP_PROP_FPS)
-        self.get_logger().info(
-            f"{camera_id}: 카메라 설정 | device={device} | "
-            f"format={actual_format} | size={actual_width}x{actual_height} | "
-            f"fps={actual_fps:.1f}"
-        )
         return capture
 
     def _start_capture_threads(self) -> None:
         """카메라마다 전용 스레드를 시작해 드라이버 버퍼를 계속 비운다.
-
         타이머 콜백에서 직접 capture.read()를 하면 그 순간 드라이버 버퍼에 남아있던
         오래된 프레임을 읽을 수 있다(특히 추론이 잠깐 밀리면 버퍼가 쌓임). 이상감지
         용도라 오래된 프레임으로 판단이 늦어지면 안 되므로, 별도 스레드가 계속
@@ -385,16 +339,11 @@ class DetectCctvNode(Node):
             camera.capture_thread.start()
 
     def _capture_loop(self, camera: CameraContext) -> None:
+        """캡처 스레드 본체: 종료 신호 전까지 계속 프레임을 읽어 latest_frame만 덮어쓴다."""
         while not self.shutdown_event.is_set():
             success, frame = camera.capture.read()
 
             if not success or frame is None:
-                now = time.monotonic()
-                if now - camera.last_warning_time >= 5.0:
-                    self.get_logger().warning(
-                        f"{camera.camera_id}: 카메라 프레임을 읽지 못했습니다."
-                    )
-                    camera.last_warning_time = now
                 continue
 
             with camera.frame_lock:
@@ -409,6 +358,7 @@ class DetectCctvNode(Node):
             return camera.latest_frame.copy(), camera.frame_sequence
 
     def process_frames(self) -> None:
+        """타이머 콜백: 카메라별 최신 프레임을 모아 배치 추론하고 상태/이미지를 발행."""
         if not self.task_started:
             return
 
@@ -422,7 +372,7 @@ class DetectCctvNode(Node):
                 continue
             frame, sequence = snapshot
             # 지난 추론 이후 새 프레임이 안 들어왔으면 같은 화면을 다시 추론하지 않는다
-            # (카메라 프레임레이트가 publish_hz보다 낮을 때 GPU 낭비 방지).
+            # (타이머 주기가 실제 카메라 프레임레이트를 순간적으로 앞지를 때 GPU 낭비 방지).
             if sequence == camera.last_inferred_sequence:
                 continue
             cameras_with_frames.append(camera)
@@ -437,9 +387,8 @@ class DetectCctvNode(Node):
                 "source": frames,
                 "conf": self.confidence,
                 "imgsz": self.inference_size,
-                # TTA(augment=True) - 현재 모델(yolov8n) 기준 실측으로 F1 0.659->0.713
-                # 개선 확인됨. TTA 효과는 아키텍처마다 달라서(오히려 나빠지는 경우도
-                # 있었음) 모델을 바꾸면 재검증 필요.
+                # TTA 효과는 모델 아키텍처마다 달라서(오히려 나빠지는 경우도 있음)
+                # 모델을 바꾸면 재검증 필요.
                 "augment": True,
                 "verbose": False,
             }
@@ -463,6 +412,7 @@ class DetectCctvNode(Node):
             self.get_logger().error(f"YOLO 배치 처리 중 오류: {exc}")
 
     def _extract_detected_status(self, result: Any) -> Dict[str, bool]:
+        """YOLO 결과 1장에서 클래스별 검출 여부(True/False)만 뽑는다."""
         detected_status = self._default_status()
 
         if result.boxes is not None:
@@ -501,6 +451,7 @@ class DetectCctvNode(Node):
     def _class_name_from_index(
         class_index: int, names: Union[Dict[int, str], list]
     ) -> str:
+        """YOLO 결과의 클래스 인덱스를 클래스 이름 문자열로 변환(names가 dict/list 둘 다 가능)."""
         if isinstance(names, dict):
             return str(names.get(class_index, class_index))
         return str(names[class_index])
@@ -526,9 +477,6 @@ class DetectCctvNode(Node):
             ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality]
         )
         if not success:
-            self.get_logger().warning(
-                f"{camera.camera_id}: UI 프레임 JPEG 압축에 실패했습니다."
-            )
             return
 
         message = CompressedImage()
@@ -544,17 +492,13 @@ class DetectCctvNode(Node):
         detected_status: Dict[str, bool],
         current_boxes: Dict[str, tuple],
     ) -> None:
+        """이전 상태와 비교해 바뀐 클래스만 CamState로 발행."""
         if detected_status == camera.last_status:
             return
 
         for event_name, detected in detected_status.items():
             if detected == camera.last_status[event_name]:
                 continue
-
-            state_text = "감지" if detected else "해제"
-            self.get_logger().info(
-                f"{camera.camera_id}: {event_name} {state_text}"
-            )
 
             # 감지(켜짐)일 때만 bbox를 실어 보낸다. 해제(꺼짐)는 box=None -> 무효 bbox(-1).
             box = current_boxes.get(event_name) if detected else None
@@ -565,6 +509,7 @@ class DetectCctvNode(Node):
     def _publish_status_message(
         self, camera: CameraContext, event_name: str, box: Optional[tuple] = None
     ) -> None:
+        """클래스 하나에 대한 CamState 메시지 1건을 구성해서 발행."""
         message = CamState()
         message.camera_id = camera.camera_number
         message.state = self.STATUS_STATES[event_name]
@@ -585,6 +530,7 @@ class DetectCctvNode(Node):
         self.status_publisher.publish(message)
 
     def _release_cameras(self) -> None:
+        """캡처 스레드를 정지시키고 모든 카메라 장치를 해제(중복 호출 방지)."""
         if self._cameras_released:
             return
         self._cameras_released = True
@@ -604,11 +550,13 @@ class DetectCctvNode(Node):
                 camera.capture_thread.join(timeout=0.5)
 
     def destroy_node(self) -> bool:
+        """노드 종료 시 카메라 자원부터 정리한 뒤 부모 클래스의 종료 처리를 수행."""
         self._release_cameras()
         return super().destroy_node()
 
 
 def main(args: Optional[list] = None) -> None:
+    """노드 진입점: 초기화 실패/예외 시에도 카메라 자원을 정리하고 안전하게 종료."""
     rclpy.init(args=args)
     node: Optional[DetectCctvNode] = None
 
