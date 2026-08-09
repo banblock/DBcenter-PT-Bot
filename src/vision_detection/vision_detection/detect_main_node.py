@@ -9,7 +9,6 @@ from std_msgs.msg import Bool
 from std_srvs.srv import SetBool
 from patrol_interfaces.srv import CheckGate
 
-
 class DetectMainNode(Node):
     """전체 detection 흐름을 관리하는 중앙 노드.
     외부(UI)로부터 CheckGate 서비스 요청을 받으면,
@@ -94,7 +93,6 @@ class DetectMainNode(Node):
         response.error_state = inspect_result.error_state
         return response
 
-
 def main(args=None):
     """노드 진입점. 서비스 콜백 안에서 다른 서비스를 동기 호출해야 하므로 MultiThreadedExecutor 사용."""
     rclpy.init(args=args)
@@ -104,7 +102,6 @@ def main(args=None):
     executor.spin()
     node.destroy_node()
     rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()

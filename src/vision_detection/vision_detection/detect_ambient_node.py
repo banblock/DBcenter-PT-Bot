@@ -1,5 +1,3 @@
-import os
-import time
 from collections import deque
 from pathlib import Path
 
@@ -39,7 +37,6 @@ EVENT_WINDOW_SIZE = 3
 
 CLASS_COLORS = {'fire': (0, 0, 255), 'smoke': (0, 255, 255), 'coolant': (255, 128, 0)}
 
-
 def _iou(a, b):
     """박스 두 개(xyxy) 간 IoU(교집합/합집합 비율)를 계산."""
     ax0, ay0, ax1, ay1 = a
@@ -52,7 +49,6 @@ def _iou(a, b):
     area_b = max(0.0, bx1 - bx0) * max(0.0, by1 - by0)
     union = area_a + area_b - inter
     return inter / union if union > 0 else 0.0
-
 
 def weighted_boxes_fusion(boxes_list, scores_list, labels_list, iou_thr=0.5):
     """모델별 예측을 confidence 가중 평균으로 병합(외부 ensemble-boxes 라이브러리 없이
@@ -100,7 +96,6 @@ def weighted_boxes_fusion(boxes_list, scores_list, labels_list, iou_thr=0.5):
         fused_labels.append(all_labels[idx])
 
     return np.array(fused_boxes), np.array(fused_scores), np.array(fused_labels)
-
 
 class DetectAmbientNode(Node):
     """AMR 주변 이상 상황(화재/연기/냉각수 누출 등)을 상시 감지하는 노드.
@@ -343,14 +338,12 @@ class DetectAmbientNode(Node):
 
         return callback
 
-
 def main(args=None):
     rclpy.init(args=args)
     node = DetectAmbientNode()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()

@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 from __future__ import annotations
 
 import glob
@@ -25,7 +23,6 @@ from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import Bool
 from ultralytics import YOLO
 
-
 @dataclass
 class CameraContext:
     """카메라 한 대에 속한 캡처 및 ROS 퍼블리셔 상태."""
@@ -43,10 +40,8 @@ class CameraContext:
     last_inferred_sequence: int = -1
     capture_thread: Optional[threading.Thread] = None
 
-
 class DetectCctvNode(Node):
     """한 ROS 2 노드에서 웹캠 여러 대의 YOLO 이상 감지를 수행한다.
-
     카메라마다 전용 스레드가 계속 프레임을 읽어 최신 프레임 1장만 유지하고,
     타이머가 그 프레임들을 모아 한 번에 배치로 추론한다(카메라 대수만큼 모델을
     따로 부르는 것보다 GPU 효율이 좋음). 결과 이미지는 JPEG로 압축해서 발행하고
@@ -54,11 +49,7 @@ class DetectCctvNode(Node):
     윈도우의 과반수로 확정한다(순간적인 오검출/흔들림 방지).
     """
 
-    STATUS_STATES = {
-        "fire": 0,
-        "smoke": 1,
-        "coolant": 2,
-    }
+    STATUS_STATES = {"fire": 0, "smoke": 1, "coolant": 2,}
     # 최근 N프레임 중 과반 이상 감지되면 확정 (켜짐/꺼짐 모두 동일 기준)
     DETECTION_WINDOW_SIZE = 3
 
@@ -554,9 +545,7 @@ class DetectCctvNode(Node):
         self._release_cameras()
         return super().destroy_node()
 
-
 def main(args: Optional[list] = None) -> None:
-    """노드 진입점: 초기화 실패/예외 시에도 카메라 자원을 정리하고 안전하게 종료."""
     rclpy.init(args=args)
     node: Optional[DetectCctvNode] = None
 
@@ -576,7 +565,6 @@ def main(args: Optional[list] = None) -> None:
             node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
-
 
 if __name__ == "__main__":
     main()

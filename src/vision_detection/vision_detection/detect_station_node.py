@@ -15,7 +15,6 @@ from vision_detection.gate_color_detector import GateColorDetector
 
 class DetectStationNode(Node):
     """차단기(gate) 상태를 검사하는 노드.
-
     평소에는 AMR 캠을 구독하지 않고 대기하다가, main_node가 inspect_gate
     서비스를 호출한 순간에만 구독을 열어 프레임을 여러 장 모으고
     (Hough Circle + HSV 색상판별로) 판정한 뒤 과반수 투표로 최종 상태를 정하고 구독을 닫는다.
@@ -199,7 +198,6 @@ class DetectStationNode(Node):
         finally:
             self._deactivate_cam_sub(topic)
 
-
 def main(args=None):
     """노드 진입점. 서비스 콜백 안에서 구독 콜백을 동시에 처리해야 하므로 MultiThreadedExecutor 사용."""
     rclpy.init(args=args)
@@ -209,7 +207,6 @@ def main(args=None):
     executor.spin()
     node.destroy_node()
     rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()
