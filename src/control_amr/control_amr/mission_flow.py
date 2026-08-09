@@ -9,6 +9,7 @@ from std_msgs.msg import String
 
 REQUIRED_WAYPOINT_FIELDS = ('x', 'y', 'yaw')
 ROUTE_UPDATE_TIMEOUT_SEC = 10.0
+NEXT_PATROL_DELAY_SEC = 10 * 60
 
 
 class MissionFlowSupport:
@@ -23,6 +24,8 @@ class MissionFlowSupport:
             String, f'/fleet/{namespace}/route_update_request', 10)
         self.mission_complete_pub = navigator.create_publisher(
             String, f'/fleet/{namespace}/mission_complete', 10)
+        self.next_mission_request_pub = navigator.create_publisher(
+            String, f'/fleet/{namespace}/request_next_mission', 10)
         self._route_update_response = None
         navigator.create_subscription(
             String, f'/fleet/{namespace}/route_update_response',
@@ -117,5 +120,25 @@ class MissionFlowSupport:
         msg.data = json.dumps({'robot': self.namespace})
         self.mission_complete_pub.publish(msg)
 
-    def choose_post_mission_action(self):
-        return 'standby'
+    def wait_until_next_patrol(self):
+        self.navigator.info(
+            f'[{self.namespace}] next patrol in '
+            f'{NEXT_PATROL_DELAY_SEC} seconds')
+        deadline = time.monotonic() + NEXT_PATROL_DELAY_SEC
+        while time.monotonic() < deadline:
+            remaining = deadline - time.monotonic()
+            rclpy.spin_once(
+                self.navigator, timeout_sec=min(0.5, remaining))
+
+    def get_next_patrol_delay_sec(self):
+        return NEXT_PATROL_DELAY_SEC
+
+    def request_next_mission(self):
+        self.navigator.info(
+            f'[{self.namespace}] requesting next patrol mission')
+        msg = String()
+        msg.data = json.dumps({
+            'robot': self.namespace,
+            'reason': 'patrol_delay_elapsed',
+        })
+        self.next_mission_request_pub.publish(msg)

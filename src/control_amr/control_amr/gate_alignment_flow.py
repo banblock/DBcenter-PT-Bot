@@ -1,4 +1,4 @@
-"""Gate camera alignment scaffolding for the AMR Control Node."""
+"""Align the robot-mounted camera toward a gate."""
 
 import json
 import math
@@ -6,7 +6,7 @@ import time
 
 import rclpy
 from nav2_simple_commander.robot_navigator import TaskResult
-from nav_msgs.msg import Odometry
+from geometry_msgs.msg import PoseWithCovarianceStamped
 from std_msgs.msg import String
 
 ALIGNMENT_TOLERANCE_RAD = 0.05
@@ -28,12 +28,12 @@ class GateAlignmentFlowSupport:
         self.alignment_done_pub = self.navigator.create_publisher(
             String, f'/fleet/{namespace}/gate_alignment_done', 10)
         self._current_yaw = None
-        self._odom_sub = self.navigator.create_subscription(
-            Odometry, 'odom', self._on_odom, 10)
+        self._pose_sub = self.navigator.create_subscription(
+            PoseWithCovarianceStamped, 'amcl_pose', self._on_pose, 10)
         # TODO: gate 정렬 완료 후 정지 시간을 운영 정책에 맞게 조정한다.
         self.pause_after_alignment_sec = 2.0
 
-    def _on_odom(self, msg):
+    def _on_pose(self, msg):
         orientation = msg.pose.pose.orientation
         sin_yaw = 2.0 * (
             orientation.w * orientation.z + orientation.x * orientation.y)
@@ -51,7 +51,7 @@ class GateAlignmentFlowSupport:
         if target_direction is None or self._current_yaw is None:
             self.navigator.info(
                 f'[{self.namespace}] gate alignment failed: '
-                'target direction or odometry unavailable')
+                'target direction or AMCL pose unavailable')
             return False
         spin_dist = _normalize_angle(target_direction - self._current_yaw)
         if abs(spin_dist) < ALIGNMENT_TOLERANCE_RAD:
@@ -68,11 +68,11 @@ class GateAlignmentFlowSupport:
                 cancel_started_at = time.monotonic()
                 while (not self.navigator.isTaskComplete() and
                        time.monotonic() - cancel_started_at < CANCEL_WAIT_SEC):
-                    time.sleep(0.05)
+                    rclpy.spin_once(self.navigator, timeout_sec=0.05)
                 self.navigator.info(
                     f'[{self.namespace}] gate alignment spin timed out')
                 return False
-            time.sleep(0.1)
+            rclpy.spin_once(self.navigator, timeout_sec=0.1)
         return self.navigator.getResult() == TaskResult.SUCCEEDED
 
     def publish_alignment_done(self, waypoint, success=True):

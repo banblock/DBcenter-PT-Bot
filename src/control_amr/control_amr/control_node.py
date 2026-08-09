@@ -1,7 +1,8 @@
-"""Control Node - test implementation of the AMR Control NODE side of the
-system chart's control architecture. Run one instance per robot; each
-instance is meant to run on that robot's own laptop (namespace passed as
-a CLI arg so it's a standalone process, not tied to any other robot):
+"""
+Run the AMR Control Node for one namespaced robot.
+
+Each instance runs on that robot's laptop and receives a namespace as a CLI
+argument:
 
     python3 control_node.py robot3
     python3 control_node.py robot8
@@ -12,18 +13,19 @@ Fleet Node, then walks the waypoints one at a time:
     Fleet Node and waits for a grant before moving (교차지점인가? ->
     점유돼있는가?)
   - navigates to the waypoint
-  - if the waypoint is tagged has_gate, performs a (stubbed) gate check
+  - if the waypoint is tagged has_gate, requests a vision-based gate check
     (해당 위치 차단기 유무 확인 -> 차단기 점검)
   - releases the crossing point once past it
 """
 
 import json
+import math
 import sys
 import time
 
 import rclpy
-from rclpy.qos import (QoSProfile, QoSDurabilityPolicy,
-                        QoSReliabilityPolicy, QoSHistoryPolicy)
+from rclpy.qos import (QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile,
+                       QoSReliabilityPolicy)
 from std_msgs.msg import String
 from turtlebot4_navigation.turtlebot4_navigator import TurtleBot4Navigator
 
@@ -59,15 +61,16 @@ class ControlNode:
         self.navigation_flow = NavigationFlowSupport(namespace, self.navigator)
         self.inspection_flow = InspectionFlowSupport(namespace, self.navigator)
         self.state_flow = StateFlowSupport(namespace, self.navigator)
-        self.gate_alignment_flow = GateAlignmentFlowSupport(namespace, self.navigator)
+        self.gate_alignment_flow = GateAlignmentFlowSupport(
+            namespace, self.navigator)
         self.navigation_interrupt_reason = None
-        # TODO: 교차점 점유 허가 대기 timeout 정책이 정해지면 초 단위 값으로 설정한다.
-        self.crossing_request_timeout_sec = None
+        self.crossing_request_timeout_sec = 15.0
         self.mission_aborted = False
 
         self.mission = None
         self.navigator.create_subscription(
-            String, f'/fleet/{namespace}/mission', self._on_mission, MISSION_QOS)
+            String, f'/fleet/{namespace}/mission',
+            self._on_mission, MISSION_QOS)
 
         self.granted_point = None
         self.navigator.create_subscription(
@@ -97,11 +100,27 @@ class ControlNode:
 
     def _on_anomaly(self, msg):
         try:
-            self.anomaly_location = json.loads(msg.data)
-        except json.JSONDecodeError as exc:
+            location = json.loads(msg.data)
+            if not self._is_valid_pose(location):
+                raise ValueError('x, y, yaw must be finite numbers')
+        except (json.JSONDecodeError, ValueError) as exc:
             self._report_failure('invalid_anomaly_json', {'error': str(exc)})
             return
+        self.anomaly_location = location
         self.anomaly_pending = True
+
+    @staticmethod
+    def _is_valid_pose(value):
+        if not isinstance(value, dict):
+            return False
+        if any(isinstance(value.get(field), bool)
+               for field in ('x', 'y', 'yaw')):
+            return False
+        try:
+            coordinates = [float(value[field]) for field in ('x', 'y', 'yaw')]
+        except (KeyError, TypeError, ValueError):
+            return False
+        return all(math.isfinite(coordinate) for coordinate in coordinates)
 
     def _on_grant(self, msg):
         try:
@@ -109,15 +128,21 @@ class ControlNode:
             robot = grant['robot']
             granted = grant['granted']
             point = grant['point']
-        except (json.JSONDecodeError, KeyError) as exc:
-            self._report_failure('invalid_occupancy_grant', {'error': str(exc)})
+            if not isinstance(robot, str) or not isinstance(granted, bool):
+                raise ValueError('robot/granted types are invalid')
+            if not isinstance(point, str):
+                raise ValueError('point must be a string')
+        except (json.JSONDecodeError, KeyError, ValueError) as exc:
+            self._report_failure(
+                'invalid_occupancy_grant', {'error': str(exc)})
             return
         if robot == self.namespace and granted:
             self.granted_point = point
 
     def _wait_for_mission(self):
         self._publish_state('waiting_mission')
-        self.navigator.info(f'[{self.namespace}] waiting for mission from Fleet Node...')
+        self.navigator.info(
+            f'[{self.namespace}] waiting for mission from Fleet Node...')
         while self.mission is None:
             rclpy.spin_once(self.navigator, timeout_sec=0.5)
 
@@ -127,7 +152,8 @@ class ControlNode:
         # immediately, turning this into a publish busy-loop. Rate-limit the
         # publish explicitly instead of relying on spin_once for pacing.
         self._publish_state('crossing_wait', {'point_id': point_id})
-        self.navigator.info(f'[{self.namespace}] requesting crossing point {point_id}...')
+        self.navigator.info(
+            f'[{self.namespace}] requesting crossing point {point_id}...')
         req = String()
         req.data = json.dumps({'robot': self.namespace, 'point': point_id})
         last_publish = 0.0
@@ -136,13 +162,15 @@ class ControlNode:
             now = time.monotonic()
             if (self.crossing_request_timeout_sec is not None and
                     now - started_at >= self.crossing_request_timeout_sec):
-                self._report_failure('crossing_grant_timeout', {'point_id': point_id})
+                self._report_failure(
+                    'crossing_grant_timeout', {'point_id': point_id})
                 return False
             if now - last_publish >= 0.5:
                 self.request_pub.publish(req)
                 last_publish = now
             rclpy.spin_once(self.navigator, timeout_sec=0.1)
-        self.navigator.info(f'[{self.namespace}] granted crossing point {point_id}')
+        self.navigator.info(
+            f'[{self.namespace}] granted crossing point {point_id}')
         self._publish_state('crossing_granted', {'point_id': point_id})
         return True
 
@@ -156,7 +184,8 @@ class ControlNode:
     def _check_gate(self):
         # Stub for the real gate/breaker inspection (camera/vision node).
         self._publish_state('gate_checking')
-        self.navigator.info(f'[{self.namespace}] gate present - running gate check...')
+        self.navigator.info(
+            f'[{self.namespace}] gate present - running gate check...')
         gate_ok = self.inspection_flow.inspect_gate()
         if not gate_ok:
             self._report_failure('gate_check_failed')
@@ -174,9 +203,11 @@ class ControlNode:
         return True
 
     def _move_to(self, pose):
-        """Navigate to pose, polling isTaskComplete() so an incoming anomaly
-        can interrupt the drive. Returns True if the goal was reached, False
-        if it was cancelled because an anomaly came in mid-flight."""
+        """
+        Navigate to a pose while allowing anomaly and collision interrupts.
+
+        Return whether the goal was reached successfully.
+        """
         self.navigation_interrupt_reason = None
         self.navigator.goToPose(pose)
         while not self.navigator.isTaskComplete():
@@ -188,7 +219,8 @@ class ControlNode:
             if self.anomaly_pending:
                 self.navigation_interrupt_reason = 'anomaly'
                 self.navigator.info(
-                    f'[{self.namespace}] anomaly signal received - interrupting patrol')
+                    f'[{self.namespace}] anomaly signal received - '
+                    'interrupting patrol')
                 self.navigator.cancelTask()
                 while not self.navigator.isTaskComplete():
                     time.sleep(0.1)
@@ -201,7 +233,8 @@ class ControlNode:
         self.anomaly_pending = False
         self._publish_state('anomaly_moving', loc)
         self.navigator.info(
-            f'[{self.namespace}] heading to anomaly at ({loc["x"]}, {loc["y"]})')
+            f'[{self.namespace}] heading to anomaly at '
+            f'({loc["x"]}, {loc["y"]})')
         pose = self.navigator.getPoseStamped(
             [float(loc['x']), float(loc['y'])], float(loc['yaw']))
         self.navigator.startToPose(pose)
@@ -211,12 +244,19 @@ class ControlNode:
             return
         self._publish_state('anomaly_checking', loc)
         self.navigator.info(f'[{self.namespace}] checking anomaly...')
-        self.inspection_flow.inspect_anomaly(loc)
-        time.sleep(2.0)
-        self.navigator.info(f'[{self.namespace}] anomaly check done, resuming patrol')
+        inspection = self.inspection_flow.inspect_anomaly(loc)
+        if inspection['confirmed'] is None:
+            self._report_failure('anomaly_check_failed', loc)
+            return
+        self.navigator.info(
+            f'[{self.namespace}] anomaly check done, resuming patrol')
 
         done = String()
-        done.data = json.dumps({'robot': self.namespace})
+        done.data = json.dumps({
+            'robot': self.namespace,
+            'confirmed': inspection['confirmed'],
+            'location': loc,
+        })
         self.anomaly_done_pub.publish(done)
         self._publish_state('patrol_resuming')
 
@@ -249,18 +289,6 @@ class ControlNode:
     def _wait_for_anomaly_arrival(self):
         return self.navigation_flow.wait_until_pose_reached()
 
-    def _check_battery_status(self):
-        return self.state_flow.check_battery()
-
-    def _handle_low_battery_if_needed(self):
-        battery_state = self._check_battery_status()
-        if battery_state in ('low', 'critical'):
-            handled = self.state_flow.handle_low_battery()
-            if handled:
-                self.mission_aborted = True
-            return handled
-        return False
-
     def _handle_navigation_interrupt(self, waypoint):
         if self.navigation_interrupt_reason == 'anomaly':
             self._handle_anomaly()
@@ -274,17 +302,14 @@ class ControlNode:
         return self._request_route_update('navigation_failed', waypoint)
 
     def _report_waypoint_reached(self, waypoint_index, waypoint):
-        return self.state_flow.report_waypoint_reached(waypoint_index, waypoint)
+        return self.state_flow.report_waypoint_reached(
+            waypoint_index, waypoint)
 
     def _report_failure(self, reason, detail=None):
         return self.state_flow.report_failure(reason, detail)
 
     def _handle_mission_complete(self):
         self.mission_flow.handle_mission_complete()
-        next_action = self.mission_flow.choose_post_mission_action()
-        if next_action == 'charge':
-            self.state_flow.return_to_charger()
-        return next_action
 
     def run(self):
         self._wait_for_mission()
@@ -294,14 +319,24 @@ class ControlNode:
             self.navigator.info(f'[{self.namespace}] docked, undocking...')
             self.navigator.undock()
 
+        while rclpy.ok():
+            self.mission_aborted = False
+            if not self._run_current_mission():
+                return
+            self.mission = None
+            self._publish_state('patrol_waiting', {
+                'delay_sec': self.mission_flow.get_next_patrol_delay_sec()})
+            self.mission_flow.wait_until_next_patrol()
+            self.mission_flow.request_next_mission()
+            self._wait_for_mission()
+
+    def _run_current_mission(self):
+
         waypoints = list(self.mission)
         i = 0
         while i < len(waypoints):
             wp = waypoints[i]
             point_id = wp.get('point_id')
-            if self._handle_low_battery_if_needed():
-                break
-
             if point_id and not self._request_crossing(point_id):
                 self.mission_aborted = True
                 break
@@ -348,24 +383,30 @@ class ControlNode:
 
         if self.mission_aborted:
             self._report_failure('mission_aborted')
-        else:
-            self._handle_mission_complete()
+            return False
+        self._handle_mission_complete()
+        return True
 
 
 def main():
     if len(sys.argv) != 2:
-        print('Usage: python3 control_node.py <namespace>  (e.g. robot3 or robot8)')
+        print(
+            'Usage: python3 control_node.py <namespace> '
+            '(e.g. robot3 or robot8)')
         sys.exit(1)
     namespace = sys.argv[1]
 
     rclpy.init()
-    node = ControlNode(namespace)
+    node = None
     try:
+        node = ControlNode(namespace)
         node.run()
     except KeyboardInterrupt:
         pass
-    node.navigator.destroy_node()
-    rclpy.shutdown()
+    finally:
+        if node is not None:
+            node.navigator.destroy_node()
+        rclpy.shutdown()
 
 
 if __name__ == '__main__':

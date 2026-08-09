@@ -15,7 +15,7 @@ setup(
     zip_safe=True,
     maintainer='hungeunlee',
     maintainer_email='dlgnsrms00@naver.com',
-    description='TODO: Package description',
+    description='Mission control flows for a namespaced TurtleBot4 AMR',
     license='TODO: License declaration',
     extras_require={
         'test': [
@@ -24,6 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'control_node = control_amr.control_node:main',
         ],
     },
 )
