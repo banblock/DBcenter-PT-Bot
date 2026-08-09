@@ -128,6 +128,12 @@ class DetectCctvNode(Node):
             10,
         )
 
+        self._image_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+
         try:
             for camera_number, (camera_device, camera_id) in enumerate(
                 zip(camera_devices, camera_ids), start=0
@@ -269,15 +275,10 @@ class DetectCctvNode(Node):
         camera_number: int,
     ) -> CameraContext:
         capture = self._open_camera(camera_device, camera_id)
-        image_qos = QoSProfile(
-            reliability=ReliabilityPolicy.BEST_EFFORT,
-            history=HistoryPolicy.KEEP_LAST,
-            depth=1,
-        )
         image_publisher = self.create_publisher(
             CompressedImage,
             f"/detection/{camera_id}/detection_image",
-            image_qos,
+            self._image_qos,
         )
         return CameraContext(
             camera_id=camera_id,

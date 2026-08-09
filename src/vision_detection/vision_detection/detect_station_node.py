@@ -84,14 +84,11 @@ class DetectStationNode(Node):
         # -> 평소엔 detect_ambient_node만 AMR 캠을 소비하게 해서 이중 디코딩/트래픽을 없앤다.
         self._subs = {}
 
-        self._image_pubs = {}
         # 요청의 robot_id(정수)로 어떤 카메라 토픽을 볼지 찾기 위한 매핑
         self._topic_by_robot_id = {}
         for topic in self.amr_cam_topics:
             robot_id = self._robot_num_from_topic(topic)
             self._topic_by_robot_id[robot_id] = topic
-            self._image_pubs[topic] = self.create_publisher(
-                Image, f'/detection/robot{robot_id}_cam/detection_image', self._image_qos)
 
         # 서비스 콜백 안에서 새 프레임을 기다리는 동안에도 구독 콜백이 동시에
         # 실행돼야 하므로 ReentrantCallbackGroup + MultiThreadedExecutor 사용
@@ -164,13 +161,11 @@ class DetectStationNode(Node):
 
             # 프레임 1장만으로 판정하면 모션 블러/조명 반사에 취약하므로 여러 장을 모아 과반수로 확정한다.
             results = []
-            annotated_image = None
             for msg in frames:
                 cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-                annotated_image, gate_closed = self.detector.detect(cv_image)
+                _, gate_closed = self.detector.detect(cv_image)
                 if gate_closed is not None:
                     results.append(gate_closed)
-            self._image_pubs[topic].publish(self.bridge.cv2_to_imgmsg(annotated_image, encoding='bgr8'))
 
             majority = len(frames) // 2 + 1
             if len(results) < majority:
