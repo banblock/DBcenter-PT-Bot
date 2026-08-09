@@ -1,0 +1,332 @@
+<!doctype html>
+<title>이상신호 로봇 선정 검증 — robot_selector.py</title>
+<meta name="description" content="통로 그래프 최단 경로 기준 이상신호 대응 로봇 선정 로직을 실제 시나리오 지도 위에 시각화한 검증 리포트.">
+<style>
+:root {
+  --paper: #f2f5f7;
+  --panel: #ffffff;
+  --ink: #1b242c;
+  --muted: #5b6b78;
+  --line: #c6d0d8;
+  --robot3: #2e6fa8;
+  --robot8: #96507e;
+  --win: #1d8a72;
+  --fail: #b3261e;
+  --anomaly: #c0392b;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #10161c;
+    --panel: #161e26;
+    --ink: #e8edf1;
+    --muted: #90a0ac;
+    --line: #29343e;
+    --robot3: #6fb3e8;
+    --robot8: #db92c4;
+    --win: #55cbac;
+    --fail: #ff6b5c;
+    --anomaly: #ff6b5c;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #10161c;
+  --panel: #161e26;
+  --ink: #e8edf1;
+  --muted: #90a0ac;
+  --line: #29343e;
+  --robot3: #6fb3e8;
+  --robot8: #db92c4;
+  --win: #55cbac;
+  --fail: #ff6b5c;
+  --anomaly: #ff6b5c;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  line-height: 1.55;
+}
+.wrap {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 48px 24px 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+h1 {
+  font-family: var(--mono);
+  font-size: clamp(24px, 4vw, 34px);
+  font-weight: 600;
+  margin: 6px 0 0;
+  text-wrap: balance;
+  letter-spacing: -0.01em;
+}
+.lede {
+  max-width: 68ch;
+  color: var(--muted);
+  font-size: 15px;
+  margin: 4px 0 0;
+}
+.meta {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 20px;
+}
+.scenarios { display: grid; grid-template-columns: 1fr; gap: 20px; }
+@media (min-width: 760px) { .scenarios { grid-template-columns: 1fr 1fr; } }
+.scenario h2 {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+.why { font-size: 13px; color: var(--muted); margin: 0 0 14px; }
+.diagram-figure { margin: 0; }
+.diagram-figure svg { width: 100%; height: auto; display: block; }
+.graph-edge { stroke: var(--line); stroke-width: 0.018; stroke-dasharray: 0.05 0.045; }
+.graph-node { fill: var(--muted); opacity: 0.6; }
+.sel-path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.sel-path--win { stroke-width: 0.05; opacity: 0.95; }
+.sel-path--lose { stroke-width: 0.03; opacity: 0.4; stroke-dasharray: 0.07 0.06; }
+.robot-pose { stroke: var(--panel); stroke-width: 0.015; }
+.robot-pose--win { stroke-width: 0.022; }
+.robot-label { font-family: var(--mono); font-size: 0.15px; font-weight: 600; }
+.anomaly-halo { fill: var(--anomaly); opacity: 0.18; }
+.anomaly-dot { fill: var(--anomaly); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 14px; }
+th {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  text-align: left;
+  font-weight: 500;
+  padding: 0 8px 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--line); font-family: var(--mono); }
+td.num { font-variant-numeric: tabular-nums; }
+tr:last-child td { border-bottom: none; }
+tr.row--win td { color: var(--ink); font-weight: 600; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+.tag {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  display: inline-block;
+  letter-spacing: 0.02em;
+}
+.tag--win { background: color-mix(in srgb, var(--win) 18%, transparent); color: var(--win); }
+.tag--fail { background: color-mix(in srgb, var(--fail) 18%, transparent); color: var(--fail); }
+h2.section-title {
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+.edge-cases { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.edge-case-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.edge-case p { margin: 0; font-size: 13.5px; color: var(--muted); }
+.edge-case code { font-family: var(--mono); color: var(--ink); }
+footer {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+footer code {
+  font-family: var(--mono);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Fleet Node · 이상신호 로봇 선정 검증</div>
+    <h1>가장 가까운 로봇을 어떻게 고르는가</h1>
+    <p class="lede">
+      이상신호가 감지되면 로봇을 배정해야 합니다. "가까움"은 직선 거리가
+      아니라 통로 그래프(route_graph.yaml) 위의 실제 이동 경로 거리로
+      판정합니다 - 이 지도는 랙 사이 외길 통로 구조라 직선상 가까워
+      보여도 실제로는 돌아가야 하는 경우가 있기 때문입니다. 아래는
+      test_robot_selector.py에 정의된 시나리오를 robot_selector.py로
+      실제 실행한 결과입니다.
+    </p>
+    <div class="meta">
+      <span>그래프: 노드 10개 / 엣지 13개</span>
+      <span>시나리오 2개 + 예외 케이스 3개</span>
+      <span>생성 시각 2026-08-08 23:06</span>
+    </div>
+  </header>
+
+  <section class="scenarios">
+    
+    <article class="panel scenario">
+      <h2>직선 거리는 비슷하지만 그래프 경로에서 갈리는 경우</h2>
+      <p class="why">robot3(뒷쪽 통로 R_AB)와 robot8(앞쪽 통로 F_BC)는 이상신호(F_left)까지 직선 거리가 비슷하다(2.29m vs 2.22m). 하지만 robot3는 세로 통로를 하나 더 거쳐야 해서 그래프 경로로는 3.12m로 벌어지고, robot8은 2.22m로 직선 거리와 거의 같다.</p>
+      <figure class="diagram-figure">
+        <svg viewBox="0 0 5.650 3.300" role="img"
+             aria-label="직선 거리는 비슷하지만 그래프 경로에서 갈리는 경우 시나리오 지도. 후보 로봇 위치와 이상신호 좌표, 각 로봇의 통로 그래프 경로를 표시.">
+          <image href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHEAAABCCAAAAABF+2YPAAACcUlEQVR4nL2ZXZKEIAyEe7q8kMX9j5DyRql94EeFwMIM0A+zO6j5SMAkOh/Bcp0AAMKjjg0sLyXWEs/agRXEKmwF0YZRH18+X+8cB8m+a7BNaPoI8osowLc+ntQr8hwUVNDb9wymj6DH/wcApwCuljd6nYS4e8Pl5lhepflAOOcjPhxpWDO2q8/EUIF56QLyqFIBuBil78zWxbCOyQkqwRCiN+9bhKkDSPZfmKmUp/k7qvMRtg4o99EAgO+EsIXY2pVriLrJxzt3NJLNUvI+HT6rTtVdMWyi/OCmaZtxwDZ89KdqlsbvY9loI24HxJUXgHleqAVCgLM8KI3taFTkopz+o9J6pa+Q23z1aDYmTVNR/+xEs+sQAFKs76RemmOWJlB712vopo3hoTXcv0PG3bNnaRIHuqnWqfYt8mte7fc81qg6MbflGqNdenRTebzt+FveDBYBF4l5vG2/bW9khCx16y1yzzxa1uZU5NyKNY8Yh/09QM9DUesKCZ/9MzfOHHK7Fb9uoo4+wo1pzjq23zWYxI0bqBulPtQ/xTvlnKELugZrE3OY8D6nUjzqOfEj/vC7U1QK3m8kAAJ65aO+x8zLgd2U0yNtH2nOUss9qRzOITaxv18Yf2g5UIu5Wo/PE56K6lFdAGvZVq9JkFsOOOwtslCDPfkc4i4pAAG4tjQZ2tx1uO1EmbFzyJjpSNJ/FgrHwt2Bx8voUVr8w2ykciIAN16tmpOLPwfEqpJfmWrHvy7aJ7zX4wR4JY6RRZQA5CPh9qi9urdRbmjxU5GjuCeR9fdMARE4Y7hciZgRfjTb0GPnxF99YmO/SKnP4a6E/gcRO6dn3R7ltAAAAABJRU5ErkJggg==" x="0" y="0" width="5.650" height="3.300"
+                 style="image-rendering: pixelated; opacity: 0.9" />
+        <line class="graph-edge" x1="0.550" y1="2.741" x2="1.670" y2="2.741" />
+      <line class="graph-edge" x1="1.670" y1="2.741" x2="2.770" y2="2.741" />
+      <line class="graph-edge" x1="2.770" y1="2.741" x2="3.850" y2="2.741" />
+      <line class="graph-edge" x1="3.850" y1="2.741" x2="5.110" y2="2.741" />
+      <line class="graph-edge" x1="0.550" y1="0.741" x2="1.670" y2="0.741" />
+      <line class="graph-edge" x1="1.670" y1="0.741" x2="2.770" y2="0.741" />
+      <line class="graph-edge" x1="2.770" y1="0.741" x2="3.850" y2="0.741" />
+      <line class="graph-edge" x1="3.850" y1="0.741" x2="5.110" y2="0.741" />
+      <line class="graph-edge" x1="0.550" y1="2.741" x2="0.550" y2="0.741" />
+      <line class="graph-edge" x1="1.670" y1="2.741" x2="1.670" y2="0.741" />
+      <line class="graph-edge" x1="2.770" y1="2.741" x2="2.770" y2="0.741" />
+      <line class="graph-edge" x1="3.850" y1="2.741" x2="3.850" y2="0.741" />
+      <line class="graph-edge" x1="5.110" y1="2.741" x2="5.110" y2="0.741" />
+      <circle class="graph-node" cx="0.550" cy="2.741" r="0.035" />
+      <circle class="graph-node" cx="1.670" cy="2.741" r="0.035" />
+      <circle class="graph-node" cx="2.770" cy="2.741" r="0.035" />
+      <circle class="graph-node" cx="3.850" cy="2.741" r="0.035" />
+      <circle class="graph-node" cx="5.110" cy="2.741" r="0.035" />
+      <circle class="graph-node" cx="0.550" cy="0.741" r="0.035" />
+      <circle class="graph-node" cx="1.670" cy="0.741" r="0.035" />
+      <circle class="graph-node" cx="2.770" cy="0.741" r="0.035" />
+      <circle class="graph-node" cx="3.850" cy="0.741" r="0.035" />
+      <circle class="graph-node" cx="5.110" cy="0.741" r="0.035" />
+      <circle class="anomaly-halo" cx="0.550" cy="2.741" r="0.16" />
+      <circle class="anomaly-dot" cx="0.550" cy="2.741" r="0.05" />
+      <path class="sel-path sel-path--lose" d="M1.670,0.741 L0.550,0.741 L0.550,2.741" style="stroke:var(--robot3)" />
+      <circle class="robot-pose" cx="1.670" cy="0.741" r="0.075" style="fill:var(--robot3)" />
+      <text class="robot-label" x="1.670" y="0.611" text-anchor="middle" style="fill:var(--robot3)">robot3</text>
+      <path class="sel-path sel-path--win" d="M2.770,2.741 L1.670,2.741 L0.550,2.741" style="stroke:var(--robot8)" />
+      <circle class="robot-pose robot-pose--win" cx="2.770" cy="2.741" r="0.095" style="fill:var(--robot8)" />
+      <text class="robot-label" x="2.770" y="2.611" text-anchor="middle" style="fill:var(--robot8)">robot8</text>
+        </svg>
+      </figure>
+      <table>
+        <thead><tr><th>후보 로봇</th><th>그래프 경로 거리</th><th>결과</th></tr></thead>
+        <tbody>
+          <tr class=""><td><span class="dot" style="background:var(--robot3)"></span>robot3</td><td class="num">3.12m</td><td>선정 안 됨</td></tr>
+          <tr class="row--win"><td><span class="dot" style="background:var(--robot8)"></span>robot8</td><td class="num">2.22m</td><td><span class="tag tag--win">선정됨</span></td></tr>
+        </tbody>
+      </table>
+    </article>
+
+    <article class="panel scenario">
+      <h2>직결 통로 대 우회 통로</h2>
+      <p class="why">robot3는 이상신호(R_CD)와 같은 세로 통로(V_CD) 위라 직선 거리와 그래프 경로가 둘 다 2.00m로 같다(우회 없음). robot8은 옆 통로라 직선 거리는 2.27m로 큰 차이가 없어 보이지만, 가로 통로를 거쳐 우회해야 해서 그래프 경로로는 3.08m까지 벌어진다.</p>
+      <figure class="diagram-figure">
+        <svg viewBox="0 0 5.650 3.300" role="img"
+             aria-label="직결 통로 대 우회 통로 시나리오 지도. 후보 로봇 위치와 이상신호 좌표, 각 로봇의 통로 그래프 경로를 표시.">
+          <image href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHEAAABCCAAAAABF+2YPAAACcUlEQVR4nL2ZXZKEIAyEe7q8kMX9j5DyRql94EeFwMIM0A+zO6j5SMAkOh/Bcp0AAMKjjg0sLyXWEs/agRXEKmwF0YZRH18+X+8cB8m+a7BNaPoI8osowLc+ntQr8hwUVNDb9wymj6DH/wcApwCuljd6nYS4e8Pl5lhepflAOOcjPhxpWDO2q8/EUIF56QLyqFIBuBil78zWxbCOyQkqwRCiN+9bhKkDSPZfmKmUp/k7qvMRtg4o99EAgO+EsIXY2pVriLrJxzt3NJLNUvI+HT6rTtVdMWyi/OCmaZtxwDZ89KdqlsbvY9loI24HxJUXgHleqAVCgLM8KI3taFTkopz+o9J6pa+Q23z1aDYmTVNR/+xEs+sQAFKs76RemmOWJlB712vopo3hoTXcv0PG3bNnaRIHuqnWqfYt8mte7fc81qg6MbflGqNdenRTebzt+FveDBYBF4l5vG2/bW9khCx16y1yzzxa1uZU5NyKNY8Yh/09QM9DUesKCZ/9MzfOHHK7Fb9uoo4+wo1pzjq23zWYxI0bqBulPtQ/xTvlnKELugZrE3OY8D6nUjzqOfEj/vC7U1QK3m8kAAJ65aO+x8zLgd2U0yNtH2nOUss9qRzOITaxv18Yf2g5UIu5Wo/PE56K6lFdAGvZVq9JkFsOOOwtslCDPfkc4i4pAAG4tjQZ2tx1uO1EmbFzyJjpSNJ/FgrHwt2Bx8voUVr8w2ykciIAN16tmpOLPwfEqpJfmWrHvy7aJ7zX4wR4JY6RRZQA5CPh9qi9urdRbmjxU5GjuCeR9fdMARE4Y7hciZgRfjTb0GPnxF99YmO/SKnP4a6E/gcRO6dn3R7ltAAAAABJRU5ErkJggg==" x="0" y="0" width="5.650" height="3.300"
+                 style="image-rendering: pixelated; opacity: 0.9" />
+        <line class="graph-edge" x1="0.550" y1="2.741" x2="1.670" y2="2.741" />
+      <line class="graph-edge" x1="1.670" y1="2.741" x2="2.770" y2="2.741" />
+      <line class="graph-edge" x1="2.770" y1="2.741" x2="3.850" y2="2.741" />
+      <line class="graph-edge" x1="3.850" y1="2.741" x2="5.110" y2="2.741" />
+      <line class="graph-edge" x1="0.550" y1="0.741" x2="1.670" y2="0.741" />
+      <line class="graph-edge" x1="1.670" y1="0.741" x2="2.770" y2="0.741" />
+      <line class="graph-edge" x1="2.770" y1="0.741" x2="3.850" y2="0.741" />
+      <line class="graph-edge" x1="3.850" y1="0.741" x2="5.110" y2="0.741" />
+      <line class="graph-edge" x1="0.550" y1="2.741" x2="0.550" y2="0.741" />
+      <line class="graph-edge" x1="1.670" y1="2.741" x2="1.670" y2="0.741" />
+      <line class="graph-edge" x1="2.770" y1="2.741" x2="2.770" y2="0.741" />
+      <line class="graph-edge" x1="3.850" y1="2.741" x2="3.850" y2="0.741" />
+      <line class="graph-edge" x1="5.110" y1="2.741" x2="5.110" y2="0.741" />
+      <circle class="graph-node" cx="0.550" cy="2.741" r="0.035" />
+      <circle class="graph-node" cx="1.670" cy="2.741" r="0.035" />
+      <circle class="graph-node" cx="2.770" cy="2.741" r="0.035" />
+      <circle class="graph-node" cx="3.850" cy="2.741" r="0.035" />
+      <circle class="graph-node" cx="5.110" cy="2.741" r="0.035" />
+      <circle class="graph-node" cx="0.550" cy="0.741" r="0.035" />
+      <circle class="graph-node" cx="1.670" cy="0.741" r="0.035" />
+      <circle class="graph-node" cx="2.770" cy="0.741" r="0.035" />
+      <circle class="graph-node" cx="3.850" cy="0.741" r="0.035" />
+      <circle class="graph-node" cx="5.110" cy="0.741" r="0.035" />
+      <circle class="anomaly-halo" cx="3.850" cy="0.741" r="0.16" />
+      <circle class="anomaly-dot" cx="3.850" cy="0.741" r="0.05" />
+      <path class="sel-path sel-path--win" d="M3.850,2.741 L3.850,0.741" style="stroke:var(--robot3)" />
+      <circle class="robot-pose robot-pose--win" cx="3.850" cy="2.741" r="0.095" style="fill:var(--robot3)" />
+      <text class="robot-label" x="3.850" y="2.611" text-anchor="middle" style="fill:var(--robot3)">robot3</text>
+      <path class="sel-path sel-path--lose" d="M2.770,2.741 L3.850,2.741 L3.850,0.741" style="stroke:var(--robot8)" />
+      <circle class="robot-pose" cx="2.770" cy="2.741" r="0.075" style="fill:var(--robot8)" />
+      <text class="robot-label" x="2.770" y="2.611" text-anchor="middle" style="fill:var(--robot8)">robot8</text>
+        </svg>
+      </figure>
+      <table>
+        <thead><tr><th>후보 로봇</th><th>그래프 경로 거리</th><th>결과</th></tr></thead>
+        <tbody>
+          <tr class="row--win"><td><span class="dot" style="background:var(--robot3)"></span>robot3</td><td class="num">2.00m</td><td><span class="tag tag--win">선정됨</span></td></tr>
+          <tr class=""><td><span class="dot" style="background:var(--robot8)"></span>robot8</td><td class="num">3.08m</td><td>선정 안 됨</td></tr>
+        </tbody>
+      </table>
+    </article>
+  </section>
+
+  <section class="panel">
+    <h2 class="section-title">예외 케이스</h2>
+    <p class="why">기하로 그리기 어려운 입력 - 위치 정보 누락, 후보 없음 - 에 대한 안전망이 의도대로 동작하는지 확인.</p>
+    <ul class="edge-cases">
+      
+      <li class="edge-case">
+        <div class="edge-case-head">
+          <span class="tag tag--win">검증됨</span>
+          <strong>위치 모르는 로봇은 후보에서 제외</strong>
+        </div>
+        <p>robot3만 위치를 알고 robot8, robot9는 amcl_pose를 받은 적 없을 때. 결과: <code>robot3</code></p>
+      </li>
+
+      <li class="edge-case">
+        <div class="edge-case-head">
+          <span class="tag tag--win">검증됨</span>
+          <strong>아무도 위치를 모르면 첫 후보로 대체</strong>
+        </div>
+        <p>AMCL이 아직 안 떴거나 수동 테스트 환경일 때 -> candidates 목록의 첫 로봇. 결과: <code>robot8</code></p>
+      </li>
+
+      <li class="edge-case">
+        <div class="edge-case-head">
+          <span class="tag tag--win">검증됨</span>
+          <strong>후보가 없으면 None</strong>
+        </div>
+        <p>이상신호 대응 중이 아닌 로봇이 하나도 없을 때(모두 busy) -> 호출부가 트리거를 무시. 결과: <code>None</code></p>
+      </li>
+    </ul>
+  </section>
+
+  <footer>
+    <code>src/test/code/build_selector_report.py</code>가
+    <code>test_robot_selector.py</code>의 <code>SCENARIOS</code>를 그대로
+    불러와 <code>robot_selector.select_nearest_robot()</code> /
+    <code>path_distances()</code>를 실행한 결과로 생성함 - 손으로 그린
+    그림이 아님. 단위 테스트: <code>src/test/code/test_robot_selector.py</code>
+    (<code>PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest test_robot_selector.py -v</code>).
+  </footer>
+</div>

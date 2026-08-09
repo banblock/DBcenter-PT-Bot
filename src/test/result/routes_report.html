@@ -1,0 +1,356 @@
+<!doctype html>
+<title>Fleet 경로 검증 — datacenter_map_v4</title>
+<meta name="description" content="datacenter_map_v4 지도 위에 로봇별 순찰 경로와 공유 통로(교차 지점) 검증 결과를 시각화.">
+<style>
+:root {
+  --paper: #f2f5f7;
+  --panel: #ffffff;
+  --ink: #1b242c;
+  --muted: #5b6b78;
+  --line: #c6d0d8;
+  --robot3: #2e6fa8;
+  --robot8: #96507e;
+  --gate: #1d8a72;
+  --crossing: #c07c1e;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #10161c;
+    --panel: #161e26;
+    --ink: #e8edf1;
+    --muted: #90a0ac;
+    --line: #29343e;
+    --robot3: #6fb3e8;
+    --robot8: #db92c4;
+    --gate: #55cbac;
+    --crossing: #e8a63f;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #10161c;
+  --panel: #161e26;
+  --ink: #e8edf1;
+  --muted: #90a0ac;
+  --line: #29343e;
+  --robot3: #6fb3e8;
+  --robot8: #db92c4;
+  --gate: #55cbac;
+  --crossing: #e8a63f;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  line-height: 1.55;
+}
+.wrap {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 48px 24px 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+h1 {
+  font-family: var(--mono);
+  font-size: clamp(24px, 4vw, 34px);
+  font-weight: 600;
+  margin: 6px 0 0;
+  text-wrap: balance;
+  letter-spacing: -0.01em;
+}
+.lede {
+  max-width: 65ch;
+  color: var(--muted);
+  font-size: 15px;
+  margin: 4px 0 0;
+}
+.meta {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 20px;
+}
+.diagram-figure { margin: 0; }
+.diagram-figure svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  color: var(--ink);
+}
+.diagram-figure figcaption {
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.graph-edge { stroke: var(--line); stroke-width: 0.018; stroke-dasharray: 0.05 0.045; }
+.graph-edge--shared { stroke: var(--crossing); stroke-width: 0.03; stroke-dasharray: none; opacity: 0.55; }
+.graph-node { fill: var(--muted); opacity: 0.7; }
+.crossing-label {
+  font-family: var(--mono);
+  font-size: 0.135px;
+  fill: var(--crossing);
+  font-weight: 600;
+}
+.route { stroke-width: 0.03; fill: none; stroke-linecap: round; }
+.route--robot3 { stroke: var(--robot3); }
+.route--robot8 { stroke: var(--robot8); }
+.waypoint--robot3 { fill: var(--robot3); }
+.waypoint--robot8 { fill: var(--robot8); }
+.waypoint--gate { fill: var(--gate) !important; stroke: var(--panel); stroke-width: 0.012; }
+.waypoint--transit { opacity: 0.55; }
+.waypoint-seq {
+  font-family: var(--mono);
+  font-size: 0.16px;
+  font-weight: 600;
+}
+.waypoint-seq--robot3 { fill: var(--robot3); }
+.waypoint-seq--robot8 { fill: var(--robot8); }
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--muted);
+}
+.legend-item { display: flex; align-items: center; gap: 8px; }
+.swatch { width: 14px; height: 14px; border-radius: 50%; flex: none; }
+.swatch--gate { border-radius: 3px; transform: rotate(45deg); }
+.swatch--transit { width: 8px; height: 8px; }
+.swatch--edge { width: 18px; height: 2px; border-radius: 0; background: var(--line); }
+.swatch--crossing { width: 18px; height: 3px; border-radius: 0; background: var(--crossing); opacity: 0.7; }
+h2 {
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+.tables { display: grid; grid-template-columns: 1fr; gap: 20px; }
+@media (min-width: 680px) { .tables { grid-template-columns: 1fr 1fr; } }
+.table-card h2 { display: flex; align-items: center; gap: 10px; }
+.robot-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+th {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  text-align: left;
+  font-weight: 500;
+  padding: 0 8px 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line); font-family: var(--mono); }
+td.num { font-variant-numeric: tabular-nums; text-align: right; }
+tr.row--transit td { color: var(--muted); }
+tr:last-child td { border-bottom: none; }
+.tag {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-block;
+  margin-right: 4px;
+  letter-spacing: 0.02em;
+}
+.tag--gate { background: color-mix(in srgb, var(--gate) 18%, transparent); color: var(--gate); }
+.tag--crossing { background: color-mix(in srgb, var(--crossing) 18%, transparent); color: var(--crossing); }
+.tag--transit { background: color-mix(in srgb, var(--muted) 18%, transparent); color: var(--muted); }
+.callout {
+  border: 1px solid var(--crossing);
+  border-left-width: 4px;
+  border-radius: 8px;
+  padding: 14px 18px;
+  font-size: 14px;
+  background: color-mix(in srgb, var(--crossing) 8%, var(--panel));
+}
+.callout strong { font-family: var(--mono); }
+footer {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+footer code {
+  font-family: var(--mono);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Fleet Node · 경로 검증</div>
+    <h1>datacenter_map_v4 경로 그래프</h1>
+    <p class="lede">
+      DEFAULT_ZONES를 고정 통로 그래프(노드=교차로, 엣지=한 번에 한 대만
+      지날 수 있는 통로) 위에서 홉 단위로 라우팅한 결과입니다. 두 로봇의
+      경로가 같은 통로를 필요로 하면, 그 엣지는 점유 조정이 필요한
+      교차 지점으로 표시됩니다.
+    </p>
+    <div class="meta">
+      <span>지도: 5.65m × 3.30m @ 0.05m/px</span>
+      <span>그래프: 노드 10개 / 엣지 13개</span>
+      <span>구역: 2개</span>
+      <span>생성 시각 2026-08-08 21:58</span>
+    </div>
+  </header>
+
+  <section class="panel">
+    <figure class="diagram-figure">
+      <svg viewBox="0 0 5.650 3.300" role="img"
+           aria-label="datacenter_map_v4 지도 위에 고정 통로 그래프와 robot3, robot8의 순찰 경로를 표시하고, 공유되는 통로 하나를 교차 지점으로 강조한 그림.">
+        <defs>
+          <marker id="arrow-robot3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--robot3)" />
+          </marker>
+          <marker id="arrow-robot8" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--robot8)" />
+          </marker>
+        </defs>
+        <image href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHEAAABCCAAAAABF+2YPAAACcUlEQVR4nL2ZXZKEIAyEe7q8kMX9j5DyRql94EeFwMIM0A+zO6j5SMAkOh/Bcp0AAMKjjg0sLyXWEs/agRXEKmwF0YZRH18+X+8cB8m+a7BNaPoI8osowLc+ntQr8hwUVNDb9wymj6DH/wcApwCuljd6nYS4e8Pl5lhepflAOOcjPhxpWDO2q8/EUIF56QLyqFIBuBil78zWxbCOyQkqwRCiN+9bhKkDSPZfmKmUp/k7qvMRtg4o99EAgO+EsIXY2pVriLrJxzt3NJLNUvI+HT6rTtVdMWyi/OCmaZtxwDZ89KdqlsbvY9loI24HxJUXgHleqAVCgLM8KI3taFTkopz+o9J6pa+Q23z1aDYmTVNR/+xEs+sQAFKs76RemmOWJlB712vopo3hoTXcv0PG3bNnaRIHuqnWqfYt8mte7fc81qg6MbflGqNdenRTebzt+FveDBYBF4l5vG2/bW9khCx16y1yzzxa1uZU5NyKNY8Yh/09QM9DUesKCZ/9MzfOHHK7Fb9uoo4+wo1pzjq23zWYxI0bqBulPtQ/xTvlnKELugZrE3OY8D6nUjzqOfEj/vC7U1QK3m8kAAJ65aO+x8zLgd2U0yNtH2nOUss9qRzOITaxv18Yf2g5UIu5Wo/PE56K6lFdAGvZVq9JkFsOOOwtslCDPfkc4i4pAAG4tjQZ2tx1uO1EmbFzyJjpSNJ/FgrHwt2Bx8voUVr8w2ykciIAN16tmpOLPwfEqpJfmWrHvy7aJ7zX4wR4JY6RRZQA5CPh9qi9urdRbmjxU5GjuCeR9fdMARE4Y7hciZgRfjTb0GPnxF99YmO/SKnP4a6E/gcRO6dn3R7ltAAAAABJRU5ErkJggg==" x="0" y="0" width="5.650" height="3.300"
+               style="image-rendering: pixelated; opacity: 0.9" />
+      <line class="graph-edge" x1="0.550" y1="2.741" x2="1.670" y2="2.741" />
+      <line class="graph-edge" x1="1.670" y1="2.741" x2="2.770" y2="2.741" />
+      <line class="graph-edge graph-edge--shared" x1="2.770" y1="2.741" x2="3.850" y2="2.741" />
+      <line class="graph-edge" x1="3.850" y1="2.741" x2="5.110" y2="2.741" />
+      <line class="graph-edge" x1="0.550" y1="0.741" x2="1.670" y2="0.741" />
+      <line class="graph-edge" x1="1.670" y1="0.741" x2="2.770" y2="0.741" />
+      <line class="graph-edge" x1="2.770" y1="0.741" x2="3.850" y2="0.741" />
+      <line class="graph-edge" x1="3.850" y1="0.741" x2="5.110" y2="0.741" />
+      <line class="graph-edge" x1="0.550" y1="2.741" x2="0.550" y2="0.741" />
+      <line class="graph-edge" x1="1.670" y1="2.741" x2="1.670" y2="0.741" />
+      <line class="graph-edge" x1="2.770" y1="2.741" x2="2.770" y2="0.741" />
+      <line class="graph-edge" x1="3.850" y1="2.741" x2="3.850" y2="0.741" />
+      <line class="graph-edge" x1="5.110" y1="2.741" x2="5.110" y2="0.741" />
+      <circle class="graph-node" cx="0.550" cy="2.741" r="0.035" />
+      <circle class="graph-node" cx="1.670" cy="2.741" r="0.035" />
+      <circle class="graph-node" cx="2.770" cy="2.741" r="0.035" />
+      <circle class="graph-node" cx="3.850" cy="2.741" r="0.035" />
+      <circle class="graph-node" cx="5.110" cy="2.741" r="0.035" />
+      <circle class="graph-node" cx="0.550" cy="0.741" r="0.035" />
+      <circle class="graph-node" cx="1.670" cy="0.741" r="0.035" />
+      <circle class="graph-node" cx="2.770" cy="0.741" r="0.035" />
+      <circle class="graph-node" cx="3.850" cy="0.741" r="0.035" />
+      <circle class="graph-node" cx="5.110" cy="0.741" r="0.035" />
+      <text class="crossing-label" x="3.310" y="2.611" text-anchor="middle">shared aisle · X_F_BC_CD</text>
+      <line class="route route--robot3" x1="1.750" y1="0.891" x2="1.670" y2="2.741" marker-end="url(#arrow-robot3)" />
+      <line class="route route--robot3" x1="1.670" y1="2.741" x2="2.770" y2="2.741" marker-end="url(#arrow-robot3)" />
+      <line class="route route--robot3" x1="2.770" y1="2.741" x2="3.300" y2="2.741" marker-end="url(#arrow-robot3)" />
+      <line class="route route--robot3" x1="3.300" y1="2.696" x2="2.770" y2="2.696" marker-end="url(#arrow-robot3)" />
+      <line class="route route--robot3" x1="2.770" y1="2.741" x2="1.650" y2="2.757" marker-end="url(#arrow-robot3)" />
+      <circle class="waypoint waypoint--patrol waypoint--robot3" cx="1.750" cy="0.891" r="0.075" />
+      <text class="waypoint-seq waypoint-seq--robot3" x="1.910" y="0.751">1</text>
+      <circle class="waypoint waypoint--transit waypoint--robot3" cx="1.670" cy="2.741" r="0.04" />
+      <circle class="waypoint waypoint--transit waypoint--robot3" cx="2.770" cy="2.741" r="0.04" />
+      <circle class="waypoint waypoint--patrol waypoint--robot3" cx="3.300" cy="2.741" r="0.075" />
+      <text class="waypoint-seq waypoint-seq--robot3" x="3.460" y="2.601">2</text>
+      <circle class="waypoint waypoint--transit waypoint--robot3" cx="2.770" cy="2.741" r="0.04" />
+      <rect class="waypoint waypoint--gate waypoint--robot3" x="1.560" y="2.667" width="0.180" height="0.180" transform="rotate(45 1.650 2.757)" />
+      <text class="waypoint-seq waypoint-seq--robot3" x="1.810" y="2.617">3</text>
+      <line class="route route--robot8" x1="3.850" y1="2.528" x2="3.850" y2="2.741" marker-end="url(#arrow-robot8)" />
+      <line class="route route--robot8" x1="3.850" y1="2.741" x2="3.200" y2="2.741" marker-end="url(#arrow-robot8)" />
+      <line class="route route--robot8" x1="3.200" y1="2.786" x2="3.850" y2="2.786" marker-end="url(#arrow-robot8)" />
+      <line class="route route--robot8" x1="3.895" y1="2.741" x2="3.895" y2="2.528" marker-end="url(#arrow-robot8)" />
+      <line class="route route--robot8" x1="3.850" y1="2.528" x2="3.780" y2="0.691" marker-end="url(#arrow-robot8)" />
+      <circle class="waypoint waypoint--patrol waypoint--robot8" cx="3.850" cy="2.528" r="0.075" />
+      <text class="waypoint-seq waypoint-seq--robot8" x="4.010" y="2.748">1</text>
+      <circle class="waypoint waypoint--transit waypoint--robot8" cx="3.850" cy="2.741" r="0.04" />
+      <circle class="waypoint waypoint--patrol waypoint--robot8" cx="3.200" cy="2.741" r="0.075" />
+      <text class="waypoint-seq waypoint-seq--robot8" x="3.360" y="2.961">2</text>
+      <circle class="waypoint waypoint--transit waypoint--robot8" cx="3.850" cy="2.741" r="0.04" />
+      <circle class="waypoint waypoint--transit waypoint--robot8" cx="3.850" cy="2.528" r="0.04" />
+      <rect class="waypoint waypoint--gate waypoint--robot8" x="3.690" y="0.601" width="0.180" height="0.180" transform="rotate(45 3.780 0.691)" />
+      <text class="waypoint-seq waypoint-seq--robot8" x="3.940" y="0.911">3</text>
+      </svg>
+      <figcaption>
+        회색 점선 격자: 고정 통로 그래프. 파란색 = robot3(zoneAB), 자주색 =
+        robot8(zoneCD). 채워진 점은 UI가 지정한 순찰 지점(방문 순서 번호
+        표시), 작은 점은 두 지점을 잇기 위해 라우터가 지나간 경유
+        노드입니다. 마름모는 차단기 점검 지점. 강조된 통로는 두 로봇이
+        함께 사용해서 <code>/fleet/occupancy_request</code>로 점유가
+        조정됩니다.
+      </figcaption>
+    </figure>
+
+    <div class="legend">
+      <span class="legend-item"><span class="swatch" style="background:var(--robot3)"></span>robot3 경로</span>
+      <span class="legend-item"><span class="swatch" style="background:var(--robot8)"></span>robot8 경로</span>
+      <span class="legend-item"><span class="swatch swatch--transit" style="background:var(--muted)"></span>경유 노드</span>
+      <span class="legend-item"><span class="swatch swatch--gate" style="background:var(--gate)"></span>차단기 점검 지점</span>
+      <span class="legend-item"><span class="swatch--edge"></span>통로 그래프</span>
+      <span class="legend-item"><span class="swatch--crossing"></span>공유(경합) 통로</span>
+    </div>
+  </section>
+
+  <section class="tables">
+    <div class="panel table-card">
+      <h2><span class="robot-dot" style="background:var(--robot3)"></span>robot3 — zoneAB</h2>
+      <table>
+        <thead><tr><th>순번</th><th>x</th><th>y</th><th>yaw</th><th>플래그</th></tr></thead>
+        <tbody>
+          <tr class=""><td>1</td><td class="num">-3.40</td><td class="num">1.75</td><td class="num">0°</td><td></td></tr>
+          <tr class="row--transit"><td>·</td><td class="num">-3.48</td><td class="num">-0.10</td><td class="num">-90°</td><td><span class="tag tag--transit">경유</span></td></tr>
+          <tr class="row--transit"><td>·</td><td class="num">-2.38</td><td class="num">-0.10</td><td class="num">0°</td><td><span class="tag tag--transit">경유</span></td></tr>
+          <tr class=""><td>2</td><td class="num">-1.85</td><td class="num">-0.10</td><td class="num">90°</td><td><span class="tag tag--crossing">X_F_BC_CD</span></td></tr>
+          <tr class="row--transit"><td>·</td><td class="num">-2.38</td><td class="num">-0.10</td><td class="num">180°</td><td><span class="tag tag--crossing">X_F_BC_CD</span></td></tr>
+          <tr class=""><td>3</td><td class="num">-3.50</td><td class="num">-0.12</td><td class="num">90°</td><td><span class="tag tag--gate">차단기 점검</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="panel table-card">
+      <h2><span class="robot-dot" style="background:var(--robot8)"></span>robot8 — zoneCD</h2>
+      <table>
+        <thead><tr><th>순번</th><th>x</th><th>y</th><th>yaw</th><th>플래그</th></tr></thead>
+        <tbody>
+          <tr class=""><td>1</td><td class="num">-1.30</td><td class="num">0.11</td><td class="num">-100°</td><td></td></tr>
+          <tr class="row--transit"><td>·</td><td class="num">-1.30</td><td class="num">-0.10</td><td class="num">-90°</td><td><span class="tag tag--transit">경유</span></td></tr>
+          <tr class=""><td>2</td><td class="num">-1.95</td><td class="num">-0.10</td><td class="num">-90°</td><td><span class="tag tag--crossing">X_F_BC_CD</span></td></tr>
+          <tr class="row--transit"><td>·</td><td class="num">-1.30</td><td class="num">-0.10</td><td class="num">0°</td><td><span class="tag tag--crossing">X_F_BC_CD</span></td></tr>
+          <tr class="row--transit"><td>·</td><td class="num">-1.30</td><td class="num">0.11</td><td class="num">90°</td><td><span class="tag tag--transit">경유</span></td></tr>
+          <tr class=""><td>3</td><td class="num">-1.37</td><td class="num">1.95</td><td class="num">-90°</td><td><span class="tag tag--gate">차단기 점검</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="callout">
+    <strong>교차 지점 1개 감지됨.</strong>
+    통로 <strong>F_BC_CD</strong> (point_id <strong>X_F_BC_CD</strong>)를 robot3와 robot8 둘 다 사용합니다 — 한 번에 하나만 점유하도록 조정됩니다.
+  </section>
+
+  <footer>
+    <code>src/test/code/build_route_report.py</code>가 실제
+    <code>route_graph.yaml</code> + <code>zone_router.build_missions()</code>
+    출력값으로 생성함 — 손으로 그린 그림이 아님. 단위 테스트:
+    <code>src/test/code/test_route_graph.py</code>,
+    <code>src/test/code/test_zone_router.py</code>.
+  </footer>
+</div>
