@@ -49,7 +49,10 @@ def test_shared_aisle_edge_is_flagged_as_crossing(graph):
     missions, crossing_log = zone_router.build_missions(graph, ZONES)
     assert len(crossing_log) == 1
     eid, robots, point_id = crossing_log[0]
-    assert eid == 'F_BC_CD'
+    # route_graph.yaml이 rviz 실측값으로 바뀌면서 front/rear 배치가
+    # 반대가 됐고(주석 참고), 이 테스트의 y=-0.1/-0.08/-0.1/-0.1 좌표들은
+    # 이제 rear aisle(R_*) 쪽에 스냅된다.
+    assert eid == 'R_AB_BC'
     assert robots == ['robot3', 'robot8']
 
     ids_a = [wp['point_id'] for wp in missions['robot3'] if wp['point_id']]

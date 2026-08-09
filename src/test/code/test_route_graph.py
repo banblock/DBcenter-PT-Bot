@@ -34,7 +34,7 @@ def test_shortest_path_does_not_cross_to_rear_unnecessarily(graph):
 
 def test_insert_point_snaps_to_nearby_existing_node(graph):
     before = len(graph.nodes)
-    node_id = graph.insert_point('p1', (-3.46, -0.09))  # ~0.02m from F_AB
+    node_id = graph.insert_point('p1', (-1.38, 1.94))  # ~0.02m from F_AB
     assert node_id == 'F_AB'
     assert len(graph.nodes) == before
 
@@ -42,7 +42,7 @@ def test_insert_point_snaps_to_nearby_existing_node(graph):
 def test_insert_point_splits_nearest_edge(graph):
     before_nodes = len(graph.nodes)
     before_edges = len(graph.edges)
-    node_id = graph.insert_point('gate1', (-1.8, -0.1))  # mid F_BC_CD
+    node_id = graph.insert_point('gate1', (-2.99, 1.87))  # mid F_BC_CD
     assert node_id == 'gate1'
     assert len(graph.nodes) == before_nodes + 1
     assert len(graph.edges) == before_edges + 1  # one edge -> two
@@ -52,7 +52,7 @@ def test_insert_point_splits_nearest_edge(graph):
 
 
 def test_path_through_inserted_point_keeps_base_edge_id(graph):
-    node_id = graph.insert_point('gate1', (-1.8, -0.1))
+    node_id = graph.insert_point('gate1', (-2.99, 1.87))  # mid F_BC_CD
     nodes, base_edges = graph.shortest_path('F_BC', node_id)
     assert nodes == ['F_BC', 'gate1']
     assert base_edges == ['F_BC_CD']

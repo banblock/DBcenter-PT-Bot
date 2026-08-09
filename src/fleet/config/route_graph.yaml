@@ -3,25 +3,29 @@
 # running the length of the room, and 5 cross-aisles (left end, between
 # each pair of racks, right end) connecting them - a ladder graph:
 #
-#   R_left --- R_AB --- R_BC --- R_CD --- R_right      (rear aisle)
-#     |          |         |         |         |
 #   F_left --- F_AB --- F_BC --- F_CD --- F_right      (front aisle)
+#     |          |         |         |         |
+#   R_left --- R_AB --- R_BC --- R_CD --- R_right      (rear aisle)
+#
+# 좌표는 rviz에서 실측한 값(맵 origin [-5.15, -0.659, 0] 기준)이다 -
+# 이전에 임시로 넣어뒀던 placeholder 값과는 front/rear, left/right가
+# 반대 방향이었는데, 실측해보니 이 방향이 실제 방 배치와 맞다.
 #
 # Every edge is a single-file aisle (too narrow for two robots side by
 # side), so any edge used by more than one robot's route is arbitrated
 # via the existing /fleet/occupancy_request-grant-release protocol.
 
 nodes:
-  F_left:  {x: -4.60, y: -0.10}
-  F_AB:    {x: -3.48, y: -0.10}
-  F_BC:    {x: -2.38, y: -0.10}
-  F_CD:    {x: -1.30, y: -0.10}
-  F_right: {x: -0.04, y: -0.10}
-  R_left:  {x: -4.60, y: 1.90}
-  R_AB:    {x: -3.48, y: 1.90}
-  R_BC:    {x: -2.38, y: 1.90}
-  R_CD:    {x: -1.30, y: 1.90}
-  R_right: {x: -0.04, y: 1.90}
+  F_left:  {x: -0.25, y: 2}
+  F_AB:    {x: -1.4, y: 1.94}
+  F_BC:    {x: -2.43, y: 1.9}
+  F_CD:    {x: -3.55, y: 1.84}
+  F_right: {x: -4.54, y: 1.76}
+  R_left:  {x: -0.18, y: 0.1}
+  R_AB:    {x: -1.25, y: 0.11}
+  R_BC:    {x: -2.38, y: 0.017}
+  R_CD:    {x: -3.45, y: -0.1}
+  R_right: {x: -4.5, y: -0.16}
 
 edges:
   - {id: F_left_AB,  a: F_left,  b: F_AB}
