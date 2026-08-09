@@ -89,7 +89,30 @@ class ControlNode:
         self.anomaly_done_pub = self.navigator.create_publisher(
             String, '/fleet/anomaly_done', 10)
 
+        # 긴급정지 - {"stop": true/false}. 정지 시 즉시 cancelTask()하고,
+        # 해제되기 전까지는 새 이동 명령을 아예 내보내지 않는다 (자세한
+        # 설계 배경은 docs/control_emergency_dock_integration.md 참고).
+        self.emergency_stopped = False
+        self.navigator.create_subscription(
+            String, f'/fleet/{namespace}/emergency_stop',
+            self._on_emergency_stop, 10)
+
+        # 도킹 복귀 - {"x","y","yaw"}. 지정된 도킹 스테이션 대기 지점까지
+        # 이동한 뒤 실제 Dock 액션을 호출한다. 도킹 후에는 self.docked를
+        # 세워서 재순찰 신호(아직 Fleet에 없음)가 오기 전까지 새 미션을
+        # 무시한다.
+        self.dock_pending = False
+        self.dock_location = None
+        self.docked = False
+        self.navigator.create_subscription(
+            String, f'/fleet/{namespace}/dock', self._on_dock, 10)
+
     def _on_mission(self, msg):
+        if self.docked:
+            # Fleet의 _publish_missions()가 1초마다 같은 미션을 계속
+            # 재발행하는데, 도킹 중에 이걸 그대로 받아버리면 재순찰
+            # 신호 없이도 바로 다시 움직이게 된다 - 도킹 중엔 무시한다.
+            return
         try:
             mission = json.loads(msg.data)
         except json.JSONDecodeError as exc:
@@ -121,6 +144,39 @@ class ControlNode:
         except (KeyError, TypeError, ValueError):
             return False
         return all(math.isfinite(coordinate) for coordinate in coordinates)
+
+    def _on_emergency_stop(self, msg):
+        try:
+            payload = json.loads(msg.data) if msg.data else {}
+            stop = payload.get('stop', True)
+            if not isinstance(stop, bool):
+                raise ValueError('stop must be a bool')
+        except (json.JSONDecodeError, ValueError) as exc:
+            self._report_failure(
+                'invalid_emergency_stop_json', {'error': str(exc)})
+            return
+        self.emergency_stopped = stop
+        if stop:
+            self.navigator.info(
+                f'[{self.namespace}] EMERGENCY STOP received - '
+                'canceling current task')
+            # 콜백 안에서 바로 취소한다 - _move_to()의 폴링 루프가 다음
+            # 반복까지 기다리지 않고 즉시 정지 명령이 나가야 한다.
+            self.navigator.cancelTask()
+        else:
+            self.navigator.info(
+                f'[{self.namespace}] emergency stop released')
+
+    def _on_dock(self, msg):
+        try:
+            location = json.loads(msg.data)
+            if not self._is_valid_pose(location):
+                raise ValueError('x, y, yaw must be finite numbers')
+        except (json.JSONDecodeError, ValueError) as exc:
+            self._report_failure('invalid_dock_json', {'error': str(exc)})
+            return
+        self.dock_location = location
+        self.dock_pending = True
 
     def _on_grant(self, msg):
         try:
@@ -209,12 +265,28 @@ class ControlNode:
         Return whether the goal was reached successfully.
         """
         self.navigation_interrupt_reason = None
+        if self.emergency_stopped:
+            # 이미 정지 상태라면 goToPose() 자체를 내보내지 않는다 -
+            # 정지 중에 새 이동 명령이 나가는 순간이 없어야 한다.
+            self.navigation_interrupt_reason = 'emergency_stop'
+            return False
         self.navigator.goToPose(pose)
         while not self.navigator.isTaskComplete():
+            if self.emergency_stopped:
+                self.navigation_interrupt_reason = 'emergency_stop'
+                self._cancel_navigation_task()
+                return False
             if self._check_collision_risk():
                 self.navigation_interrupt_reason = 'collision_risk'
                 self._cancel_navigation_task()
                 self._handle_collision_risk()
+                return False
+            if self.dock_pending:
+                self.navigation_interrupt_reason = 'dock'
+                self.navigator.info(
+                    f'[{self.namespace}] dock command received - '
+                    'interrupting patrol')
+                self._cancel_navigation_task()
                 return False
             if self.anomaly_pending:
                 self.navigation_interrupt_reason = 'anomaly'
@@ -260,6 +332,53 @@ class ControlNode:
         self.anomaly_done_pub.publish(done)
         self._publish_state('patrol_resuming')
 
+    def _handle_emergency_stop(self):
+        """긴급정지 - 해제될 때까지 제자리에서 대기한 뒤, 해제되면
+        중단됐던 웨이포인트로 이동을 재시도한다 (True를 반환하면 호출부가
+        같은 pose로 _move_to()를 다시 시도함)."""
+        self._publish_state('emergency_stopped')
+        self.navigator.info(
+            f'[{self.namespace}] holding position until emergency stop '
+            'is released...')
+        while self.emergency_stopped:
+            rclpy.spin_once(self.navigator, timeout_sec=0.5)
+        self.navigator.info(
+            f'[{self.namespace}] emergency stop released, resuming patrol')
+        self._publish_state('patrol_resuming')
+        return True
+
+    def _handle_dock(self):
+        """도킹 복귀 - 지정된 도킹 스테이션 대기 지점까지 이동한 뒤 실제
+        Dock 액션을 호출한다. 성공하면 빈 리스트를 돌려줘서 호출부가
+        현재 미션을 종료 처리하게 한다 (route_replaced 경로 재사용 -
+        mission_aborted로 실패 취급하지 않으면서 원래 웨이포인트로는
+        돌아가지 않음). 도킹 이후 재순찰을 언제/어떻게 트리거할지는
+        아직 Fleet 쪽에 신호가 없어서 미구현 - self.docked가 True인 동안
+        _on_mission()이 새 미션을 무시하므로 명시적 재개 신호가 오기
+        전까지는 도킹 상태 그대로 대기한다."""
+        loc = self.dock_location
+        self.dock_pending = False
+        self._publish_state('dock_moving', loc)
+        self.navigator.info(
+            f'[{self.namespace}] heading to dock station at '
+            f'({loc["x"]}, {loc["y"]})')
+        pose = self.navigator.getPoseStamped(
+            [float(loc['x']), float(loc['y'])], float(loc['yaw']))
+        self.navigator.startToPose(pose)
+        if not self.navigation_flow.wait_until_pose_reached():
+            self._report_failure('dock_arrival_failed', loc)
+            return True
+
+        self._publish_state('docking', loc)
+        self.navigator.info(f'[{self.namespace}] docking...')
+        self.navigator.dock()
+        self.docked = True
+        self._publish_state('docked')
+        self.navigator.info(
+            f'[{self.namespace}] docked - mission ending, waiting for an '
+            'explicit resume signal (not implemented on Fleet side yet)')
+        return []
+
     def _validate_mission(self, mission):
         return self.mission_flow.validate_mission(mission)
 
@@ -290,6 +409,10 @@ class ControlNode:
         return self.navigation_flow.wait_until_pose_reached()
 
     def _handle_navigation_interrupt(self, waypoint):
+        if self.navigation_interrupt_reason == 'emergency_stop':
+            return self._handle_emergency_stop()
+        if self.navigation_interrupt_reason == 'dock':
+            return self._handle_dock()
         if self.navigation_interrupt_reason == 'anomaly':
             self._handle_anomaly()
             return True
