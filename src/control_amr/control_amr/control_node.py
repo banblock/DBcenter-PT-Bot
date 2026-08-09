@@ -266,12 +266,12 @@ class ControlNode:
             self._handle_anomaly()
             return True
         if self.navigation_interrupt_reason == 'collision_risk':
-            return self._request_route_update('collision_risk', waypoint) is not None
+            return self._request_route_update('collision_risk', waypoint)
         recovered = self.navigation_flow.recover_from_navigation_failure(
             'navigation_failed')
         if recovered:
             return True
-        return self._request_route_update('navigation_failed', waypoint) is not None
+        return self._request_route_update('navigation_failed', waypoint)
 
     def _report_waypoint_reached(self, waypoint_index, waypoint):
         return self.state_flow.report_waypoint_reached(waypoint_index, waypoint)
@@ -294,7 +294,10 @@ class ControlNode:
             self.navigator.info(f'[{self.namespace}] docked, undocking...')
             self.navigator.undock()
 
-        for i, wp in enumerate(self.mission):
+        waypoints = list(self.mission)
+        i = 0
+        while i < len(waypoints):
+            wp = waypoints[i]
             point_id = wp.get('point_id')
             if self._handle_low_battery_if_needed():
                 break
@@ -303,15 +306,29 @@ class ControlNode:
                 self.mission_aborted = True
                 break
 
-            self._publish_state('moving', {'waypoint_index': i, 'waypoint': wp})
+            self._publish_state(
+                'moving', {'waypoint_index': i, 'waypoint': wp})
             self.navigator.info(
-                f'[{self.namespace}] moving to waypoint {i + 1}/{len(self.mission)}')
+                f'[{self.namespace}] moving to waypoint '
+                f'{i + 1}/{len(waypoints)}')
             pose = self.navigator.getPoseStamped([wp['x'], wp['y']], wp['yaw'])
+            route_replaced = False
             while not self._move_to(pose):
-                if not self._handle_navigation_interrupt(wp):
+                interrupt_result = self._handle_navigation_interrupt(wp)
+                if isinstance(interrupt_result, list):
+                    if point_id and self.granted_point == point_id:
+                        self._release_crossing(point_id)
+                    waypoints = interrupt_result
+                    self.mission = waypoints
+                    i = 0
+                    route_replaced = True
+                    break
+                if not interrupt_result:
                     self._report_failure('navigation_interrupt_unresolved', wp)
                     self.mission_aborted = True
                     break
+            if route_replaced:
+                continue
             if self.mission_aborted:
                 break
 
@@ -327,6 +344,7 @@ class ControlNode:
                     break
 
             self._report_waypoint_reached(i, wp)
+            i += 1
 
         if self.mission_aborted:
             self._report_failure('mission_aborted')
