@@ -325,7 +325,12 @@ class DetectAmbientNode(Node):
 
                 if detected and class_name not in active_classes:
                     active_classes.add(class_name)
-                    self.cam_state_pub.publish(CamState(camera_id=camera_id, state=STATE_BY_CLASS[class_name]))
+                    # AMR 캠은 CCTV처럼 고정 설치가 아니라 호모그래피(픽셀->맵) 캘리브레이션이
+                    # 없어서 bbox를 실어 보내도 백엔드가 맵 좌표로 못 바꾼다. 그래서 항상
+                    # 무효 bbox(-1)+confidence 0으로 보낸다(CCTV의 "해제" 케이스와 동일한 표현).
+                    self.cam_state_pub.publish(CamState(
+                        camera_id=camera_id, state=STATE_BY_CLASS[class_name],
+                        bbox_x1=-1.0, bbox_y1=-1.0, bbox_x2=-1.0, bbox_y2=-1.0, confidence=0.0))
                 elif (
                     class_name in active_classes
                     and len(window) == window.maxlen

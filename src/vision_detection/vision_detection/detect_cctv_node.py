@@ -454,8 +454,9 @@ class DetectCctvNode(Node):
 
             for camera, result, sequence in zip(cameras_with_frames, results, frame_sequences):
                 detected_status = self._extract_detected_status(result)
+                current_boxes = self._extract_boxes(result)
                 stable_status = self._apply_debounce(camera, detected_status)
-                self._publish_status(camera, stable_status)
+                self._publish_status(camera, stable_status, current_boxes)
                 self._publish_image(camera, result.plot())
                 camera.last_inferred_sequence = sequence
         except Exception as exc:
@@ -473,6 +474,28 @@ class DetectCctvNode(Node):
                     detected_status[class_name] = True
 
         return detected_status
+
+    def _extract_boxes(self, result: Any) -> Dict[str, tuple]:
+        """클래스별 대표 bounding box(신뢰도 최고 1개)를 뽑는다.
+
+        반환: {class_name: (x1, y1, x2, y2, conf)} - 이미지 픽셀 좌표.
+        호모그래피 입력용으로 CamState에 실어 보낸다(백엔드가 픽셀→맵 변환).
+        """
+        boxes: Dict[str, tuple] = {}
+        if result.boxes is None:
+            return boxes
+
+        xyxy = result.boxes.xyxy.tolist()
+        confs = result.boxes.conf.tolist()
+        classes = result.boxes.cls.tolist()
+        for (x1, y1, x2, y2), conf, class_index in zip(xyxy, confs, classes):
+            class_name = self._class_name_from_index(int(class_index), result.names)
+            if class_name not in self.STATUS_STATES:
+                continue
+            existing = boxes.get(class_name)
+            if existing is None or conf > existing[4]:
+                boxes[class_name] = (float(x1), float(y1), float(x2), float(y2), float(conf))
+        return boxes
 
     @staticmethod
     def _class_name_from_index(
@@ -516,7 +539,10 @@ class DetectCctvNode(Node):
         camera.image_publisher.publish(message)
 
     def _publish_status(
-        self, camera: CameraContext, detected_status: Dict[str, bool]
+        self,
+        camera: CameraContext,
+        detected_status: Dict[str, bool],
+        current_boxes: Dict[str, tuple],
     ) -> None:
         if detected_status == camera.last_status:
             return
@@ -530,14 +556,32 @@ class DetectCctvNode(Node):
                 f"{camera.camera_id}: {event_name} {state_text}"
             )
 
-            self._publish_status_message(camera, event_name)
+            # 감지(켜짐)일 때만 bbox를 실어 보낸다. 해제(꺼짐)는 box=None -> 무효 bbox(-1).
+            box = current_boxes.get(event_name) if detected else None
+            self._publish_status_message(camera, event_name, box)
 
         camera.last_status = detected_status.copy()
 
-    def _publish_status_message(self, camera: CameraContext, event_name: str) -> None:
+    def _publish_status_message(
+        self, camera: CameraContext, event_name: str, box: Optional[tuple] = None
+    ) -> None:
         message = CamState()
         message.camera_id = camera.camera_number
         message.state = self.STATUS_STATES[event_name]
+        if box is not None:
+            x1, y1, x2, y2, conf = box
+            message.bbox_x1 = float(x1)
+            message.bbox_y1 = float(y1)
+            message.bbox_x2 = float(x2)
+            message.bbox_y2 = float(y2)
+            message.confidence = float(conf)
+        else:
+            # 해제/박스 없음 -> 무효 bbox(-1) + confidence 0. 백엔드가 좌표를 안 채운다.
+            message.bbox_x1 = -1.0
+            message.bbox_y1 = -1.0
+            message.bbox_x2 = -1.0
+            message.bbox_y2 = -1.0
+            message.confidence = 0.0
         self.status_publisher.publish(message)
 
     def _release_cameras(self) -> None:
