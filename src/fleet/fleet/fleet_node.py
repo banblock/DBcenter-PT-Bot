@@ -43,7 +43,10 @@ ROS 2 도메인 어디서든 한 번만 실행하면 된다 (특정 로봇과 �
 import functools
 import json
 import os
+import sys
+import termios
 import threading
+import tty
 
 import rclpy
 from rclpy.node import Node
@@ -154,7 +157,15 @@ class FleetNode(Node):
         self.create_subscription(String, '/backend/map_points', self._on_map_points, 10)
 
         self.missions = {}
-        self._apply_zones(DEFAULT_ZONES)
+        # DEFAULT_ZONES는 바로 적용하지 않고 스페이스바를 눌러야 적용된다 -
+        # 하드웨어 테스트에서 로봇을 원하는 위치에 정렬해두고 원하는
+        # 시점에 순찰을 시작하기 위함 (_wait_for_start_key 참고). 실제
+        # Backend가 붙어서 /backend/map_points가 오면 이 대기와 무관하게
+        # _on_map_points()가 즉시 적용한다 - Backend 데이터가 우선이다.
+        self._start_event = threading.Event()
+        self._started = False
+        threading.Thread(target=self._wait_for_start_key, daemon=True).start()
+        self.create_timer(0.2, self._check_start_signal)
 
         # TRANSIENT_LOCAL QoS에 더해서, 이 Fleet Node보다 늦게 뜬
         # Control Node도 자기 미션을 받을 수 있도록 주기적으로
@@ -163,6 +174,42 @@ class FleetNode(Node):
         # 설계도 '로봇 상태 변화 감지?' - 1Hz로 폴링해서 바뀐 로봇만
         # 퍼블리시한다 (self-loop 구조를 폴링 타이머로 구현).
         self.create_timer(1.0, self._check_robot_status)
+
+    def _wait_for_start_key(self):
+        """별도 스레드에서 stdin을 raw 모드로 읽어 스페이스바 입력을
+        기다린다. rclpy Node 상태(퍼블리셔 생성 등)는 이 스레드에서 직접
+        건드리지 않고 _start_event만 세팅한다 - 실제 _apply_zones() 호출은
+        _check_start_signal()이 타이머 콜백(스핀 스레드)에서 처리해서
+        Node API를 스핀 스레드 하나에서만 쓰도록 한다.
+
+        stdin이 tty가 아니면(launch로 백그라운드 실행 등) 대기 없이 바로
+        시작한다. 대기 중 Ctrl+C로 종료하면 터미널이 raw 모드로 남을 수
+        있으니, 그런 경우 `stty sane`으로 복구하면 된다."""
+        if not sys.stdin.isatty():
+            self.get_logger().warn(
+                'stdin이 터미널이 아니라 스페이스바 대기를 건너뛰고 바로 시작합니다.')
+            self._start_event.set()
+            return
+
+        self.get_logger().info('스페이스바를 누르면 순찰을 시작합니다...')
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            while True:
+                ch = sys.stdin.read(1)
+                if ch == ' ':
+                    break
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        self._start_event.set()
+
+    def _check_start_signal(self):
+        if self._started or not self._start_event.is_set():
+            return
+        self._started = True
+        self.get_logger().info('순찰 시작 - DEFAULT_ZONES 적용')
+        self._apply_zones(DEFAULT_ZONES)
 
     def _ensure_robot_pubs(self, ns):
         if ns not in self._mission_pubs:
@@ -212,6 +259,11 @@ class FleetNode(Node):
         except (json.JSONDecodeError, KeyError, TypeError) as exc:
             self.get_logger().warn(f'bad /backend/map_points payload, ignoring: {exc}')
             return
+        # 실제 Backend 데이터는 스페이스바 대기와 무관하게 즉시 적용/발행한다
+        # - 그리고 _started를 세워서, 이후에 스페이스바가 눌려도
+        # _check_start_signal()이 DEFAULT_ZONES로 이 데이터를 덮어쓰지
+        # 않게 한다.
+        self._started = True
         self._apply_zones(zones)
         self._publish_missions()
         self.get_logger().info(
@@ -432,7 +484,12 @@ def main():
     except KeyboardInterrupt:
         pass
     node.destroy_node()
-    rclpy.shutdown()
+    # Ctrl+C(SIGINT)를 받으면 rclpy.init()이 걸어둔 기본 핸들러가 이미
+    # context를 shutdown 해버리는 경우가 있어서, 그 뒤에 또 shutdown()을
+    # 부르면 "rcl_shutdown already called" 에러로 죽는다 - rclpy.ok()로
+    # 아직 살아있을 때만 호출한다.
+    if rclpy.ok():
+        rclpy.shutdown()
 
 
 if __name__ == '__main__':

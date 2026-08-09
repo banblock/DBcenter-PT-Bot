@@ -7,10 +7,16 @@
 ## 사전 준비
 
 - [ ] `fleet` 패키지, `control_amr` 패키지 최신 상태로 colcon build
-- [ ] `fleet_node` 1개 실행 (도메인 어디서든 무관)
+- [ ] `fleet_node` 1개 실행 (도메인 어디서든 무관) — 실행하면 바로 순찰이
+      시작되지 않고 터미널에 "스페이스바를 누르면 순찰을 시작합니다..."가
+      뜬 채로 대기함. `robot3`/`robot8`을 원하는 시작 위치에 정렬해두고
+      준비되면 그 터미널에서 **스페이스바**를 눌러야 `DEFAULT_ZONES` 미션이
+      실제로 발행됨 (`fleet_node`를 실행하는 터미널이 tty가 아니면 이 대기를
+      건너뛰고 바로 시작함)
 - [ ] `robot3`, `robot8` 각각 TurtleBot4 bringup + Nav2/AMCL + `control_node` 실행
 - [ ] `/backend/map_points`로 구역 데이터 발행해서 미션이 실제로 흐르는지 확인
-      (안 하면 `DEFAULT_ZONES`로 시작하므로 생략 가능)
+      (안 하면 `DEFAULT_ZONES`로 시작하므로 생략 가능 — 이 경우도 스페이스바
+      대기와 무관하게 즉시 적용됨, Backend 데이터가 항상 우선)
 - [ ] `ros2 topic list`로 아래 토픽이 다 떠 있는지 확인
   - `/fleet/robot3/mission`, `/fleet/robot8/mission`
   - `/fleet/robot3/emergency_stop`, `/fleet/robot8/emergency_stop`
