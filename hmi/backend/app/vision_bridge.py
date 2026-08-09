@@ -327,12 +327,21 @@ class VisionBridge:
 
     def _spin(self) -> None:  # pragma: no cover
         import rclpy
+        from rclpy.executors import SingleThreadedExecutor
 
+        # 전용 executor 로 스핀한다. rclpy.spin_once(node) 는 인자 없이 호출하면 프로세스
+        # 전역 executor 를 쓰는데, robot_bridge 스핀 스레드도 같은 전역 executor 를 돌리므로
+        # 두 스레드가 같은 콜백 제너레이터에 동시 진입해 "generator already executing" 로
+        # 죽는다. 노드마다 executor 를 분리하면 충돌하지 않는다.
+        executor = SingleThreadedExecutor()
+        executor.add_node(self._node)
         try:
             while rclpy.ok() and not self._stop.is_set():
-                rclpy.spin_once(self._node, timeout_sec=0.5)
+                executor.spin_once(timeout_sec=0.5)
         except Exception:  # noqa: BLE001
             log.exception("[vision_bridge] rclpy spin 종료")
+        finally:
+            executor.remove_node(self._node)
 
     def stop(self) -> None:  # pragma: no cover
         import rclpy

@@ -19,14 +19,20 @@ source "$ROS_SETUP"
 # 비전 통합용: colcon 워크스페이스(install/setup.bash)를 source 하면 patrol_interfaces(CamState/
 # CheckGate)를 백엔드가 import/구독할 수 있다. 아직 빌드 안 했으면 건너뛴다.
 #   빌드:  cd <repo> && colcon build --packages-select patrol_interfaces vision_detection
-WS_SETUP="${WS_SETUP:-$BACKEND_DIR/../../install/setup.bash}"
-if [ -f "$WS_SETUP" ]; then
+# colcon 을 repo 루트에서 돌리면 install/, src 안에서 돌리면 src/install/ 이 생긴다.
+# 둘 다 후보로 잡아 먼저 존재하는 쪽을 쓴다(WS_SETUP 로 명시 지정하면 그걸 우선).
+if [ -z "${WS_SETUP:-}" ]; then
+  for _cand in "$BACKEND_DIR/../../install/setup.bash" "$BACKEND_DIR/../../src/install/setup.bash"; do
+    if [ -f "$_cand" ]; then WS_SETUP="$_cand"; break; fi
+  done
+fi
+if [ -n "${WS_SETUP:-}" ] && [ -f "$WS_SETUP" ]; then
   # shellcheck disable=SC1090
   source "$WS_SETUP"
   echo "▶ 워크스페이스 source: $WS_SETUP (patrol_interfaces 사용 가능)"
   export AMR_VISION_ENABLED="${AMR_VISION_ENABLED:-true}"
 else
-  echo "▶ 워크스페이스 미빌드($WS_SETUP 없음) → 비전 없이 기동. colcon build 후 재실행 시 자동 연동."
+  echo "▶ 워크스페이스 미빌드(install/setup.bash 없음) → 비전 없이 기동. colcon build 후 재실행 시 자동 연동."
 fi
 
 export PYTHONPATH="$BACKEND_DIR/.venv/lib/python3.10/site-packages:${PYTHONPATH:-}"

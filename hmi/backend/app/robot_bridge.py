@@ -513,12 +513,19 @@ class Ros2Bridge:
 
     def _spin(self) -> None:  # pragma: no cover
         import rclpy
+        from rclpy.executors import SingleThreadedExecutor
 
+        # 전용 executor 로 스핀한다(전역 executor 공유 시 vision_bridge 스핀 스레드와
+        # "generator already executing" 충돌). 노드마다 executor 를 분리한다.
+        executor = SingleThreadedExecutor()
+        executor.add_node(self._node)
         try:
             while rclpy.ok() and not self._stop.is_set():
-                rclpy.spin_once(self._node, timeout_sec=0.5)
+                executor.spin_once(timeout_sec=0.5)
         except Exception:  # noqa: BLE001
             log.exception("[robot_bridge] rclpy spin 종료")
+        finally:
+            executor.remove_node(self._node)
 
     def stop(self) -> None:  # pragma: no cover
         """lifespan 종료 시 정리."""

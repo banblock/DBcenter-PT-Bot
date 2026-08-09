@@ -30,6 +30,7 @@ from app.schemas import (
     ZoneOut,
 )
 from app.security import ActorDep, Permission, require
+from app.vision_bridge import get_vision_bridge
 
 DbDep = Annotated[Session, Depends(get_db)]
 
@@ -292,6 +293,15 @@ async def start_patrol(body: PatrolStartIn, db: DbDep, actor: ActorDep):
         )
 
     db.commit()
+
+    # 통합 순찰이 실제로 시작되면(미션 1개 이상 생성) 비전에 감지 on 을 알린다.
+    # /ui/start=true → 비전 노드가 CCTV detection_image 발행 시작 → 웹 카메라 피드 표출.
+    # 비전 미연동(bridge=None)이면 조용히 넘어간다(로봇 순찰만 진행).
+    if missions:
+        vision = get_vision_bridge()
+        if vision is not None:
+            vision.set_detection_active(True)
+
     for mission in missions:
         await manager.publish_async(
             WsMessageType.MISSION_STATUS.value, crud.robots.mission_to_dict(db, mission)

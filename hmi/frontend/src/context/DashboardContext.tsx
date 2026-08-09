@@ -36,7 +36,6 @@ import {
   STATE_META,
   TRACKS,
   WP_PER_ZONE,
-  ZONE_AMR,
   ZONES,
 } from "../constants/dashboard";
 import {
@@ -434,10 +433,15 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     setPatrolStarted(true);
     addLog("PC1", `통합 순찰 시작 · waypoint ${total}개 지정`);
     if (linkModeRef.current === "live") {
-      // 지정 존의 담당 AMR 중 실제 접속된 로봇을 대상으로. 없으면 매핑 전체를 시도.
-      const known = stateRef.current.robots;
-      const targets = Object.values(ZONE_AMR).filter((id) => id in known);
-      backendStartAll(targets.length ? targets : Object.values(ZONE_AMR)).catch((e) => {
+      // 실제 접속된 로봇(백엔드 robot_id: amr_1/amr_2)을 대상으로 순찰을 건다.
+      // ZONE_AMR(존→AMR-01 표시명)은 백엔드 robot_id 와 형식이 달라 대상 선정에 쓰지 않는다.
+      const targets = Object.keys(stateRef.current.robots);
+      if (targets.length === 0) {
+        setPatrolStarted(false);
+        addLog("PC1", "순찰 시작 실패 · 접속된 로봇이 없습니다", true);
+        return;
+      }
+      backendStartAll(targets).catch((e) => {
         setPatrolStarted(false);
         addLog("PC1", `순찰 시작 실패 · ${(e as Error).message}`, true);
       });
