@@ -56,3 +56,22 @@ def test_path_through_inserted_point_keeps_base_edge_id(graph):
     nodes, base_edges = graph.shortest_path('F_BC', node_id)
     assert nodes == ['F_BC', 'gate1']
     assert base_edges == ['F_BC_CD']
+
+
+def test_is_junction_true_for_three_way_nodes(graph):
+    # F_AB/F_BC/F_CD/R_AB/R_BC/R_CD는 전면·후면 통로 + 세로 통로가
+    # 만나는 실제 교차로(degree 3) - zone_router가 노드 단위 교차 판정에
+    # 쓰는 기준.
+    for nid in ('F_AB', 'F_BC', 'F_CD', 'R_AB', 'R_BC', 'R_CD'):
+        assert graph.is_junction(nid), f'{nid} should be a junction'
+
+
+def test_is_junction_false_for_dead_ends_and_inserted_points(graph):
+    # 복도 끝(degree 1)은 교차로가 아니다.
+    for nid in ('F_left', 'F_right', 'R_left', 'R_right'):
+        assert not graph.is_junction(nid)
+    # 엣지를 쪼개서 생긴 노드는 항상 degree 2라 교차로가 아니다.
+    mid_id = graph.insert_point('gate1', (-2.99, 1.87))  # mid F_BC_CD
+    assert not graph.is_junction(mid_id)
+    # 이 그래프에 없는(다른 zone 사본에서만 쓰인) id는 degree 0 취급.
+    assert not graph.is_junction('does_not_exist')

@@ -67,6 +67,16 @@ class RouteGraph:
         edges = [(eid, e['a'], e['b'], e['base']) for eid, e in self.edges.items()]
         return RouteGraph(self.nodes, edges)
 
+    def is_junction(self, node_id, min_degree=3):
+        """이 노드가 실제 물리적 교차로(외길 통로 3개 이상이 만나는
+        지점)인지 판정한다. zone_router가 교차 지점을 엣지 단위가 아니라
+        노드 단위로 잡아야 하는지 판단하는 데 쓴다 - 순찰/차단기 지점을
+        끼워 넣느라 엣지 중간을 쪼개서 생긴 노드는 항상 degree 2라서
+        (원래 한 엣지의 양쪽으로만 이어짐) 교차로로 잡히지 않는다. 인자로
+        받은 node_id가 이 그래프에 없으면(다른 zone의 사본에서만 쓰인
+        임시 노드 등) degree 0 취급으로 안전하게 False를 반환한다."""
+        return len(self.adj.get(node_id, [])) >= min_degree
+
     def _nearest_node(self, pt):
         return min(self.nodes.items(), key=lambda kv: _dist(pt, kv[1]))
 

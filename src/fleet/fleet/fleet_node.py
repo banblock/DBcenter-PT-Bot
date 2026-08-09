@@ -9,8 +9,11 @@
   (구역이 겹치는가? -> 각 구역의 순찰 루트 생성)
 - 어느 웨이포인트에 차단기 점검이 필요한지(has_gate), 어느 웨이포인트가
   공유 교차 지점인지(point_id) 태깅한다 - 여기 통로는 전부 외길이라,
-  두 로봇 이상의 경로가 같은 통로를 쓰면 그게 곧 교차 지점이다
-  (교차 가능 지점 계산 및 저장 -> 각 순찰 포인트에 차단기가 있는가?)
+  두 로봇 이상의 경로가 같은 통로를 쓰거나 같은 교차로 노드를 지나가면
+  그게 곧 교차 지점이다(zone_router.py의 "교차 지점 판정 단위" 참고 -
+  외길 3개가 만나는 실제 교차로는 노드 단위로, 그 외에는 엣지 단위로
+  판정한다) (교차 가능 지점 계산 및 저장 -> 각 순찰 포인트에 차단기가
+  있는가?)
 - 교차 지점 점유를 중재해서 두 로봇이 동시에 같은 지점을 점유하지
   못하게 한다 (교차지점인가? -> 점유돼있는가?)
 - 로봇 상태가 바뀌면 UI용 상태 토픽에 퍼블리시한다 (robot_status.py) -
@@ -245,9 +248,12 @@ class FleetNode(Node):
         어떤 교차 지점이 발견됐는지 로그로 남긴 뒤 필요한 퍼블리셔를
         준비한다."""
         missions, crossing_log = zone_router.build_missions(self.graph, zones)
-        for eid, robots, point_id in crossing_log:
+        for key, robots, point_id in crossing_log:
+            # point_id 접두사로 판정 단위를 구분한다 - 'J_'면 교차로
+            # 노드(zone_router의 is_junction 분기), 'X_'면 통로 엣지.
+            kind = 'junction' if point_id.startswith('J_') else 'aisle'
             self.get_logger().info(
-                f'crossing point {point_id}: aisle {eid} shared by {robots}')
+                f'crossing point {point_id}: {kind} {key} shared by {robots}')
         self.missions = missions
         for ns in missions:
             self._ensure_robot_pubs(ns)

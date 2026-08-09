@@ -60,7 +60,15 @@ def perp_offset(p0, p1, amount):
 
 
 nodes_svg = {nid: to_svg(*xy) for nid, xy in graph.nodes.items()}
-shared_edge_ids = {row[0] for row in crossing_log}
+# zone_router.build_missions()가 이제 교차 지점을 두 종류로 낸다
+# (point_id 접두사로 구분): 'X_' = 통로(엣지) 공유, 'J_' = 교차로(노드)
+# 공유 - 서로 다른 엣지로 같은 교차로에 들어오는 경우까지 잡으려고
+# 노드 단위 판정을 추가했다(zone_router.py의 "교차 지점 판정 단위"
+# 참고). 리포트도 이 두 종류를 각각 다르게 그려야 한다 - 예전처럼
+# crossing_log의 key를 전부 graph.edges 키로 취급하면 노드형 교차에서
+# KeyError가 난다.
+shared_edge_ids = {key for key, _, point_id in crossing_log if point_id.startswith('X_')}
+shared_junction_ids = {key for key, _, point_id in crossing_log if point_id.startswith('J_')}
 
 svg_parts = []
 
@@ -71,7 +79,9 @@ for eid, e in graph.edges.items():
     svg_parts.append(f'<line class="{cls}" x1="{ax:.3f}" y1="{ay:.3f}" x2="{bx:.3f}" y2="{by:.3f}" />')
 
 for nid, (nx, ny) in nodes_svg.items():
-    svg_parts.append(f'<circle class="graph-node" cx="{nx:.3f}" cy="{ny:.3f}" r="0.035" />')
+    cls = 'graph-node graph-node--shared' if nid in shared_junction_ids else 'graph-node'
+    r = 0.06 if nid in shared_junction_ids else 0.035
+    svg_parts.append(f'<circle class="{cls}" cx="{nx:.3f}" cy="{ny:.3f}" r="{r}" />')
 
 for eid in shared_edge_ids:
     e = graph.edges[eid]
@@ -82,6 +92,14 @@ for eid in shared_edge_ids:
     svg_parts.append(
         f'<text class="crossing-label" x="{mx:.3f}" y="{my - 0.13:.3f}" text-anchor="middle">'
         f'shared aisle · {point_id}</text>'
+    )
+
+for nid in shared_junction_ids:
+    nx, ny = nodes_svg[nid]
+    point_id = next(r[2] for r in crossing_log if r[0] == nid)
+    svg_parts.append(
+        f'<text class="crossing-label" x="{nx:.3f}" y="{ny - 0.13:.3f}" text-anchor="middle">'
+        f'shared junction · {point_id}</text>'
     )
 
 ROBOT_LABEL_OFFSET = {'robot3': (0.16, -0.14), 'robot8': (0.16, 0.22)}
@@ -177,6 +195,19 @@ robot3_rows = table_rows('robot3')
 robot8_rows = table_rows('robot8')
 
 crossing_summary = crossing_log[0] if crossing_log else None
+
+
+def crossing_summary_text(row):
+    key, robots, point_id = row
+    # point_id 접두사('X_'=엣지, 'J_'=교차로)로 문구를 다르게 낸다 -
+    # build_route_report.py 상단 nodes_svg/shared_edge_ids 주석 참고.
+    noun = '교차로' if point_id.startswith('J_') else '통로'
+    return (
+        f'{noun} <strong>{key}</strong> (point_id <strong>{point_id}</strong>)를 '
+        + '와 '.join(robots) + ' 둘 다 사용합니다 — 한 번에 하나만 점유하도록 조정됩니다.'
+    )
+
+
 generated = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
 node_count = len(graph.nodes)
 edge_count = len(graph.edges)
@@ -292,6 +323,7 @@ h1 {{
 .graph-edge {{ stroke: var(--line); stroke-width: 0.018; stroke-dasharray: 0.05 0.045; }}
 .graph-edge--shared {{ stroke: var(--crossing); stroke-width: 0.03; stroke-dasharray: none; opacity: 0.55; }}
 .graph-node {{ fill: var(--muted); opacity: 0.7; }}
+.graph-node--shared {{ fill: var(--crossing); opacity: 0.85; }}
 .crossing-label {{
   font-family: var(--mono);
   font-size: 0.135px;
@@ -397,8 +429,9 @@ footer code {{
     <p class="lede">
       DEFAULT_ZONES를 고정 통로 그래프(노드=교차로, 엣지=한 번에 한 대만
       지날 수 있는 통로) 위에서 홉 단위로 라우팅한 결과입니다. 두 로봇의
-      경로가 같은 통로를 필요로 하면, 그 엣지는 점유 조정이 필요한
-      교차 지점으로 표시됩니다.
+      경로가 같은 통로를 필요로 하거나(엣지 공유) 서로 다른 통로로 같은
+      교차로에 들어오면(노드 공유), 점유 조정이 필요한 교차 지점으로
+      표시됩니다.
     </p>
     <div class="meta">
       <span>지도: {world_w:.2f}m × {world_h:.2f}m @ {RES:.2f}m/px</span>
@@ -441,6 +474,7 @@ footer code {{
       <span class="legend-item"><span class="swatch swatch--gate" style="background:var(--gate)"></span>차단기 점검 지점</span>
       <span class="legend-item"><span class="swatch--edge"></span>통로 그래프</span>
       <span class="legend-item"><span class="swatch--crossing"></span>공유(경합) 통로</span>
+      <span class="legend-item"><span class="swatch" style="background:var(--crossing)"></span>공유(경합) 교차로</span>
     </div>
   </section>
 
@@ -467,7 +501,7 @@ footer code {{
 
   <section class="callout">
     <strong>교차 지점 {len(crossing_log)}개 감지됨.</strong>
-    {'통로 <strong>' + crossing_summary[0] + '</strong> (point_id <strong>' + crossing_summary[2] + '</strong>)를 ' + '와 '.join(crossing_summary[1]) + ' 둘 다 사용합니다 — 한 번에 하나만 점유하도록 조정됩니다.' if crossing_summary else '이 구성에서는 공유되는 통로가 없습니다.'}
+    {crossing_summary_text(crossing_summary) if crossing_summary else '이 구성에서는 공유되는 통로/교차로가 없습니다.'}
   </section>
 
   <footer>
