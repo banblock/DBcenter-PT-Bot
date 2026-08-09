@@ -1045,3 +1045,41 @@ rclpy.executors.ExternalShutdownException
 2026-08-08 15:43:09 | INFO    | amr.bridge       | -        | 브리지 교체 → RobotBridge
 2026-08-08 15:43:09 | INFO    | amr.main         | -        | [loopback] /backend/amr_1/command ← {"command_id": "CMD-20260808-6f97", "command_type": "GOTO", "payload": {"waypoints": [{"x": 1, "y": 2, "theta": 0}], "event_id": null}, "issued_at": "2026-08-08T15:43:09.133632+09:00"}
 2026-08-08 15:43:09 | INFO    | amr.bridge       | -        | [robot_bridge] amr_1 ← GOTO CMD-20260808-6f97
+2026-08-08 17:15:27 | WARNING | amr.db           | -        | 기존 테이블을 전부 삭제합니다 (drop=True)
+2026-08-08 17:15:28 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-08 17:15:28 | INFO    | amr.db           | -        | 시드 완료 — {'maps': 1, 'zones': 3, 'nodes': 8, 'routes': 1, 'equipment': 5, 'rules': 3, 'robots': 2}
+2026-08-08 17:29:57 | INFO    | amr.request      | 2d84db6f | GET /api/cameras → 200 (209.0ms) role=-
+2026-08-08 17:29:57 | WARNING | amr.request      | a9489660 | GET /api/cameras/cctv1/stream → 503 (1.7ms) role=-
+2026-08-09 13:11:09 | WARNING | amr.db           | -        | 기존 테이블을 전부 삭제합니다 (drop=True)
+2026-08-09 13:11:09 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-09 13:11:09 | INFO    | amr.db           | -        | 시드 완료 — {'maps': 1, 'zones': 3, 'nodes': 8, 'routes': 1, 'equipment': 5, 'rules': 3, 'robots': 2}
+2026-08-09 13:11:11 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-09 13:11:11 | INFO    | amr.db           | -        | 시드 완료 — {'maps': 0, 'zones': 0, 'nodes': 0, 'routes': 0, 'equipment': 0, 'rules': 0, 'robots': 0}
+2026-08-09 13:11:11 | INFO    | amr.main         | -        | ======================================================================
+2026-08-09 13:11:11 | INFO    | amr.main         | -        | AMR 순찰·이상감지 관제 API v1.0.0 기동
+2026-08-09 13:11:11 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-09 13:11:11 | INFO    | amr.main         | -        | REST 15개 라우터 · WS /ws/monitor 준비 완료
+2026-08-09 13:11:11 | INFO    | amr.main         | -        | ======================================================================
+2026-08-09 13:11:11 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 시작
+2026-08-09 13:11:12 | WARNING | amr.request      | a099f604 | POST /api/align/check-gate → 503 (201.8ms) role=OPERATOR
+2026-08-09 13:11:12 | WARNING | amr.request      | 47e6c9e6 | POST /api/align/check-gate → 503 (5.4ms) role=OPERATOR
+2026-08-09 13:11:12 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 종료
+2026-08-09 13:11:12 | INFO    | amr.main         | -        | 서버 종료
+2026-08-09 13:12:05 | WARNING | amr.db           | -        | 기존 테이블을 전부 삭제합니다 (drop=True)
+2026-08-09 13:12:05 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-09 13:12:05 | INFO    | amr.db           | -        | 시드 완료 — {'maps': 1, 'zones': 3, 'nodes': 8, 'routes': 1, 'equipment': 5, 'rules': 3, 'robots': 2}
+2026-08-09 13:12:06 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-09 13:12:06 | INFO    | amr.db           | -        | 시드 완료 — {'maps': 0, 'zones': 0, 'nodes': 0, 'routes': 0, 'equipment': 0, 'rules': 0, 'robots': 0}
+2026-08-09 13:12:06 | INFO    | amr.main         | -        | ======================================================================
+2026-08-09 13:12:06 | INFO    | amr.main         | -        | AMR 순찰·이상감지 관제 API v1.0.0 기동
+2026-08-09 13:12:06 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-09 13:12:06 | INFO    | amr.main         | -        | REST 15개 라우터 · WS /ws/monitor 준비 완료
+2026-08-09 13:12:06 | INFO    | amr.main         | -        | ======================================================================
+2026-08-09 13:12:06 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 시작
+2026-08-09 13:12:07 | WARNING | amr.request      | a4e33abf | POST /api/align/check-gate → 503 (172.4ms) role=OPERATOR
+2026-08-09 13:12:07 | WARNING | amr.request      | 5a7fa6e5 | POST /api/align/check-gate → 400 (4.4ms) role=OPERATOR
+2026-08-09 13:12:07 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 종료
+2026-08-09 13:12:07 | INFO    | amr.main         | -        | 서버 종료
+2026-08-09 13:12:08 | WARNING | amr.db           | -        | 기존 테이블을 전부 삭제합니다 (drop=True)
+2026-08-09 13:12:08 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/chaesong/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-09 13:12:08 | INFO    | amr.db           | -        | 시드 완료 — {'maps': 1, 'zones': 3, 'nodes': 8, 'routes': 1, 'equipment': 5, 'rules': 3, 'robots': 2}

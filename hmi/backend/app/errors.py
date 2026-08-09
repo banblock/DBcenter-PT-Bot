@@ -31,6 +31,7 @@ class E:
     NOT_FOUND = ErrorCatalog("NOT_FOUND", 404, "대상을 찾을 수 없습니다")
     CONFLICT = ErrorCatalog("CONFLICT", 409, "현재 상태에서는 처리할 수 없습니다")
     INTERNAL = ErrorCatalog("INTERNAL_ERROR", 500, "서버 내부 오류가 발생했습니다")
+    VISION_UNAVAILABLE = ErrorCatalog("VISION_UNAVAILABLE", 503, "비전 서비스가 연결되지 않았습니다")
 
     # ── 권한 (명세서 미규정 — 본 구현에서 추가) ──────────────────────────
     FORBIDDEN = ErrorCatalog("FORBIDDEN", 403, "이 작업을 수행할 권한이 없습니다")

@@ -3,6 +3,8 @@
 .cam2 { position: relative; aspect-ratio: 16 / 10; overflow: hidden; border: 1px solid #2b303c; border-radius: 10px; background: #20242e; }
 .cam2__floor { position: absolute; inset: 0; background: radial-gradient(120% 90% at 50% 120%, rgba(120,130,150,.35), transparent 60%), linear-gradient(180deg,#262b36,#1a1e27); }
 .cam2.hot .cam2__floor { background: radial-gradient(120% 90% at 50% 120%,rgba(224,138,0,.28),transparent 60%),linear-gradient(180deg,#2a2620,#1c1a17); }
+.cam2__feed { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; object-fit: cover; display: block; }
+.cam2__nosignal { position: absolute; inset: 0; z-index: 1; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #9aa2b1; letter-spacing: .2px; }
 .cam2__head { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 2; display: flex; justify-content: space-between; align-items: center; }
 .cam2__name { font-size: 10.5px; font-weight: 700; color: #fff; background: rgba(0,0,0,.45); padding: 3px 8px; border-radius: 20px; }
 .cam2__status { font-size: 9.5px; font-weight: 700; padding: 3px 8px; border-radius: 20px; background: rgba(31,170,107,.9); color: #fff; }

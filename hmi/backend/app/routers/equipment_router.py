@@ -12,6 +12,7 @@ from app import crud
 from app.connection_manager import manager
 from app.database import get_db
 from app.enums import WsMessageType
+from app.errors import ApiError, E
 from app.responses import ok
 from app.schemas import (
     AlignCheckIn,
@@ -22,11 +23,13 @@ from app.schemas import (
     EquipmentIn,
     EquipmentOut,
     EquipmentUpdate,
+    GateCheckIn,
     WorkOrderIn,
     WorkOrderOut,
 )
 from app.security import Permission, require
 from app.services import align_engine
+from app.vision_bridge import ROBOT_NUM, get_vision_bridge
 
 DbDep = Annotated[Session, Depends(get_db)]
 MasterEdit = Depends(require(Permission.MASTER_EDIT))
@@ -147,6 +150,58 @@ async def align_check(body: AlignCheckIn, db: DbDep):
 
     payload = AlignResultOut.model_validate(result).model_dump()
     payload["work_order_expected_state"] = work_order.expected_state if work_order else None
+    await manager.publish_async(WsMessageType.ALIGN_RESULT.value, payload)
+    return ok(payload)
+
+
+def _expected_state_bool(expected: str | None) -> bool:
+    """설비 기준상태 → CheckGate.gate_state(bool).
+
+    비전팀 확정: 차단기를 ON/OFF 로만 판정한다. 따라서 ON=True, 그 외(OFF 등)=False.
+    """
+    return (expected or "").upper() == "ON"
+
+
+@align_router.post("/check-gate", summary="차단기 실측 대조 (비전 CheckGate)")
+async def check_gate(body: GateCheckIn, db: DbDep):
+    """로봇이 차단기 위치에 도착했을 때 백엔드가 비전에 실측 대조를 요청한다 (Phase 2-2).
+
+    백엔드가 DB 기준값(작업지시 반영)을 bool 로 넘기고, 비전(detect_main_node)이 카메라로
+    본 실제 상태와 비교해 gate_state_equal/error_state 를 돌려준다. 그 결과를 align 으로
+    기록하고(불일치면 이벤트 자동 생성) WS 로 방송한다.
+    """
+    equipment = crud.equipment.get(db, body.equipment_id)  # 없으면 404
+    work_order = crud.equipment.active_work_order(db, body.equipment_id)
+    effective_expected = (work_order.expected_state if work_order else None) or equipment.normal_state
+    gate_state = _expected_state_bool(effective_expected)  # ON=True / OFF=False (비전팀 확정)
+
+    robot_num = ROBOT_NUM.get(body.robot_id)
+    if robot_num is None:
+        raise ApiError(E.VALIDATION, f"알 수 없는 robot_id: {body.robot_id}")
+    bridge = get_vision_bridge()
+    if bridge is None:
+        raise ApiError(E.VISION_UNAVAILABLE)
+
+    vision = await bridge.check_gate(robot_num, body.gate_id, gate_state)
+    if vision is None:
+        # 서비스 미준비/타임아웃 → 관측 실패(error_state 3)로 기록
+        equal, error_state = False, 3
+    else:
+        equal, error_state = vision["gate_state_equal"], vision["error_state"]
+
+    result = align_engine.record_gate_check(
+        db,
+        equipment_id=body.equipment_id,
+        gate_state_equal=equal,
+        error_state=error_state,
+        effective_expected=effective_expected,
+        robot_id=body.robot_id,
+    )
+    db.commit()
+
+    payload = AlignResultOut.model_validate(result).model_dump()
+    payload["work_order_expected_state"] = work_order.expected_state if work_order else None
+    payload["error_state"] = error_state
     await manager.publish_async(WsMessageType.ALIGN_RESULT.value, payload)
     return ok(payload)
 

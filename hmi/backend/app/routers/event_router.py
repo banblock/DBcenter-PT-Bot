@@ -19,7 +19,7 @@ from app.bridge import get_bridge
 from app.config import settings
 from app.connection_manager import manager
 from app.database import get_db
-from app.enums import EventStatus, EventVerdict, RobotState, Severity, WsMessageType
+from app.enums import EventStatus, EventVerdict, WsMessageType
 from app.errors import ApiError, E
 from app.models import utcnow
 from app.responses import ok, paginated
@@ -37,6 +37,7 @@ from app.schemas import (
     VerdictIn,
 )
 from app.security import ActorDep, Permission, require
+from app.services import detection, dispatch as dispatch_service
 
 router = APIRouter(prefix="/events", tags=["이상 이벤트"])
 DbDep = Annotated[Session, Depends(get_db)]
@@ -62,28 +63,13 @@ def _save_b64_image(event_id: str, image_b64: str, angle_idx: int | None = None)
 
 @router.post("/detect", summary="탐지 결과 수신 (CCTV/AMR → 백엔드)", status_code=201)
 async def detect(body: DetectIn, db: DbDep):
-    """dedup 창 안의 같은 zone+type 이면 기존 이벤트에 병합한다 (B-31, B-32)."""
-    existing = crud.events.find_dedup_target(db, zone_id=body.zone_id, type_=body.type.value)
-    if existing is not None:
-        merged = crud.events.merge_into(db, existing, body.confidence)
-        crud.events.add_timeline(
-            db, merged.event_id, stage="MERGED", actor=body.camera_id or body.robot_id,
-            detail=f"중복 탐지 병합 (hit={merged.hit_count})",
-        )
-        db.commit()
-        await manager.publish_async(WsMessageType.EVENT.value, crud.events.to_dict(merged))
-        return ok(
-            {
-                "event_id": merged.event_id,
-                "status": EventStatus.MERGED.value,
-                "merged_into": merged.event_id,
-                "severity": merged.severity,
-                "hit_count": merged.hit_count,
-            },
-            status_code=201,
-        )
+    """dedup 창 안의 같은 zone+type 이면 기존 이벤트에 병합한다 (B-31, B-32).
 
-    event = crud.events.create(
+    실제 파이프라인(dedup·병합·생성)은 services.detection.ingest 로 추출했다. 비전 브리지
+    (ROS /detection/cam_state)도 같은 함수를 호출한다 → 두 경로가 갈라지지 않는다.
+    base64 이미지 파일 저장만 REST 전용이라 여기 남는다.
+    """
+    result = detection.ingest(
         db,
         source=body.source,
         type_=body.type.value,
@@ -94,62 +80,18 @@ async def detect(body: DetectIn, db: DbDep):
         node_id=body.node_id,
         x=body.x,
         y=body.y,
-        bbox_json=body.bbox,
+        bbox=body.bbox,
         detected_at=body.detected_at,
+        image_uri=body.image_uri,  # image_b64 는 아래에서 파일로 저장 후 붙인다
     )
-    if body.image_b64:
-        uri = _save_b64_image(event.event_id, body.image_b64)
-        event.thumbnail_url = uri
-        crud.events.add_media(db, event.event_id, uri=uri)
-    elif body.image_uri:
-        event.thumbnail_url = body.image_uri
-        crud.events.add_media(db, event.event_id, uri=body.image_uri)
+    if not result.merged and body.image_b64:
+        uri = _save_b64_image(result.event.event_id, body.image_b64)
+        result.event.thumbnail_url = uri
+        crud.events.add_media(db, result.event.event_id, uri=uri)
 
     db.commit()
-    await manager.publish_async(WsMessageType.EVENT.value, crud.events.to_dict(event))
-    return ok(
-        {
-            "event_id": event.event_id,
-            "status": event.status,
-            "merged_into": None,
-            "severity": event.severity,
-            "target_node_id": event.node_id,
-        },
-        status_code=201,
-    )
-
-
-def _select_robot(db: Session, event) -> tuple[str | None, dict]:
-    """급파 대상 선정 (B-34).
-
-    점수 = 거리(가까울수록↑) 0.6 + 배터리 0.4. 오프라인·긴급정지·충전 중인 로봇은 후보에서 제외.
-    실제 주행거리 대신 직선거리를 쓴다 — 경로 탐색까지 하려면 Nav2 가 필요하다.
-    """
-    candidates = []
-    for robot in crud.robots.list_all(db):
-        if not robot.online or robot.status in (
-            RobotState.OFFLINE.value,
-            RobotState.EMERGENCY_STOP.value,
-            RobotState.ERROR.value,
-            RobotState.CHARGING.value,
-        ):
-            continue
-        if robot.battery < settings.battery_low_threshold:
-            continue
-        dx = (event.x or 0.0) - robot.x
-        dy = (event.y or 0.0) - robot.y
-        distance = (dx * dx + dy * dy) ** 0.5
-        score = 0.6 * (1.0 / (1.0 + distance)) + 0.4 * (robot.battery / 100.0)
-        candidates.append((score, distance, robot))
-
-    if not candidates:
-        return None, {}
-    score, distance, robot = max(candidates, key=lambda c: c[0])
-    return robot.robot_id, {
-        "distance_m": round(distance, 2),
-        "battery": robot.battery,
-        "score": round(score, 2),
-    }
+    await manager.publish_async(WsMessageType.EVENT.value, crud.events.to_dict(result.event))
+    return ok(result.response, status_code=201)
 
 
 @router.post("/{event_id}/dispatch", summary="AMR 급파 (순찰 선점)", dependencies=[EventHandle])
@@ -162,7 +104,7 @@ async def dispatch(event_id: str, body: DispatchIn, db: DbDep, actor: ActorDep):
         crud.robots.get(db, body.robot_id)
         robot_id, selection = body.robot_id, {}
     else:
-        robot_id, selection = _select_robot(db, event)
+        robot_id, selection = dispatch_service.select_robot(db, event)
 
     if robot_id is None:
         # 가용 로봇 없음 (B-38) — UNASSIGNED 로 남겨 재시도 대상이 되게 한다
@@ -170,50 +112,11 @@ async def dispatch(event_id: str, body: DispatchIn, db: DbDep, actor: ActorDep):
         db.commit()
         raise ApiError(E.NO_AVAILABLE_ROBOT, data={"event_id": event_id})
 
-    preempted_mission_id = None
-    if body.preempt:
-        running = crud.robots.active_mission_for(db, robot_id)
-        if running is not None and running.mission_type == "PATROL":
-            order = list(running.node_order_json or [])
-            index = order.index(running.current_node_id) if running.current_node_id in order else 0
-            running.resume_context_json = {
-                "remaining_nodes": order[index:],
-                "current_index": index,
-                "reason": "ANOMALY_PREEMPT",
-            }
-            running.status = "PREEMPTED"
-            preempted_mission_id = running.mission_id
-
-    mission = crud.robots.create_mission(
-        db,
-        mission_id=crud.ids.next_mission_id(),
-        mission_type="ANOMALY",
-        robot_id=robot_id,
-        event_id=event_id,
-        status="RUNNING",
-        node_order_json=[event.node_id] if event.node_id else [],
-        current_node_id=event.node_id,
-        start_time=utcnow(),
-    )
-    robot = crud.robots.get(db, robot_id)
-    robot.current_mission_id = mission.mission_id
-    robot.status = RobotState.DISPATCHING.value
-    robot.progress_step = 2
-
-    event.assigned_robot_id = robot_id
-    crud.events.set_status(
-        db, event_id, EventStatus.ASSIGNED.value, actor="dispatcher", detail=f"{robot_id} 선정"
-    )
-
-    get_bridge().publish_command(
-        robot_id,
-        "GOTO",
-        {"waypoints": [{"x": event.x or 0.0, "y": event.y or 0.0, "theta": 0.0}], "event_id": event_id},
-    )
+    outcome = dispatch_service.assign_and_goto(db, event, robot_id, preempt=body.preempt)
     db.commit()
     await manager.publish_async(WsMessageType.EVENT.value, crud.events.to_dict(event))
     await manager.publish_async(
-        WsMessageType.MISSION_STATUS.value, crud.robots.mission_to_dict(db, mission)
+        WsMessageType.MISSION_STATUS.value, crud.robots.mission_to_dict(db, outcome.mission)
     )
     return ok(
         {
@@ -221,7 +124,7 @@ async def dispatch(event_id: str, body: DispatchIn, db: DbDep, actor: ActorDep):
             "status": EventStatus.ASSIGNED.value,
             "assigned_robot_id": robot_id,
             "eta_sec": None,
-            "preempted_mission_id": preempted_mission_id,
+            "preempted_mission_id": outcome.preempted_mission_id,
             "selection": selection,
         }
     )

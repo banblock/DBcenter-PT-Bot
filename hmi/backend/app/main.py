@@ -92,6 +92,23 @@ def _install_bridge(loop=None):
         return None
 
 
+def _install_vision(loop):
+    """비전 브리지(vision_bridge)를 설치한다. ros2 모드 + vision_enabled 일 때만.
+
+    반환: 종료 시 정리할 VisionBridge (없으면 None). rclpy/patrol_interfaces 가 없으면
+    (colcon build/source 안 됨) 경고만 남기고 백엔드는 그대로 뜬다.
+    """
+    if not settings.vision_enabled or settings.bridge_backend != "ros2":
+        return None
+    try:
+        from app.vision_bridge import build_vision_bridge
+
+        return build_vision_bridge(loop)
+    except Exception as exc:  # noqa: BLE001 - 비전 없이도 백엔드는 떠야 한다
+        log.warning("vision_bridge 설치 실패(비전 없이 계속): %s", exc)
+        return None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("=" * 70)
@@ -110,6 +127,7 @@ async def lifespan(app: FastAPI):
         db.close()
 
     bridge_mgr = _install_bridge(asyncio.get_running_loop())
+    vision_mgr = _install_vision(asyncio.get_running_loop())
 
     # ★ 서버 켜질 때 백그라운드 작업 2개를 계속 돌림:
     #   consumer = 방송 큐 소비(connection_manager) / watchdog = 3초 무소식 로봇 OFFLINE 처리.
@@ -122,6 +140,8 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        if vision_mgr is not None:
+            vision_mgr.stop()
         if bridge_mgr is not None:
             bridge_mgr.stop()
         for task in (consumer, watchdog):

@@ -155,6 +155,88 @@ def check(
     return result
 
 
+#: CheckGate.error_state → 사람이 읽는 사유.
+_GATE_ERROR_REASON = {
+    0: "일치(비전 판정)",
+    1: "차단기 상태 불일치(비전 판정)",
+    2: "차단기 표시등을 찾지 못함",
+    3: "로봇 카메라 연결/응답 없음",
+}
+
+
+def record_gate_check(
+    db: Session,
+    *,
+    equipment_id: str,
+    gate_state_equal: bool,
+    error_state: int,
+    effective_expected: str | None = None,
+    robot_id: str | None = None,
+) -> models.AlignResult:
+    """비전 CheckGate 결과(equal/error)를 align 결과로 기록한다 (Phase 2-2, 인수인계서 결정2).
+
+    비전이 이미 DB 기준(백엔드가 넘긴 effective_expected)과 비교해 equal 을 돌려주므로, 여기선
+    그 판정을 신뢰해 verdict 를 정하고 MISMATCH 면 이벤트를 자동 생성한다. (관측 상태 자체가
+    필요한 룰 기반 세분화는 CheckGate.srv 에 observed_state 필드를 추가하는 Phase 2 후속 과제.)
+    """
+    equipment = crud.equipment.get(db, equipment_id)
+
+    # error_state 가 판정의 단일 기준(0=일치, 1=불일치, 2/3=관측 실패). gate_state_equal 은
+    # error_state 와 일관(0↔True, 1↔False)이므로 error_state 로만 분기한다.
+    if error_state == 0:
+        verdict, severity, check_state = (
+            AlignVerdict.OK.value, Severity.INFO.value, EquipmentCheckState.NORMAL.value,
+        )
+    elif error_state == 1:
+        # 차단기 상태 불일치는 안전 직결 → CRITICAL.
+        verdict, severity, check_state = (
+            AlignVerdict.MISMATCH.value, Severity.CRITICAL.value, EquipmentCheckState.MISMATCH.value,
+        )
+    else:  # 2=못 찾음, 3=cam 연결/응답 없음 → 확정 못 함(재점검)
+        verdict, severity, check_state = (
+            AlignVerdict.UNVERIFIED.value, Severity.WARN.value, EquipmentCheckState.RECHECK.value,
+        )
+    reason = _GATE_ERROR_REASON.get(error_state, f"error_state={error_state}")
+
+    result = crud.equipment.add_result(
+        db,
+        equipment_id=equipment_id,
+        observed_state=None,  # CheckGate 는 관측 상태를 안 줌(equal 만). Phase 2 후속에 채움.
+        normal_state=equipment.normal_state,
+        expected_state=effective_expected,
+        verdict=verdict,
+        severity=severity,
+        rule_id=None,
+        reason=reason,
+    )
+
+    if verdict == AlignVerdict.MISMATCH.value:
+        auto_event = crud.events.create(
+            db,
+            source="align",
+            type_=_event_type_for(equipment.type),
+            confidence=1.0,
+            severity=severity,
+            zone_id=equipment.zone_id,
+            node_id=equipment.node_id,
+            robot_id=robot_id,
+            memo=reason,
+        )
+        result.auto_created_event_id = auto_event.event_id
+
+    crud.equipment.record_check(
+        db,
+        equipment_id,
+        observed_state=None,
+        value=None,
+        verdict=verdict,
+        severity=severity,
+        check_state=check_state,
+    )
+    db.flush()
+    return result
+
+
 def _event_type_for(equipment_type: str) -> str:
     return {
         "BREAKER": EventType.BREAKER_ABNORMAL.value,

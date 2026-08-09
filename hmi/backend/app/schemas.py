@@ -469,6 +469,14 @@ class AlignCheckIn(BaseModel):
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
 
 
+class GateCheckIn(BaseModel):
+    """차단기 실측 대조 요청 (비전 CheckGate 서비스 호출)."""
+
+    equipment_id: str
+    robot_id: str            # amr_1 / amr_2 (백엔드 내부 로봇 id)
+    gate_id: int = 0         # 비전 쪽 차단기 식별자(★매핑 확정 필요)
+
+
 class AlignResultOut(ORMModel):
     align_id: int
     event_id: str | None

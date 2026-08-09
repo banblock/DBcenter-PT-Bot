@@ -16,9 +16,22 @@ ROS_SETUP="${ROS_SETUP:-/opt/ros/humble/setup.bash}"
 # shellcheck disable=SC1090
 source "$ROS_SETUP"
 
+# 비전 통합용: colcon 워크스페이스(install/setup.bash)를 source 하면 patrol_interfaces(CamState/
+# CheckGate)를 백엔드가 import/구독할 수 있다. 아직 빌드 안 했으면 건너뛴다.
+#   빌드:  cd <repo> && colcon build --packages-select patrol_interfaces vision_detection
+WS_SETUP="${WS_SETUP:-$BACKEND_DIR/../../install/setup.bash}"
+if [ -f "$WS_SETUP" ]; then
+  # shellcheck disable=SC1090
+  source "$WS_SETUP"
+  echo "▶ 워크스페이스 source: $WS_SETUP (patrol_interfaces 사용 가능)"
+  export AMR_VISION_ENABLED="${AMR_VISION_ENABLED:-true}"
+else
+  echo "▶ 워크스페이스 미빌드($WS_SETUP 없음) → 비전 없이 기동. colcon build 후 재실행 시 자동 연동."
+fi
+
 export PYTHONPATH="$BACKEND_DIR/.venv/lib/python3.10/site-packages:${PYTHONPATH:-}"
 export AMR_BRIDGE_BACKEND=ros2
 
-echo "▶ ROS_DISTRO=$ROS_DISTRO · AMR_BRIDGE_BACKEND=$AMR_BRIDGE_BACKEND"
+echo "▶ ROS_DISTRO=$ROS_DISTRO · AMR_BRIDGE_BACKEND=$AMR_BRIDGE_BACKEND · AMR_VISION_ENABLED=${AMR_VISION_ENABLED:-false}"
 echo "▶ uvicorn 기동 (rclpy 연동) — http://localhost:8000"
 exec python3 -m uvicorn app.main:app --port "${PORT:-8000}" "$@"

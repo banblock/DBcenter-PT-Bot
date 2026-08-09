@@ -65,6 +65,24 @@ class Settings(BaseSettings):
     #: robot_bridge 백엔드 (§10). null=NullBridge(기본, 발행 안 함) | loopback=발행만 기록 |
     #: ros2=rclpy 실기 연동(PC2 ROS2 Humble 노드에서만).
     bridge_backend: str = "null"
+    #: 비전 통합(vision_bridge) 사용 여부. ros2 모드일 때만 의미. 기본 False =
+    #: patrol_interfaces/vision workspace 없이도 백엔드가 그대로 동작. (colcon build+source 후 True)
+    vision_enabled: bool = False
+
+    # ── 호모그래피 (Phase 3-1) : CCTV 픽셀 → 맵 좌표 변환 ─────────────────
+    #: 변환 on/off. off 면 pixel_to_map 이 항상 None → 이벤트에 좌표 미기입(현행 동작).
+    homography_enabled: bool = True
+    #: camera_id(vision_bridge VISION_CAMERA_MAP 의 camera_id) → 캘리브레이션 YAML 경로.
+    #: v2_1=cctv1, v2_2=cctv2 (2026-08-09 확정). image_to_map 3×3 호모그래피(ROS param 형식).
+    homography_files: dict[str, str] = Field(
+        default_factory=lambda: {
+            "cctv1": str(BASE_DIR / "data" / "calibration" / "cctv1.yaml"),
+            "cctv2": str(BASE_DIR / "data" / "calibration" / "cctv2.yaml"),
+        }
+    )
+    #: 화재 감지 즉시 자동 급파(로봇에 GOTO 좌표 전송). 2026-08-09 정책 확정. False 면
+    #: 이벤트/알림만 만들고 급파는 운영자(POST /events/{id}/dispatch)가 한다.
+    vision_auto_dispatch: bool = True
 
     # ── 이벤트 / 검증 ─────────────────────────────────────────────────────
     dedup_window_sec: int = 10

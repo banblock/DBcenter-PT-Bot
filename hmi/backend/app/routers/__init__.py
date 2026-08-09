@@ -7,6 +7,7 @@ main.py 는 이 목록만 순회하면 되고, 라우터를 추가할 때 main.p
 from fastapi import APIRouter
 
 from app.routers import (
+    cameras_router,
     equipment_router,
     event_router,
     map_router,
@@ -31,6 +32,7 @@ ALL_ROUTERS: list[APIRouter] = [
     stats_router.stats_router,             # §7 통계
     suppression_router.router,             # §8 화재진압
     suppression_router.config_router,      # §8 시스템 설정
+    cameras_router.router,                 # §9 카메라 피드(MJPEG, 비전 통합)
 ]
 
 __all__ = ["ALL_ROUTERS"]
