@@ -113,10 +113,19 @@ Fleet의 `fleet_node.py`는 `_publish_missions()`를 **1초마다** 실행해서
   같은 순수 로직 클래스는 테스트하지만, `ControlNode.__init__`이
   `TurtleBot4Navigator`를 직접 생성해서(주입식이 아님) 같은 방식으로 테스트하기
   어렵습니다. 기존 컨벤션을 그대로 따랐고, 별도로 리팩터링하진 않았습니다.
-- **(발견한 별개 이슈, 이번에 안 건드림)** `state_flow.py`가 로봇 상태를
-  `/fleet/<ns>/state`에 발행하는데, Fleet의 `robot_status.py`는
-  `/control/<ns>_State`를 UI용으로 발행합니다. 두 토픽이 이름이 달라서 서로
-  구독하는 관계가 아닌 것 같은데, 원래 의도된 설계인지 확인이 필요해 보입니다.
+- ~~`state_flow.py`가 로봇 상태를 `/fleet/<ns>/state`에 발행하는데, Fleet의
+  `robot_status.py`는 `/control/<ns>_State`를 UI용으로 발행합니다.~~ **(수정
+  완료)** `fleet_node.py`의 `_check_robot_status()` 주석에 원래 설계 의도가
+  명시돼 있었습니다 — Fleet은 `/control/<ns>_State`에
+  EMERGENCY_STOP/DISPATCHING/PATROLLING/IDLE 4개만 퍼블리시하고, Control이 같은
+  토픽에 나머지 세부 상태(도킹, 이상신호 대응 등)를 이어서 퍼블리시하는 게
+  의도였습니다. `state_flow.py`가 별도 토픽(`/fleet/<ns>/state`)에 쏘고 있어서
+  구독자가 아예 없던 게 실제 버그였음을 확인 → `state_flow.py`를
+  `/control/<ns>_State`로 발행하도록 수정하고, 페이로드 키도 Fleet과 맞추기 위해
+  `'state'` → `'status'`로 변경했습니다 (`detail` 필드는 Control 쪽 세부 정보라
+  유지). 하드웨어 테스트에서 Fleet UI에 Control의 세부 상태 문자열(`docking`,
+  `anomaly_checking` 등)이 실제로 올라오는지 꼭 확인해주세요 — 코드 리딩으로만
+  검증했고 실행 검증은 아직입니다.
 
 ---
 
