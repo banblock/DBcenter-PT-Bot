@@ -10,8 +10,15 @@ from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
 
 # 가장 가까운 장애물이 이 거리(m)보다 가까우면 충돌 위험으로 본다.
-# TODO: 실제 로봇/공간 기준으로 튜닝 필요.
-COLLISION_RISK_DISTANCE_M = 0.30
+# 0.30m였을 때 도킹 스테이션에서 나오자마자(도크/벽이 가까운 상태) 바로
+# 걸려버렸고, Fleet 쪽에 route_update_request 응답이 아직 없어서(별도
+# 이슈) 한 번 걸리면 10초 뒤 mission_aborted로 끝나버림 - 그래서 우선
+# 최대한 낮춰둔 값. 실제 LiDAR range_min보다 낮으면(_on_scan이
+# msg.range_min으로 이미 걸러서) 사실상 트리거 안 되니 이보다 더 낮춰도
+# 의미 없음. 이 체크는 어디까지나 보조 안전장치이고, 1차 장애물 회피는
+# Nav2 costmap/컨트롤러가 담당한다.
+# TODO: 실제 로봇/공간 기준으로 재튜닝 필요.
+COLLISION_RISK_DISTANCE_M = 0.05
 FRONT_SCAN_HALF_ANGLE_RAD = math.radians(35.0)
 
 # 코스트맵 클리어 후 재시도를 이 횟수까지만 허용하고, 넘으면 request_route_update로 넘긴다.
