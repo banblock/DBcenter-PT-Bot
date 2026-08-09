@@ -6,6 +6,49 @@
 
 ## 사전 준비
 
+### 통신(DDS) 사전 점검 — 노드 켜기 전에 먼저
+
+지난 테스트(2026-08-09)에서 긴급정지 발행이 fleet_node에 배달되지 않는 문제가
+있었음: `emergency_stop.sh`의 `ros2 topic pub --once`는 매칭 구독자를 찾아
+발행까지 했는데(매칭이 없으면 `Waiting for at least 1 matching
+subscription(s)...`에서 멈춰 있어야 함), fleet_node에는 수신 로그가 전혀 안
+찍혔고, 같은 시점에 `ros2 topic info /backend/emergency_stop_all -v`는 토픽이
+존재하지 않는다고 나옴. fleet_node는 이 토픽을 받으면 어떤 경우에도 로그를
+남기게 돼 있으므로(`emergency stop-all triggered` 또는 `no registered robot`)
+**로그가 없다 = 코드가 아니라 전송 계층에서 유실된 것.**
+
+`ros2 topic pub`은 자기가 직접 DDS 디스커버리를 하고, `ros2 topic info/list`는
+백그라운드 **ros2 데몬**의 캐시를 보므로 둘이 다르게 보이면 데몬/환경 문제다.
+테스트에 쓰는 **모든 터미널**(fleet_node 터미널, 스크립트 터미널, 각 로봇
+노트북)에서 순서대로:
+
+```bash
+# 1) 터미널 간 환경 일치 확인 - 셋 다 모든 터미널에서 같아야 함
+echo "DOMAIN=$ROS_DOMAIN_ID LOCALHOST=$ROS_LOCALHOST_ONLY RMW=$RMW_IMPLEMENTATION"
+
+# 2) 데몬 캐시 초기화 (stale 데몬이 엉터리 topic list를 보여주는 것 방지)
+ros2 daemon stop && ros2 daemon start
+
+# 3) 서로 보이는지 확인 - 스크립트 머신에서 fleet_node가 보여야 함
+ros2 node list
+```
+
+- [ ] 환경 변수 3종이 모든 터미널에서 동일한지 확인 (`.bashrc`에 로봇용
+      도메인 설정이 있는 머신에서 새 터미널을 열면 조용히 어긋나기 쉬움)
+- [ ] 데몬 재시작 후 `ros2 node list`에 상대 머신 노드가 보이는지 확인
+- [ ] 그래도 안 보이면 네트워크 계층 순서대로:
+  - `sudo ufw status` — 방화벽이 켜져 있으면 디스커버리(멀티캐스트)만 통과하고
+    유저 데이터(유니캐스트 UDP)가 막히는 조합이 가능함. 테스트 중엔 끄는 게 확실
+  - 유선+무선 인터페이스가 같이 켜져 있으면 DDS가 상대가 못 닿는 인터페이스
+    IP를 광고할 수 있음 — 테스트 네트워크가 아닌 쪽은 내릴 것
+  - 한쪽에서 `ros2 multicast receive`, 다른 쪽에서 `ros2 multicast send`로
+    멀티캐스트 통과 확인
+- [ ] 발행이 실제로 배달됐는지는 **fleet_node 로그로 판정**할 것 —
+      `ros2 topic pub`의 "publishing #1" 출력은 디스커버리 매칭까지만 증명하고
+      데이터 배달은 증명하지 못함. 매칭된 구독자가 어딘가 열려 있던
+      `topic echo` 창일 수도 있으니, 의심되면
+      `ros2 topic info <topic> -v`로 구독 노드 이름까지 확인
+
 - [ ] `fleet` 패키지, `control_amr` 패키지 최신 상태로 colcon build
 - [ ] `fleet_node` 1개 실행 (도메인 어디서든 무관) — 실행하면 바로 순찰이
       시작되지 않고 터미널에 "스페이스바를 누르면 순찰을 시작합니다..."가
