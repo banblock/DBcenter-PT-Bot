@@ -65,8 +65,10 @@ ros2 node list
   - `/fleet/robot3/emergency_stop`, `/fleet/robot8/emergency_stop`
   - `/fleet/robot3/dock`, `/fleet/robot8/dock`
   - `/fleet/robot3/anomaly`, `/fleet/robot8/anomaly`
+  - `/fleet/robot3/anomaly_resume`, `/fleet/robot8/anomaly_resume`
   - `/fleet/anomaly_trigger`, `/fleet/anomaly_done`
-  - `/backend/emergency_stop_all`, `/backend/dock`, `/backend/map_points`
+  - `/backend/emergency_stop_all`, `/backend/dock`, `/backend/map_points`,
+    `/backend/anomaly_resume`
   - `/control/robot3_State`, `/control/robot8_State` ← **이번에 고친 부분, 0번에서 확인**
   - `/robot3/amcl_pose`, `/robot8/amcl_pose`
 
@@ -172,12 +174,23 @@ ros2 topic pub --once /fleet/anomaly_trigger std_msgs/msg/String "{data: '{\"x\"
 - [ ] 순찰 중 + 이상신호 대응 중 아님 + 긴급정지 중 아님인 로봇 중
       **가장 가까운 로봇**이 급파되는지 (로봇 2대 다 순찰 중일 때 테스트해야
       의미 있음)
+- [ ] 도착 후 시나리오 4와 동일하게 `anomaly_waiting`에서 무기한
+      대기하는지, `anomaly_resume`/`dock`으로 정상 종료되는지
+- [ ] 대응 중인 로봇에게 새 이상신호 트리거를 또 보내면 무시되는지
+      (`_anomaly_busy`에 남아있는 동안은 급파 후보에서 제외 - `anomaly_waiting`
+      대기 중에도 아직 `anomaly_done`을 안 보냈으니 계속 제외 상태여야 함)
 
 ### 6. 인터럽트 우선순위 충돌 테스트
 
 `_move_to()` 우선순위: `emergency_stop > collision_risk > dock > anomaly`
 
-- [ ] 이상신호 급파 이동 중에 긴급정지를 걸면 **즉시** 멈추는지
+- [ ] 이상신호 급파 **이동 중**에 긴급정지를 걸면 즉시 멈추고, 해제하면
+      같은 목표로 이동을 재개하는지
+- [ ] 이상신호 도착 후 **`anomaly_waiting` 대기 중**에 긴급정지를 걸어도
+      반응하는지(멈췄다가 해제되면 대기 계속) — 이동 중과는 다른
+      코드 경로라 별도로 확인 필요
+- [ ] `anomaly_waiting` 대기 중에 `dock`을 보내면 재개 대신 도킹으로
+      전환되는지 (`anomaly_resume` 대신 `dock`을 보내는 경우)
 - [ ] 도킹 이동 중에 이상신호 트리거를 보내면 **무시**되는지 (dock이 anomaly
       보다 우선이어야 함)
 - [ ] (팀 논의 필요) `collision_risk`가 `emergency_stop`보다 아래인 게
