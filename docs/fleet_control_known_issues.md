@@ -403,6 +403,43 @@ id_prefix)` 신규 - 순찰 미션과 같은 `_emit_hop()` 파이프라인으로
 과제" 참고), 이제 `_move_to()`를 재사용하므로 도킹 이동 중에도
 긴급정지/충돌위험 인터럽트가 정상적으로 감지된다.
 
+### 15. 이상신호 대응 설계 변경 — 비전 노드 자동 판정 → 운영자(HMI) 결정
+
+**대상**: `src/control_amr/control_amr/control_node.py` (`_handle_anomaly`),
+`src/control_amr/control_amr/inspection_flow.py`,
+`src/fleet/fleet/fleet_node.py` (`_on_anomaly_resume`)
+
+기존 구현(이슈 1번 수정 당시 기준)은 로봇이 이상 위치에 도착하면
+`inspection_flow.inspect_anomaly()`로 비전 노드 응답을 15초 기다렸다가
+(비전 노드가 없어 항상 타임아웃) **자동으로** 원래 순찰 위치로 복귀했다.
+사용자 확인 결과 실제 설계는 이게 아니었다: 로봇은 도착하면(자체
+감지면 사실상 제자리 정지) 자동 판정 없이 그 자리에서 **카메라로
+상황을 계속 비추며 무기한 대기**하고, HMI에서 그 영상을 본 운영자가
+"재개" 또는 "도킹" 중 하나를 최종 결정한다.
+
+**변경 내용**:
+- `inspection_flow.py`의 `inspect_anomaly()`와 관련 pub/sub
+  (`anomaly_check_request`/`_response`)을 제거 - 더 이상 아무도 안 씀
+  (gate 점검용 `inspect_gate()`는 그대로 유지).
+- `_handle_anomaly()`: 도착 후 `anomaly_waiting` 상태로 전환하고,
+  `self.anomaly_resume_pending`(신규) 또는 `self.dock_pending`(기존)이
+  될 때까지 대기. 대기 중 긴급정지도 계속 감시(멈췄다가 해제되면 대기
+  재개).
+  - "재개" 결정 → 신규 `/backend/anomaly_resume` → Fleet이
+    `/fleet/<ns>/anomaly_resume`로 중계 → 원래 순찰 웨이포인트로 복귀.
+  - "도킹" 결정 → **기존** `/backend/dock`을 그대로 재사용(운영자가
+    아무 때나 누르는 도킹 복귀와 완전히 같은 경로) - `_handle_anomaly()`가
+    직접 `_handle_dock()`을 호출해서 그래프 라우팅/점유 보호까지
+    그대로 이어받는다. 이상신호 전용 도킹 신호는 따로 안 만들었다.
+- `_publish_anomaly_done()`의 `confirmed` 필드 의미가 바뀌었다: 이제
+  비전 판정 결과가 아니라 운영자 결정을 나타낸다(재개=`False`,
+  도킹=`True`, 도착 실패=`None`+`failed=True`). Fleet의 `_on_anomaly_done()`은
+  `robot` 필드만 보고 `_anomaly_busy`에서 빼므로 그대로 호환됨.
+
+**하드웨어 테스트 체크리스트도 이 변경에 맞게 갱신함** (시나리오 4 참고) -
+예전처럼 `anomaly_done`을 손으로 쏘는 게 아니라 `anomaly_resume`/`dock`을
+보내야 한다.
+
 ---
 
 ## 요약 — 지금 이대로 하드웨어 테스트 시나리오를 돌리면

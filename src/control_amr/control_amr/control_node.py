@@ -89,6 +89,18 @@ class ControlNode:
         self.anomaly_done_pub = self.navigator.create_publisher(
             String, '/fleet/anomaly_done', 10)
 
+        # 이상신호 재개(작업복귀) - 비전 노드가 자동으로 판정하는 게
+        # 아니라, 로봇이 이상 위치에 도착해 카메라로 상황을 계속 비추는
+        # 동안 HMI에서 그 영상을 보고 운영자가 "재개"/"도킹" 둘 중
+        # 하나를 최종 결정한다(사용자 확인). "도킹" 결정은 이미 있는
+        # /fleet/<ns>/dock(dock_pending)을 그대로 재사용하고(운영자가
+        # 아무 때나 누르는 도킹 복귀와 완전히 같은 경로), "재개" 결정만
+        # 이 신규 신호가 필요하다.
+        self.anomaly_resume_pending = False
+        self.navigator.create_subscription(
+            String, f'/fleet/{namespace}/anomaly_resume',
+            self._on_anomaly_resume, 10)
+
         # 긴급정지 - {"stop": true/false}. 정지 시 즉시 cancelTask()하고,
         # 해제되기 전까지는 새 이동 명령을 아예 내보내지 않는다 (자세한
         # 설계 배경은 docs/control_emergency_dock_integration.md 참고).
@@ -132,6 +144,12 @@ class ControlNode:
             return
         self.anomaly_location = location
         self.anomaly_pending = True
+
+    def _on_anomaly_resume(self, msg):
+        # 페이로드 검증이 딱히 필요 없다 - Fleet이 이미 이 로봇 전용
+        # 토픽(/fleet/<ns>/anomaly_resume)으로 걸러서 보내주므로, 여기
+        # 도착한 것 자체가 "이 로봇 재개하라"는 신호다.
+        self.anomaly_resume_pending = True
 
     @staticmethod
     def _is_valid_pose(value):
@@ -322,6 +340,24 @@ class ControlNode:
         return self._handle_navigation_result(result)
 
     def _handle_anomaly(self):
+        """이상신호 대응 - CCTV/AMR 감지 위치로 이동한다(자체 감지면
+        그 로봇의 현재 위치가 곧 이상 위치라 사실상 제자리 정지).
+        비전 노드가 자동으로 판정하지 않는다 - 도착하면 그 자리에서
+        카메라로 상황을 계속 비추며 운영자 판단을 기다린다. HMI가 그
+        영상을 보고 "재개"/"도킹" 둘 중 하나를 최종 결정한다(사용자
+        확인 결과 - 자동 판정이 아니라 사람이 최종 결정권을 가지는 게
+        맞는 설계).
+
+        두 결정 다 이미 있거나 새로 만든 신호를 그대로 쓴다:
+        - 재개: 신규 /fleet/<ns>/anomaly_resume(self.anomaly_resume_pending)
+        - 도킹: 기존 /fleet/<ns>/dock(self.dock_pending) - 운영자가 아무
+          때나 누르는 도킹 복귀와 완전히 같은 경로라 이상신호 전용
+          신호를 따로 안 만들었다. 이 함수가 직접 _handle_dock()을
+          불러서 그래프 라우팅/점유 보호까지 그대로 이어받는다.
+
+        반환값은 _handle_navigation_interrupt()의 다른 분기들과 같은
+        컨벤션: True면 원래 웨이포인트로 재시도, list면(도킹 성공)
+        미션을 그걸로 교체."""
         loc = self.anomaly_location
         self.anomaly_pending = False
         self._publish_state('anomaly_moving', loc)
@@ -331,23 +367,34 @@ class ControlNode:
         pose = self.navigator.getPoseStamped(
             [float(loc['x']), float(loc['y'])], float(loc['yaw']))
         self.navigator.startToPose(pose)
-        # Stub for the real anomaly inspection (camera/vision node).
         if not self._wait_for_anomaly_arrival(pose):
             self._report_failure('anomaly_arrival_failed', loc)
             self._publish_anomaly_done(loc, confirmed=None, failed=True)
-            return
-        self._publish_state('anomaly_checking', loc)
-        self.navigator.info(f'[{self.namespace}] checking anomaly...')
-        inspection = self.inspection_flow.inspect_anomaly(loc)
-        if inspection['confirmed'] is None:
-            self._report_failure('anomaly_check_failed', loc)
-            self._publish_anomaly_done(loc, confirmed=None, failed=True)
-            return
+            return True
+
+        self._publish_state('anomaly_waiting', loc)
         self.navigator.info(
-            f'[{self.namespace}] anomaly check done, resuming patrol')
-        self._publish_anomaly_done(
-            loc, confirmed=inspection['confirmed'], failed=False)
+            f'[{self.namespace}] holding position, camera on anomaly - '
+            'waiting for operator decision (resume/dock)...')
+        self.anomaly_resume_pending = False
+        while not self.anomaly_resume_pending and not self.dock_pending:
+            if self.emergency_stopped:
+                self._handle_emergency_stop()
+                continue
+            rclpy.spin_once(self.navigator, timeout_sec=0.5)
+
+        if self.dock_pending:
+            self.navigator.info(
+                f'[{self.namespace}] operator decided: dock return')
+            self._publish_anomaly_done(loc, confirmed=True, failed=False)
+            return self._handle_dock()
+
+        self.anomaly_resume_pending = False
+        self.navigator.info(
+            f'[{self.namespace}] operator decided: resume patrol')
+        self._publish_anomaly_done(loc, confirmed=False, failed=False)
         self._publish_state('patrol_resuming')
+        return True
 
     def _publish_anomaly_done(self, loc, confirmed, failed):
         # 도착/점검 실패로 여기까지 왔더라도 반드시 발행해야 한다 - 안 그러면
@@ -477,8 +524,7 @@ class ControlNode:
         if self.navigation_interrupt_reason == 'dock':
             return self._handle_dock()
         if self.navigation_interrupt_reason == 'anomaly':
-            self._handle_anomaly()
-            return True
+            return self._handle_anomaly()
         if self.navigation_interrupt_reason == 'collision_risk':
             return self._request_route_update('collision_risk', waypoint)
         recovered = self.navigation_flow.recover_from_navigation_failure(

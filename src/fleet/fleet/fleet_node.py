@@ -117,6 +117,7 @@ class FleetNode(Node):
         # 못 박아둘 수 없음).
         self._mission_pubs = {}
         self._anomaly_pubs = {}
+        self._anomaly_resume_pubs = {}
         self._emergency_pubs = {}
         self._dock_pubs = {}
         # 이상신호 로봇 선정용 로봇별 최신 위치. amcl_pose 구독도
@@ -144,6 +145,16 @@ class FleetNode(Node):
             String, '/fleet/anomaly_trigger', self._on_anomaly_trigger, 10)
         self.create_subscription(
             String, '/fleet/anomaly_done', self._on_anomaly_done, 10)
+
+        # 이상신호 작업복귀(재개) - 비전 노드가 자동으로 판정하는 게
+        # 아니라, 로봇이 이상 위치에 도착해 카메라로 상황을 계속 비추는
+        # 동안 HMI에서 그 영상을 보고 운영자가 "재개"/"도킹" 둘 중 하나를
+        # 최종 결정한다(사용자 확인 결과). "도킹" 결정은 기존
+        # /backend/dock을 그대로 쓰면 되고(운영자가 아무 때나 누르는
+        # 도킹 복귀와 완전히 같은 경로), "재개" 결정만 이 신규 토픽이
+        # 필요하다. payload: {"robot": "robot3"}.
+        self.create_subscription(
+            String, '/backend/anomaly_resume', self._on_anomaly_resume, 10)
 
         # 긴급정지 - {"stop": true}면 등록된 로봇 전체를 정지시키고,
         # {"stop": false}면 그중 긴급정지 중이던 로봇만 골라 해제한다.
@@ -232,6 +243,9 @@ class FleetNode(Node):
                 String, f'/fleet/{ns}/mission', MISSION_QOS)
         if ns not in self._anomaly_pubs:
             self._anomaly_pubs[ns] = self.create_publisher(String, f'/fleet/{ns}/anomaly', 10)
+        if ns not in self._anomaly_resume_pubs:
+            self._anomaly_resume_pubs[ns] = self.create_publisher(
+                String, f'/fleet/{ns}/anomaly_resume', 10)
         if ns not in self._emergency_pubs:
             self._emergency_pubs[ns] = self.create_publisher(
                 String, f'/fleet/{ns}/emergency_stop', 10)
@@ -402,6 +416,24 @@ class FleetNode(Node):
         robot = payload.get('robot')
         self._anomaly_busy.discard(robot)
         self.get_logger().info(f'{robot} finished handling anomaly, ready for new triggers')
+
+    def _on_anomaly_resume(self, msg):
+        """운영자가 HMI에서 이상신호 카메라 영상을 보고 "재개"를 선택한
+        경우 - 그 로봇에게 /fleet/<ns>/anomaly_resume을 그대로 전달한다.
+        Control Node가 실제 재개 여부를 판단(지금 진짜로 이상신호
+        대응 중인지)하므로, Fleet은 대상 로봇이 등록돼 있는지만 확인하고
+        그대로 중계한다."""
+        try:
+            payload = json.loads(msg.data) if msg.data else {}
+            robot = payload['robot']
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            self.get_logger().warn(f'bad /backend/anomaly_resume payload, ignoring: {exc}')
+            return
+        if robot not in self._anomaly_resume_pubs:
+            self.get_logger().warn(f'anomaly resume: unknown robot {robot!r}, ignoring')
+            return
+        self.get_logger().info(f'anomaly resume -> {robot}')
+        self._anomaly_resume_pubs[robot].publish(String())
 
     def _on_emergency_stop_all(self, msg):
         """설계도 '비상정지 수신'(정지) / '전채 재개'(해제) - stop 필드로

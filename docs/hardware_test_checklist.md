@@ -134,18 +134,34 @@ ros2 topic pub --once /backend/dock std_msgs/msg/String "{data: '{\"robots\": [\
 
 ### 4. 이상신호 — AMR 자체감지
 
+⚠️ 비전 노드 자동 판정 방식에서 **운영자 결정 방식으로 설계가 바뀌었습니다**
+(사용자 확인 결과) — 로봇이 이상 위치에 도착하면 자동으로 판정하지 않고
+그 자리에서 카메라로 상황을 계속 비추며 무기한 대기합니다. 운영자가
+HMI에서 그 영상을 보고 "재개"(`/backend/anomaly_resume`) 또는
+"도킹"(`/backend/dock`, 기존 도킹 복귀와 동일 경로) 중 하나를 보내야
+움직입니다.
+
 ```
 ros2 topic pub --once /fleet/anomaly_trigger std_msgs/msg/String "{data: '{\"robot\": \"robot3\"}'}"
 ```
 
 - [ ] 로봇이 제자리에 멈추고, 자기 현재 위치를 이상 위치로 쓰는지
-- [ ] `anomaly_moving` → `anomaly_checking` 상태 순서로 찍히는지
+- [ ] `anomaly_moving` → `anomaly_waiting` 상태 순서로 찍히는지
+- [ ] `anomaly_waiting` 상태에서 계속 대기하는지(예전처럼 15초 뒤
+      자동으로 순찰 복귀하면 안 됨)
 
-완료 신호:
+재개 결정:
 ```
-ros2 topic pub --once /fleet/anomaly_done std_msgs/msg/String "{data: '{\"robot\": \"robot3\"}'}"
+ros2 topic pub --once /backend/anomaly_resume std_msgs/msg/String "{data: '{\"robot\": \"robot3\"}'}"
 ```
-- [ ] 완료 후 순찰로 정상 복귀하는지
+- [ ] `patrol_resuming` 상태가 찍히고 순찰로 정상 복귀하는지
+
+도킹 결정 (재개 대신 이걸 보내는 경우):
+```
+ros2 topic pub --once /backend/dock std_msgs/msg/String "{data: '{\"robots\": [\"robot3\"]}'}"
+```
+- [ ] `anomaly_waiting` 대기 중에도 도킹 복귀가 바로 반응하는지 (시나리오
+      3의 도킹 경로를 그대로 이어받음 - 그래프 라우팅 + occupancy 보호)
 
 ### 5. 이상신호 — CCTV 감지
 
