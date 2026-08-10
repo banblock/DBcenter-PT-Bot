@@ -217,6 +217,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const patrolStartedRef = useRef(false);
   patrolStartedRef.current = patrolStarted;
   const demoRef = useRef<DemoHandle | null>(null);
+  /** 개별 '정지 및 복귀(stop_and_dock)' 를 받은 로봇 집합. 담당 AMR 이 모두 들어오면
+   *  '도킹 스테이션 복귀' 를 누른 것과 동일하게 취급해 통합 순찰 시작을 재활성화한다. */
+  const dockedSetRef = useRef<Set<string>>(new Set());
 
   const addLog = useCallback((tag: LogTag, msg: string, hot?: boolean) => {
     logSeq.current += 1;
@@ -469,6 +472,21 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       setPending((prev) => ({ ...prev, [robotId]: cmd }));
       addLog("PC1", `${robotId} 명령 전송 · ${CMD_LABEL[cmd]}`);
 
+      // 개별 '정지 및 복귀' 추적 — 담당 AMR 이 모두 개별 복귀하면 '도킹 복귀' 와 동일 취급.
+      if (cmd === "stop_and_dock") {
+        dockedSetRef.current.add(robotId);
+        const allAmr = ZONES.map((z) => ZONE_META[z].amr);
+        if (allAmr.every((id) => dockedSetRef.current.has(id))) {
+          setPatrolStarted(false); // 통합 순찰 시작 버튼 재활성화 + 맵/waypoint 잠금 해제
+          setEstopped(false);
+          dockedSetRef.current.clear();
+          addLog("PC1", "전체 개별 정지·복귀 완료 → 통합 순찰 시작 재활성화");
+        }
+      } else {
+        // 다른 명령(재개·순찰 등)을 받으면 그 로봇은 '복귀 완료' 집합에서 빠진다.
+        dockedSetRef.current.delete(robotId);
+      }
+
       (async () => {
         try {
           if (linkModeRef.current === "live") {
@@ -590,6 +608,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     const wp = waypointsRef.current;
     const total = ZONES.reduce((n, z) => n + (wp[z]?.length ?? 0), 0);
     if (total < WP_NEED || patrolStartedRef.current) return;
+    dockedSetRef.current.clear(); // 새 순찰 시작 → 개별 복귀 추적 초기화
     setPatrolStarted(true);
     addLog("PC1", `통합 순찰 시작 · waypoint ${total}개 지정`);
     if (linkModeRef.current === "live") {
@@ -644,6 +663,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
   const dockAll = useCallback(() => {
     setEstopped(false);
+    dockedSetRef.current.clear();
     setPatrolStarted(false); // 도킹 복귀 → 통합 순찰 시작 재활성화 (지도 잠금 해제)
     addLog("PC1", "전체 도킹 스테이션 복귀 요청");
     if (linkModeRef.current === "live") {

@@ -49,6 +49,8 @@ export function MapPanel() {
 
   // 규칙2: AMR 마커는 도달한 waypoint 에만 스냅해 고정한다(실시간 위치 표기 안 함).
   const heldMarkerRef = useRef<Record<string, { x: number; y: number }>>({});
+  // 기능2: 로봇이 지나간(도달한) waypoint 인덱스를 존별로 누적한다(순서 무관). 순찰이 끝나면 비운다.
+  const visitedRef = useRef<Record<string, Set<number>>>({});
 
   function flash(msg: string) {
     setNotice(msg);
@@ -175,6 +177,28 @@ export function MapPanel() {
         : waypointTotal >= need
           ? "지정 완료! ▶ 통합 순찰 시작을 누르세요"
           : `${zone} waypoint ${waypoints[zone]?.length ?? 0}/${WP_PER_ZONE} · ${zone} 영역 안을 클릭하세요`;
+
+  // 기능2: 순찰 중 로봇 실좌표가 waypoint 도달 반경 안이면 그 점을 "방문"으로 누적한다.
+  //   순서 개념 없이(가까운 점 우선 순회) 지나간 점부터 색이 칠해진다. 순찰 종료 시 초기화.
+  const SNAP = Math.max(1.5, W * 0.02);
+  if (!patrolStarted) {
+    if (Object.keys(visitedRef.current).length) visitedRef.current = {};
+  } else {
+    for (const r of robots) {
+      const z = ZONES.find((zz) => ZONE_AMR[zz] === r.id);
+      if (!z || !r.pose) continue;
+      const live = activeMap
+        ? (() => {
+            const c = worldToPixel(activeMap, r.pose.x, r.pose.y);
+            return { x: clamp(c.px, 0, W), y: clamp(c.py, 0, H) };
+          })()
+        : { x: clamp(r.pose.x, 0, W), y: clamp(r.pose.y, 0, H) };
+      const set = visitedRef.current[z] ?? (visitedRef.current[z] = new Set<number>());
+      (waypoints[z] ?? []).forEach((w, i) => {
+        if (Math.hypot(w.x - live.x, w.y - live.y) <= SNAP) set.add(i);
+      });
+    }
+  }
 
   return (
     <section className="panel map-panel">
@@ -376,29 +400,35 @@ export function MapPanel() {
             />
           )}
 
-          {/* 지정한 waypoint 마커 */}
+          {/* 지정한 waypoint 마커 — 번호 없음. 로봇이 도달하면 색이 채워져 진행 현황을 표시. */}
           {ZONES.map((z) =>
-            (waypoints[z] ?? []).map((w, idx) => (
-              <g key={`${z}-${idx}`} transform={`translate(${w.x},${w.y})`}>
-                <circle
-                  r={2.2 * U}
-                  fill={ZONE_META[z].color}
-                  fillOpacity={0.18}
-                  stroke={ZONE_META[z].color}
-                  strokeWidth={1.6}
-                  vectorEffect="non-scaling-stroke"
-                />
-                <text
-                  y={0.9 * U}
-                  textAnchor="middle"
-                  fontSize={2.4 * U}
-                  fontWeight={700}
-                  fill={ZONE_META[z].color}
-                >
-                  {idx + 1}
-                </text>
-              </g>
-            )),
+            (waypoints[z] ?? []).map((w, idx) => {
+              const done = visitedRef.current[z]?.has(idx) ?? false;
+              const color = ZONE_META[z].color;
+              return (
+                <g key={`${z}-${idx}`} transform={`translate(${w.x},${w.y})`}>
+                  <circle
+                    r={2.2 * U}
+                    fill={color}
+                    fillOpacity={done ? 1 : 0.12}
+                    stroke={color}
+                    strokeWidth={done ? 2 : 1.6}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                  {done && (
+                    <text
+                      y={0.9 * U}
+                      textAnchor="middle"
+                      fontSize={2.4 * U}
+                      fontWeight={800}
+                      fill="#fff"
+                    >
+                      ✓
+                    </text>
+                  )}
+                </g>
+              );
+            }),
           )}
 
           {/* 규칙2: AMR 마커는 도달한 waypoint 에 스냅해 고정 — 실시간 위치는 표기하지 않는다. */}
@@ -426,7 +456,9 @@ export function MapPanel() {
             const px = held.x;
             const py = held.y;
             const danger = r.mission_type === "ANOMALY";
-            const fill = danger ? "#e5484d" : "#1f4fd0";
+            // 평상시 마커는 담당 존 색과 동일(존-1 파랑 / 존-2 핑크). 이상 대응 중이면 빨강.
+            const zoneColor = assignedZone ? ZONE_META[assignedZone].color : "#1f4fd0";
+            const fill = danger ? "#e5484d" : zoneColor;
             return (
               <g key={r.id} transform={`translate(${px},${py})`}>
                 <circle r={2.8 * U} fill={fill} stroke="#fff" strokeWidth={2} vectorEffect="non-scaling-stroke" />

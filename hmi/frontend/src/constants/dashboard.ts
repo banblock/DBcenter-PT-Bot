@@ -2,10 +2,12 @@
 
 import type { Command, MissionType, RobotState, StateMetaEntry, Track } from "../types";
 
-/** 기능1: 구역 2개 · 각 구역당 waypoint 3개 · 구역↔담당 AMR 매핑 */
+/** 기능1: 구역 2개 · 각 구역당 waypoint 5개 · 구역↔담당 AMR 매핑
+ *  순서(넘버링) 개념은 없다 — 로봇은 지정된 점들 중 가까운 점을 우선으로 순회하고,
+ *  프론트는 도달한 점의 원을 색으로 채워 진행 현황만 표시한다. */
 export const ZONES = ["존-1", "존-2"] as const;
 export const ZONE_AMR: Record<string, string> = { "존-1": "AMR-01", "존-2": "AMR-02" };
-export const WP_PER_ZONE = 3;
+export const WP_PER_ZONE = 5;
 
 /** 존 이름 → 백엔드 zone_id · 담당 AMR · 색 · 기본 위험도.
  *  드래그로 그린 사각형을 백엔드에 저장할 때 이 zone_id 로 upsert 한다. */
