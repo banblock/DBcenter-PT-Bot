@@ -389,6 +389,12 @@ class FleetNode(Node):
                 return
             robot = robot_selector.select_nearest_robot(
                 self.graph.copy(), loc, self._robot_pose, candidates)
+            # 급파 로봇 선정(위)까지는 원본 좌표로 거리를 재고, 로봇에게
+            # 실제로 내려보내는 이동 목표만 통로 그래프 위로 스냅한다 -
+            # CCTV 좌표가 랙 안쪽 등 로봇이 못 가는 지점일 수 있어서다
+            # (하드웨어 테스트 중 지적됨). 로봇은 스냅된 지점까지만
+            # 이동하고, 카메라(정면)는 원래 좌표 쪽을 보도록 yaw를 맞춘다.
+            loc = anomaly_control.snap_cctv_location(self.graph, loc)
 
         if robot not in self._anomaly_pubs:
             self.get_logger().warn(f'anomaly trigger: unknown robot {robot!r}, ignoring')
@@ -403,8 +409,21 @@ class FleetNode(Node):
 
         self._anomaly_busy.add(robot)
         self.get_logger().info(f'anomaly at {loc} -> dispatching {robot}')
+        # 순찰 미션/도킹과 동일하게, 이상신호 이동도 통로 그래프 경로로
+        # 계산해서 보낸다 - 좌표 하나로 Nav2에 직행시키면 통로 그래프도
+        # occupancy 중재도 안 거쳐서(이슈 12·14와 같은 부류) 다른 로봇과
+        # 마주칠 수 있다.
+        start_pos = self._robot_pose.get(robot)
+        if start_pos is None:
+            route = [{
+                'x': loc['x'], 'y': loc['y'], 'yaw': loc.get('yaw', 0.0),
+                'has_gate': False, 'point_id': None, 'origin': 'patrol',
+            }]
+        else:
+            route = zone_router.route_to_point(
+                self.graph, start_pos, loc, f'anomaly_{robot}')
         out = String()
-        out.data = json.dumps(loc)
+        out.data = json.dumps(route)
         self._anomaly_pubs[robot].publish(out)
 
     def _on_anomaly_done(self, msg):

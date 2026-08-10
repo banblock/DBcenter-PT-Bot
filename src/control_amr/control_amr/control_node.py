@@ -19,7 +19,6 @@ Fleet Node, then walks the waypoints one at a time:
 """
 
 import json
-import math
 import sys
 import time
 
@@ -82,8 +81,10 @@ class ControlNode:
 
         # Dispatched by Fleet Node when it wants this robot to break off
         # patrol and go check an anomaly (이상신호 감지 -> 임무 수행 로봇 선택).
+        # 순찰/도킹과 같은 모양으로 통로 그래프 라우팅된 웨이포인트
+        # 리스트를 받는다(zone_router.route_to_point() 참고).
         self.anomaly_pending = False
-        self.anomaly_location = None
+        self.anomaly_route = None
         self.navigator.create_subscription(
             String, f'/fleet/{namespace}/anomaly', self._on_anomaly, 10)
         self.anomaly_done_pub = self.navigator.create_publisher(
@@ -135,14 +136,19 @@ class ControlNode:
             self.mission = mission
 
     def _on_anomaly(self, msg):
+        # /fleet/<ns>/dock과 동일하게 이제 좌표 하나가 아니라 통로
+        # 그래프로 라우팅된 웨이포인트 리스트를 받는다
+        # (zone_router.route_to_point() 참고) - _validate_mission()으로
+        # 그 검증 로직을 그대로 재사용한다.
         try:
-            location = json.loads(msg.data)
-            if not self._is_valid_pose(location):
-                raise ValueError('x, y, yaw must be finite numbers')
-        except (json.JSONDecodeError, ValueError) as exc:
+            route = json.loads(msg.data)
+        except json.JSONDecodeError as exc:
             self._report_failure('invalid_anomaly_json', {'error': str(exc)})
             return
-        self.anomaly_location = location
+        if not self.mission_flow.validate_mission(route, publish_rejection=False):
+            self._report_failure('invalid_anomaly_route', {'route': route})
+            return
+        self.anomaly_route = route
         self.anomaly_pending = True
 
     def _on_anomaly_resume(self, msg):
@@ -150,19 +156,6 @@ class ControlNode:
         # 토픽(/fleet/<ns>/anomaly_resume)으로 걸러서 보내주므로, 여기
         # 도착한 것 자체가 "이 로봇 재개하라"는 신호다.
         self.anomaly_resume_pending = True
-
-    @staticmethod
-    def _is_valid_pose(value):
-        if not isinstance(value, dict):
-            return False
-        if any(isinstance(value.get(field), bool)
-               for field in ('x', 'y', 'yaw')):
-            return False
-        try:
-            coordinates = [float(value[field]) for field in ('x', 'y', 'yaw')]
-        except (KeyError, TypeError, ValueError):
-            return False
-        return all(math.isfinite(coordinate) for coordinate in coordinates)
 
     def _on_emergency_stop(self, msg):
         try:
@@ -339,14 +332,51 @@ class ControlNode:
         result = self._get_navigation_result()
         return self._handle_navigation_result(result)
 
+    def _traverse_route_with_crossings(
+            self, route, crossing_timeout_reason, arrival_failed_reason):
+        """route(zone_router.route_to_point()가 만든 웨이포인트 리스트)를
+        순찰 미션과 같은 점유 프로토콜로 순서대로 이동한다 - 이미 쥔
+        point_id는 재요청하지 않고, 다음 웨이포인트도 같은 point_id면
+        도착해도 release를 미룬다(알려진 이슈 #4와 같은 이유). **마지막
+        웨이포인트의 크로싱은 여기서 절대 놓지 않는다** - 호출부가 그
+        뒤에 할 일(도킹 액션, 이상신호 대기 등)이 끝날 때까지 계속
+        쥐고 있어야 그 지점이 하필 공유 자원 위여도 안전하기 때문이다.
+        호출부 책임으로 넘긴다.
+
+        `_handle_dock()`/`_handle_anomaly()` 둘 다 쓰는 공통 로직.
+        성공하면 True, 복구 불가능한 실패면(쥐고 있던 크로싱은 이미
+        반납한 뒤) False를 반환한다."""
+        for idx, wp in enumerate(route):
+            point_id = wp.get('point_id')
+            if point_id and self.granted_point != point_id:
+                if not self._request_crossing(point_id):
+                    self._report_failure(crossing_timeout_reason, wp)
+                    return False
+            pose = self.navigator.getPoseStamped([wp['x'], wp['y']], wp['yaw'])
+            while not self._move_to(pose):
+                interrupt_result = self._handle_navigation_interrupt(wp)
+                if isinstance(interrupt_result, list) or not interrupt_result:
+                    # 경로 재계산(list)이나 복구 불가능한 실패 - 순찰
+                    # 미션과 달리 이 이동은 그대로 이어받지 않고 실패
+                    # 처리한다(재요청은 Fleet이 다시 명령을 보내면 됨).
+                    if self.granted_point is not None:
+                        self._release_crossing(self.granted_point)
+                    self._report_failure(arrival_failed_reason, wp)
+                    return False
+            is_last = idx + 1 >= len(route)
+            if point_id and not is_last and point_id != route[idx + 1].get('point_id'):
+                self._release_crossing(point_id)
+        return True
+
     def _handle_anomaly(self):
-        """이상신호 대응 - CCTV/AMR 감지 위치로 이동한다(자체 감지면
-        그 로봇의 현재 위치가 곧 이상 위치라 사실상 제자리 정지).
-        비전 노드가 자동으로 판정하지 않는다 - 도착하면 그 자리에서
-        카메라로 상황을 계속 비추며 운영자 판단을 기다린다. HMI가 그
-        영상을 보고 "재개"/"도킹" 둘 중 하나를 최종 결정한다(사용자
-        확인 결과 - 자동 판정이 아니라 사람이 최종 결정권을 가지는 게
-        맞는 설계).
+        """이상신호 대응 - CCTV/AMR 감지 위치로 통로 그래프 경로를 따라
+        이동한다(자체 감지면 그 로봇의 현재 위치가 곧 이상 위치라
+        route가 사실상 홉 없는 제자리 정지가 됨, zone_router.route_to_point()
+        참고). 비전 노드가 자동으로 판정하지 않는다 - 도착하면 그
+        자리에서 카메라로 상황을 계속 비추며 운영자 판단을 기다린다.
+        HMI가 그 영상을 보고 "재개"/"도킹" 둘 중 하나를 최종 결정한다
+        (사용자 확인 결과 - 자동 판정이 아니라 사람이 최종 결정권을
+        가지는 게 맞는 설계).
 
         두 결정 다 이미 있거나 새로 만든 신호를 그대로 쓴다:
         - 재개: 신규 /fleet/<ns>/anomaly_resume(self.anomaly_resume_pending)
@@ -358,21 +388,19 @@ class ControlNode:
         반환값은 _handle_navigation_interrupt()의 다른 분기들과 같은
         컨벤션: True면 원래 웨이포인트로 재시도, list면(도킹 성공)
         미션을 그걸로 교체."""
-        loc = self.anomaly_location
+        route = self.anomaly_route
         self.anomaly_pending = False
-        self._publish_state('anomaly_moving', loc)
+        final = route[-1]
+        self._publish_state('anomaly_moving', final)
         self.navigator.info(
-            f'[{self.namespace}] heading to anomaly at '
-            f'({loc["x"]}, {loc["y"]})')
-        pose = self.navigator.getPoseStamped(
-            [float(loc['x']), float(loc['y'])], float(loc['yaw']))
-        self.navigator.startToPose(pose)
-        if not self._wait_for_anomaly_arrival(pose):
-            self._report_failure('anomaly_arrival_failed', loc)
-            self._publish_anomaly_done(loc, confirmed=None, failed=True)
+            f'[{self.namespace}] heading to anomaly via {len(route)} '
+            f'waypoint(s), final ({final["x"]}, {final["y"]})...')
+        if not self._traverse_route_with_crossings(
+                route, 'anomaly_crossing_timeout', 'anomaly_arrival_failed'):
+            self._publish_anomaly_done(final, confirmed=None, failed=True)
             return True
 
-        self._publish_state('anomaly_waiting', loc)
+        self._publish_state('anomaly_waiting', final)
         self.navigator.info(
             f'[{self.namespace}] holding position, camera on anomaly - '
             'waiting for operator decision (resume/dock)...')
@@ -386,13 +414,20 @@ class ControlNode:
         if self.dock_pending:
             self.navigator.info(
                 f'[{self.namespace}] operator decided: dock return')
-            self._publish_anomaly_done(loc, confirmed=True, failed=False)
+            # 이상신호 이동에서 쥐고 있던 크로싱(있다면)을 놓고 도킹으로
+            # 넘어간다 - _handle_dock()은 자기 경로의 크로싱만 알지 이걸
+            # 모르니, 안 놓으면 두 크로싱을 동시에 쥔 채로 남는다.
+            if self.granted_point is not None:
+                self._release_crossing(self.granted_point)
+            self._publish_anomaly_done(final, confirmed=True, failed=False)
             return self._handle_dock()
 
         self.anomaly_resume_pending = False
+        if self.granted_point is not None:
+            self._release_crossing(self.granted_point)
         self.navigator.info(
             f'[{self.namespace}] operator decided: resume patrol')
-        self._publish_anomaly_done(loc, confirmed=False, failed=False)
+        self._publish_anomaly_done(final, confirmed=False, failed=False)
         self._publish_state('patrol_resuming')
         return True
 
@@ -448,33 +483,9 @@ class ControlNode:
         self.navigator.info(
             f'[{self.namespace}] heading to dock station via {len(route)} '
             f'waypoint(s), final ({final["x"]}, {final["y"]})...')
-
-        for idx, wp in enumerate(route):
-            point_id = wp.get('point_id')
-            if point_id and self.granted_point != point_id:
-                if not self._request_crossing(point_id):
-                    self._report_failure('dock_crossing_timeout', wp)
-                    return True
-            pose = self.navigator.getPoseStamped([wp['x'], wp['y']], wp['yaw'])
-            while not self._move_to(pose):
-                interrupt_result = self._handle_navigation_interrupt(wp)
-                if isinstance(interrupt_result, list) or not interrupt_result:
-                    # 경로 재계산(list)이나 복구 불가능한 실패 - 순찰
-                    # 미션과 달리 도킹 이동은 그대로 이어받지 않고 실패
-                    # 처리한다(anomaly 이동도 지금 이 정도 수준의 재시도만
-                    # 함 - 재요청은 Fleet이 다시 dock 명령을 보내면 됨).
-                    if self.granted_point is not None:
-                        self._release_crossing(self.granted_point)
-                    self._report_failure('dock_arrival_failed', wp)
-                    return True
-            # 다음 웨이포인트도 같은 point_id면 여기서 놓지 않고 그대로
-            # 들고 간다. 마지막 지점이면(그 지점 자체가 공유 자원 위일
-            # 수 있으니) 아예 여기서 안 놓고 실제 도킹(navigator.dock())
-            # 까지 끝난 뒤에야 놓는다. 순찰 미션의 동일한 문제(알려진
-            # 이슈 #4)와 같은 이유.
-            is_last = idx + 1 >= len(route)
-            if point_id and not is_last and point_id != route[idx + 1].get('point_id'):
-                self._release_crossing(point_id)
+        if not self._traverse_route_with_crossings(
+                route, 'dock_crossing_timeout', 'dock_arrival_failed'):
+            return True
 
         self._publish_state('docking', final)
         self.navigator.info(f'[{self.namespace}] docking...')
@@ -513,10 +524,6 @@ class ControlNode:
 
     def _handle_navigation_result(self, result):
         return self.navigation_flow.handle_navigation_result(result)
-
-    def _wait_for_anomaly_arrival(self, pose):
-        return self.navigation_flow.wait_until_pose_reached(
-            lambda: self.emergency_stopped, pose)
 
     def _handle_navigation_interrupt(self, waypoint):
         if self.navigation_interrupt_reason == 'emergency_stop':

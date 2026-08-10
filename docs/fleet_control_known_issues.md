@@ -440,6 +440,49 @@ id_prefix)` 신규 - 순찰 미션과 같은 `_emit_hop()` 파이프라인으로
 예전처럼 `anomaly_done`을 손으로 쏘는 게 아니라 `anomaly_resume`/`dock`을
 보내야 한다.
 
+### 16. 이상신호 이동도 좌표 직행 대신 통로 그래프 경로 + 카메라만 회전하도록 변경
+
+**대상**: `src/fleet/fleet/route_graph.py` (`nearest_point`),
+`src/fleet/fleet/anomaly_control.py` (`snap_cctv_location`),
+`src/fleet/fleet/fleet_node.py` (`_on_anomaly_trigger`),
+`src/control_amr/control_amr/control_node.py` (`_traverse_route_with_crossings`,
+`_handle_anomaly`, `_handle_dock`)
+
+이슈 15번까지는 도착 후 판정 방식만 고쳤고, 이동 자체는 여전히 이상
+좌표로 `startToPose()` 직행이었다 - 이슈 12·14번(0번 순찰 지점/도킹)과
+같은 부류의 문제가 그대로 남아있었다: CCTV가 주는 좌표는 카메라가 찍은
+실좌표라 랙 안쪽처럼 로봇이 물리적으로 못 가는 지점일 수 있고
+(`(-2.7, 1.5)`로 테스트 중 실제로 지적됨 - 가장 가까운 통로 요소에서
+0.3~0.5m 떨어짐), 통로 그래프/occupancy도 안 거쳤다.
+
+**수정**: `RouteGraph.nearest_point()`(조회 전용, `insert_point()`와
+같은 스냅 규칙이지만 그래프를 변형 안 함) 신규 추가.
+`anomaly_control.snap_cctv_location(graph, loc)`이 CCTV 좌표를 통로
+그래프 위 가장 가까운 지점으로 스냅하고, 카메라(로봇 정면)가 원래
+좌표 쪽을 보도록 yaw를 계산한다 - **CCTV 경로에서만** 쓴다(AMR 자체
+감지는 로봇이 이미 서 있는 자리 그대로가 맞으므로 스냅 안 함).
+`_on_anomaly_trigger()`가 (급파 로봇 선정까지는 원본 좌표로 거리를
+재고) 최종적으로 `zone_router.route_to_point()`로 로봇 현재 위치 →
+스냅된 지점까지 그래프 경로를 계산해서 웨이포인트 리스트로 보낸다
+(`/fleet/<ns>/dock`과 동일한 모양).
+
+Control Node 쪽은 도킹 이동 루프와 완전히 같은 로직이라
+`_traverse_route_with_crossings()`로 공통화해서 `_handle_dock()`/
+`_handle_anomaly()` 둘 다 쓰게 했다. `_handle_anomaly()`는 도착 후
+`anomaly_waiting`으로 전환하는데, **마지막 웨이포인트의 크로싱을 대기가
+끝날 때까지(운영자가 재개/도킹을 결정할 때까지) 계속 쥐고 있는다** -
+그 지점이 하필 공유 통로/교차로 위여도 로봇이 실제로 거기 서 있는
+동안은 다른 로봇이 못 들어오게. **트레이드오프**: 운영자 결정이
+오래 걸리면(사람이 개입하는 무기한 대기라 길어질 수 있음) 그 자원을
+다른 로봇이 그만큼 오래 못 쓴다 - 지금은 "물리적으로 서 있는 동안은
+반드시 점유를 지킨다"는 안전 우선 기본값으로 남겨뒀다.
+
+기존 `wait_until_pose_reached()`(이슈 13번에서 긴급정지 감시를
+추가했던 함수)는 이제 아무도 안 써서 `navigation_flow.py`에서 제거
+(`_move_to()`가 이미 긴급정지/충돌위험을 다 보므로). `_is_valid_pose()`도
+`_on_dock`/`_on_anomaly` 둘 다 `mission_flow.validate_mission()`으로
+바뀌면서 안 쓰여 같이 제거.
+
 ---
 
 ## 요약 — 지금 이대로 하드웨어 테스트 시나리오를 돌리면

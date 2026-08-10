@@ -97,45 +97,6 @@ class NavigationFlowSupport:
             f'[{self.namespace}] navigation failed (result={result})')
         return False
 
-    def wait_until_pose_reached(self, is_emergency_stopped, pose=None):
-        """Nav2 태스크가 끝날 때까지 대기하면서 충돌위험과 긴급정지를
-        감시한다(이상신호/도킹 이동처럼 _move_to()를 안 쓰는 경로용 -
-        _move_to()는 자기 폴링 루프에서 이미 이 둘을 다 본다). 원래
-        collision_risk만 봐서, 이상신호 이동 중 긴급정지를 걸어도
-        로봇이 전혀 반응하지 않는 문제가 있었다(하드웨어 테스트 체크리스트
-        시나리오 6 대상).
-
-        collision_risk는 취소만 하고 바로 실패로 반환한다(1차 안전은
-        Nav2 costmap이 담당하고 이건 보조 장치라 여기서 재시도하지
-        않음 - _move_to()와 동일한 정책). 긴급정지는 다르다 - 취소하고
-        해제될 때까지 제자리에서 기다린 뒤, `pose`가 주어졌으면 같은
-        목표로 이동을 재시도한다(_move_to()의 긴급정지 처리와 같은
-        패턴). `pose`가 없으면 취소만 하고 실패로 반환한다.
-
-        `is_emergency_stopped`: 인자 없이 bool을 반환하는 콜백 - 이
-        클래스는 emergency_stopped 상태를 직접 안 갖고 있어서(그건
-        ControlNode 쪽 상태) 호출부가 넘겨준다."""
-        # spin_once를 사용해 대기 중에도 다른 콜백을 처리한다.
-        while not self.navigator.isTaskComplete():
-            if self.check_collision_risk():
-                self.handle_collision_risk()
-                self.navigator.cancelTask()
-                while not self.navigator.isTaskComplete():
-                    rclpy.spin_once(self.navigator, timeout_sec=0.1)
-                return False
-            if is_emergency_stopped():
-                self.navigator.cancelTask()
-                while not self.navigator.isTaskComplete():
-                    rclpy.spin_once(self.navigator, timeout_sec=0.1)
-                if pose is None:
-                    return False
-                while is_emergency_stopped():
-                    rclpy.spin_once(self.navigator, timeout_sec=0.5)
-                self.navigator.startToPose(pose)
-                continue
-            rclpy.spin_once(self.navigator, timeout_sec=0.1)
-        return self.get_navigation_result() == 'succeeded'
-
     def recover_from_navigation_failure(self, reason):
         self.navigator.info(
             f'[{self.namespace}] navigation recovery requested: {reason}')

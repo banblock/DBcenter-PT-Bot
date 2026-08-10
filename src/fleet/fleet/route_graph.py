@@ -102,6 +102,24 @@ class RouteGraph:
                 best = (eid, t, proj, d)
         return best
 
+    def nearest_point(self, pt, snap_threshold=0.15):
+        """pt에서 가장 가까운, 로봇이 실제로 갈 수 있는 통로 위의 좌표를
+        돌려준다. `insert_point()`와 같은 스냅 규칙(기존 노드 우선,
+        아니면 가장 가까운 엣지에 투영)을 쓰지만 그래프를 변형하지
+        않는 조회 전용 버전이다 - 이상신호 CCTV 좌표처럼 랙 안쪽 등
+        로봇이 실제로 갈 수 없는 위치가 들어와도, 통로 그래프 위에서
+        가장 가까운 지점만 알고 싶을 때 쓴다(그 지점까지 이동한 뒤
+        원래 좌표 쪽으로 카메라만 돌리는 용도 - fleet_node.py
+        `_on_anomaly_trigger` 참고)."""
+        near_id, near_xy = self._nearest_node(pt)
+        if _dist(pt, near_xy) <= snap_threshold:
+            return near_xy
+        hit = self._nearest_edge_projection(pt)
+        if hit is None:
+            return near_xy
+        _, _, proj, _ = hit
+        return proj
+
     def insert_point(self, node_id, pt, snap_threshold=0.15):
         """순찰 지점 pt를 그래프에 노드로 끼워 넣는다. 이름 붙은
         알고리즘이라기보다 "점을 그래프에 투영"하는 단순 기하 연산:

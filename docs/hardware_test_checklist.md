@@ -167,13 +167,23 @@ ros2 topic pub --once /backend/dock std_msgs/msg/String "{data: '{\"robots\": [\
 
 ### 5. 이상신호 — CCTV 감지
 
+CCTV 좌표는 랙 안쪽 등 로봇이 못 가는 지점일 수 있어서, 로봇은 그
+좌표로 직행하지 않고 **통로 그래프 위 가장 가까운 지점까지만** 이동한
+뒤 카메라(정면)를 원래 좌표 쪽으로 돌린다(`RouteGraph.nearest_point()`/
+`anomaly_control.snap_cctv_location()`). 통로 그래프 밖 좌표로 테스트해야
+의미 있다 - 예: 아래 명령은 랙 안쪽으로 가정한 좌표.
+
 ```
-ros2 topic pub --once /fleet/anomaly_trigger std_msgs/msg/String "{data: '{\"x\": -2.33, \"y\": 0.0313}'}"
+ros2 topic pub --once /fleet/anomaly_trigger std_msgs/msg/String "{data: '{\"x\": -2.7, \"y\": 1.5}'}"
 ```
 
 - [ ] 순찰 중 + 이상신호 대응 중 아님 + 긴급정지 중 아님인 로봇 중
       **가장 가까운 로봇**이 급파되는지 (로봇 2대 다 순찰 중일 때 테스트해야
       의미 있음)
+- [ ] 로봇이 좌표(-2.7, 1.5)로 직행하지 않고, 통로 그래프 경로(홉별
+      `crossing_wait`/`crossing_granted` 로그)를 따라 이동하는지
+- [ ] 도착 지점이 통로 그래프 위(예: V_BC 통로 근처)이고, 로봇이 그
+      지점에서 원래 좌표(-2.7, 1.5) 방향을 보고 서는지(yaw 확인)
 - [ ] 도착 후 시나리오 4와 동일하게 `anomaly_waiting`에서 무기한
       대기하는지, `anomaly_resume`/`dock`으로 정상 종료되는지
 - [ ] 대응 중인 로봇에게 새 이상신호 트리거를 또 보내면 무시되는지

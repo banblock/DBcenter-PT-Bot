@@ -20,6 +20,8 @@ robot_status.py와 같은 패턴으로 fleet_node.py에서 분리했다).
 급파는 운영자 개입 없는 자동 판단이라 안전하게 제외하는 쪽을 기본값으로
 한다."""
 
+import math
+
 
 def eligible_candidates(missions, anomaly_busy, emergency_stopped):
     """CCTV 감지 급파 후보 목록 - 순찰 중(missions에 있음) + 이상신호
@@ -40,3 +42,19 @@ def resolve_self_location(ns, robot_pose, default_location):
         x, y = robot_pose[ns]
         return {'x': x, 'y': y, 'yaw': default_location['yaw']}
     return dict(default_location)
+
+
+def snap_cctv_location(graph, loc):
+    """CCTV가 알려주는 이상 좌표는 카메라가 찍은 실제 위치라, 랙 안쪽
+    같은 로봇이 물리적으로 갈 수 없는 지점일 수 있다(통로 그래프
+    밖). 그 좌표로 로봇을 직행시키는 대신, 통로 그래프 위에서 가장
+    가까운 지점(`RouteGraph.nearest_point()`)까지만 이동시키고, 카메라
+    (로봇 정면)가 원래 이상 좌표 쪽을 보도록 yaw를 그 방향으로 계산해서
+    돌려준다.
+
+    AMR 자체 감지 위치(resolve_self_location())는 이미 로봇이 서 있는
+    자리 그대로라 항상 그래프 근방이므로 이 함수를 거치지 않는다 - CCTV
+    경로에서만 쓴다."""
+    snapped = graph.nearest_point((loc['x'], loc['y']))
+    yaw = math.degrees(math.atan2(loc['y'] - snapped[1], loc['x'] - snapped[0]))
+    return {'x': snapped[0], 'y': snapped[1], 'yaw': yaw}
