@@ -66,9 +66,10 @@ ros2 node list
   - `/fleet/robot3/dock`, `/fleet/robot8/dock`
   - `/fleet/robot3/anomaly`, `/fleet/robot8/anomaly`
   - `/fleet/robot3/anomaly_resume`, `/fleet/robot8/anomaly_resume`
+  - `/fleet/robot3/anomaly_captured`, `/fleet/robot8/anomaly_captured`
   - `/fleet/anomaly_trigger`, `/fleet/anomaly_done`
   - `/backend/emergency_stop_all`, `/backend/dock`, `/backend/map_points`,
-    `/backend/anomaly_resume`
+    `/backend/anomaly_resume`, `/backend/anomaly_captured`
   - `/control/robot3_State`, `/control/robot8_State` ← **이번에 고친 부분, 0번에서 확인**
   - `/robot3/amcl_pose`, `/robot8/amcl_pose`
 
@@ -189,6 +190,21 @@ ros2 topic pub --once /fleet/anomaly_trigger std_msgs/msg/String "{data: '{\"x\"
 - [ ] 대응 중인 로봇에게 새 이상신호 트리거를 또 보내면 무시되는지
       (`_anomaly_busy`에 남아있는 동안은 급파 후보에서 제외 - `anomaly_waiting`
       대기 중에도 아직 `anomaly_done`을 안 보냈으니 계속 제외 상태여야 함)
+
+**카메라 조기 포착** — 목적지에 도착하기 전에 로봇 자신의 카메라가
+상황을 먼저 잡으면, 끝까지 안 가고 그 자리에서 멈춰야 한다. 위
+트리거를 보낸 직후(`anomaly_moving` 상태, 아직 이동 중일 때) 바로
+실행:
+```
+./anomaly_captured.sh robot3
+```
+- [ ] 목적지(스냅된 지점)까지 안 가고, 신호를 받은 그 위치에서 즉시
+      멈추는지
+- [ ] 멈춘 방향(yaw)이 그 순간의 진행 방향 그대로인지(별도로 카메라를
+      더 돌리지 않아야 함)
+- [ ] 멈춘 뒤 `anomaly_waiting`으로 정상 전환되고, 이동 중 쥐고 있던
+      크로싱이 있었다면(중간에 공유 통로/교차로였을 경우) 계속 쥔
+      채로 있다가 재개/도킹 결정 때 정상 반납되는지
 
 ### 6. 인터럽트 우선순위 충돌 테스트
 

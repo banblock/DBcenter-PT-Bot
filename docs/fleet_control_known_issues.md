@@ -483,6 +483,39 @@ Control Node 쪽은 도킹 이동 루프와 완전히 같은 로직이라
 `_on_dock`/`_on_anomaly` 둘 다 `mission_flow.validate_mission()`으로
 바뀌면서 안 쓰여 같이 제거.
 
+### 17. 이상신호 이동 중 카메라 조기 포착 시 목적지 도달 전 정지 기능 추가
+
+**대상**: `src/control_amr/control_amr/control_node.py` (`_move_to`,
+`_traverse_route_with_crossings`, `_handle_anomaly`, `_on_anomaly_captured`),
+`src/fleet/fleet/fleet_node.py` (`_on_anomaly_captured`)
+
+이슈 16번까지는 CCTV 좌표를 스냅한 지점까지 항상 끝까지 이동했는데,
+사용자 요청으로 "목적지로 가는 도중 로봇 자신의 카메라가 이상 상황을
+먼저 포착하면 거기서 즉시 멈춘다"는 조기정지 기능을 추가했다. "카메라에
+잡혔다"는 신호는 이 저장소에 비전 노드가 없어서 UI가 대신 보내주는
+걸로 함(사용자 확인) - `/backend/anomaly_captured`(`{"robot": ns}`) →
+Fleet이 `/fleet/<ns>/anomaly_captured`로 중계(`anomaly_resume`과 동일
+패턴).
+
+**구현**: `_move_to(pose, extra_interrupt=None)`에 `(reason, check)`
+옵션 인자 추가 - `emergency_stopped`/`dock_pending`/`anomaly_pending`처럼
+항상 감시하면 안 되고(순찰/도킹 이동 중엔 무의미) 특정 호출에서만
+감시해야 하는 인터럽트용. `check()`가 True면 그 즉시(진행 중이던 홉
+도중이어도) 취소하고 `navigation_interrupt_reason`을 `reason`으로 세운
+채 False를 반환한다. `_traverse_route_with_crossings()`도 같은 옵션을
+받아 그대로 `_move_to()`에 넘기고, 반환값을 기존 bool 대신
+`'completed'`/`'stopped_early'`/`'failed'` 3가지 문자열로 바꿨다(도킹은
+`extra_interrupt`를 안 써서 `'stopped_early'`가 절대 안 나옴 - `!=
+'completed'`를 실패로 취급하는 기존 동작 그대로 유지).
+
+`_handle_anomaly()`가 `extra_interrupt=('anomaly_captured', lambda:
+self.anomaly_captured_pending)`를 넘긴다. 조기정지 시 카메라(로봇
+정면) 각도는 멈춘 순간의 진행 방향 그대로 두고 별도로 안 돌린다(사용자
+확인). 그 순간 쥐고 있던 크로싱이 있으면(마침 공유 통로 중간이었을
+경우) 그대로 유지한 채 `anomaly_waiting`으로 넘어가고, 이후 재개/도킹
+결정 때 정상적으로 반납된다(이슈 16번의 "물리적으로 서 있는 동안은
+점유를 지킨다" 원칙과 동일).
+
 ---
 
 ## 요약 — 지금 이대로 하드웨어 테스트 시나리오를 돌리면

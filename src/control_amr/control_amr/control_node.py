@@ -102,6 +102,17 @@ class ControlNode:
             String, f'/fleet/{namespace}/anomaly_resume',
             self._on_anomaly_resume, 10)
 
+        # 이상신호 카메라 포착 조기정지 - 목적지(스냅된 지점)로 가는
+        # 도중에 로봇 자신의 카메라가 이상 상황을 먼저 포착하면(UI가
+        # 알려줌) 끝까지 안 가고 그 자리에서 즉시 멈춘다. 순찰/도킹
+        # 이동 중에는 의미가 없어서 _move_to()의 상시 인터럽트 목록에
+        # 넣지 않고, _handle_anomaly()가 extra_interrupt로 넘겨줄 때만
+        # 감시한다.
+        self.anomaly_captured_pending = False
+        self.navigator.create_subscription(
+            String, f'/fleet/{namespace}/anomaly_captured',
+            self._on_anomaly_captured, 10)
+
         # 긴급정지 - {"stop": true/false}. 정지 시 즉시 cancelTask()하고,
         # 해제되기 전까지는 새 이동 명령을 아예 내보내지 않는다 (자세한
         # 설계 배경은 docs/control_emergency_dock_integration.md 참고).
@@ -156,6 +167,14 @@ class ControlNode:
         # 토픽(/fleet/<ns>/anomaly_resume)으로 걸러서 보내주므로, 여기
         # 도착한 것 자체가 "이 로봇 재개하라"는 신호다.
         self.anomaly_resume_pending = True
+
+    def _on_anomaly_captured(self, msg):
+        # anomaly_resume과 같은 이유로 페이로드 검증이 필요 없다 - 이
+        # 로봇 전용 토픽에 도착한 것 자체가 신호다. 이상신호 이동 중이
+        # 아닐 때 도착해도(예: 이미 도착해서 대기 중, 또는 순찰 중) 그냥
+        # 플래그만 세워두고 무해하게 무시된다 - _handle_anomaly()가
+        # 이동을 시작할 때마다 매번 False로 리셋하기 때문이다.
+        self.anomaly_captured_pending = True
 
     def _on_emergency_stop(self, msg):
         try:
@@ -290,9 +309,16 @@ class ControlNode:
         self._publish_state('gate_alignment_done', waypoint)
         return True
 
-    def _move_to(self, pose):
+    def _move_to(self, pose, extra_interrupt=None):
         """
         Navigate to a pose while allowing anomaly and collision interrupts.
+
+        `extra_interrupt`: 옵션 `(reason, check)` 튜플 - 순찰/도킹 이동
+        중에는 의미가 없고 이상신호 이동 중(카메라 포착 조기정지)에만
+        써야 하는 것처럼, 항상 감시하면 안 되는 인터럽트를 위한 것.
+        `check()`가 인자 없이 True를 반환하면 그 즉시(진행 중이던 이동
+        도중이어도) `navigation_interrupt_reason`을 `reason`으로 세우고
+        취소한 뒤 False를 반환한다.
 
         Return whether the goal was reached successfully.
         """
@@ -329,31 +355,48 @@ class ControlNode:
                 while not self.navigator.isTaskComplete():
                     time.sleep(0.1)
                 return False
+            if extra_interrupt is not None and extra_interrupt[1]():
+                self.navigation_interrupt_reason = extra_interrupt[0]
+                self._cancel_navigation_task()
+                return False
         result = self._get_navigation_result()
         return self._handle_navigation_result(result)
 
     def _traverse_route_with_crossings(
-            self, route, crossing_timeout_reason, arrival_failed_reason):
+            self, route, crossing_timeout_reason, arrival_failed_reason,
+            extra_interrupt=None):
         """route(zone_router.route_to_point()가 만든 웨이포인트 리스트)를
         순찰 미션과 같은 점유 프로토콜로 순서대로 이동한다 - 이미 쥔
         point_id는 재요청하지 않고, 다음 웨이포인트도 같은 point_id면
-        도착해도 release를 미룬다(알려진 이슈 #4와 같은 이유). **마지막
-        웨이포인트의 크로싱은 여기서 절대 놓지 않는다** - 호출부가 그
-        뒤에 할 일(도킹 액션, 이상신호 대기 등)이 끝날 때까지 계속
-        쥐고 있어야 그 지점이 하필 공유 자원 위여도 안전하기 때문이다.
-        호출부 책임으로 넘긴다.
+        도착해도 release를 미룬다(알려진 이슈 #4와 같은 이유). **아직
+        더 갈 홉이 남았어도(마지막 웨이포인트든, 조기정지든) 현재 쥐고
+        있는 크로싱은 여기서 절대 놓지 않는다** - 호출부가 그 뒤에 할
+        일(도킹 액션, 이상신호 대기 등)이 끝날 때까지 계속 쥐고 있어야
+        그 지점이 하필 공유 자원 위여도 안전하기 때문이다. 호출부
+        책임으로 넘긴다.
+
+        `extra_interrupt`: `_move_to()`에 그대로 전달하는 옵션
+        `(reason, check)` - 이상신호 이동 중 카메라 포착 조기정지처럼
+        이 호출에서만 감시해야 하는 인터럽트용(도킹은 안 씀). 이게
+        발동하면 목적지까지 안 가고 그 자리에서 멈춘 채
+        `'stopped_early'`를 반환한다 - 그 순간 쥐고 있던 크로싱도(있다면)
+        그대로 유지한다.
 
         `_handle_dock()`/`_handle_anomaly()` 둘 다 쓰는 공통 로직.
-        성공하면 True, 복구 불가능한 실패면(쥐고 있던 크로싱은 이미
-        반납한 뒤) False를 반환한다."""
+        `'completed'`(끝까지 도착), `'stopped_early'`(extra_interrupt로
+        중간에 멈춤), `'failed'`(복구 불가능한 실패, 쥐고 있던 크로싱은
+        이미 반납한 뒤) 중 하나를 반환한다."""
         for idx, wp in enumerate(route):
             point_id = wp.get('point_id')
             if point_id and self.granted_point != point_id:
                 if not self._request_crossing(point_id):
                     self._report_failure(crossing_timeout_reason, wp)
-                    return False
+                    return 'failed'
             pose = self.navigator.getPoseStamped([wp['x'], wp['y']], wp['yaw'])
-            while not self._move_to(pose):
+            while not self._move_to(pose, extra_interrupt=extra_interrupt):
+                if (extra_interrupt is not None and
+                        self.navigation_interrupt_reason == extra_interrupt[0]):
+                    return 'stopped_early'
                 interrupt_result = self._handle_navigation_interrupt(wp)
                 if isinstance(interrupt_result, list) or not interrupt_result:
                     # 경로 재계산(list)이나 복구 불가능한 실패 - 순찰
@@ -362,11 +405,11 @@ class ControlNode:
                     if self.granted_point is not None:
                         self._release_crossing(self.granted_point)
                     self._report_failure(arrival_failed_reason, wp)
-                    return False
+                    return 'failed'
             is_last = idx + 1 >= len(route)
             if point_id and not is_last and point_id != route[idx + 1].get('point_id'):
                 self._release_crossing(point_id)
-        return True
+        return 'completed'
 
     def _handle_anomaly(self):
         """이상신호 대응 - CCTV/AMR 감지 위치로 통로 그래프 경로를 따라
@@ -377,6 +420,11 @@ class ControlNode:
         HMI가 그 영상을 보고 "재개"/"도킹" 둘 중 하나를 최종 결정한다
         (사용자 확인 결과 - 자동 판정이 아니라 사람이 최종 결정권을
         가지는 게 맞는 설계).
+
+        목적지로 가는 도중에 로봇 자신의 카메라가 이상 상황을 먼저
+        포착하면(UI가 /backend/anomaly_captured로 알려줌) 끝까지 안
+        가고 그 자리에서 즉시 멈춘다 - 카메라(로봇 정면) 각도는 멈춘
+        순간의 진행 방향 그대로 둔다(사용자 확인 결과, 별도 회전 없음).
 
         두 결정 다 이미 있거나 새로 만든 신호를 그대로 쓴다:
         - 재개: 신규 /fleet/<ns>/anomaly_resume(self.anomaly_resume_pending)
@@ -390,15 +438,24 @@ class ControlNode:
         미션을 그걸로 교체."""
         route = self.anomaly_route
         self.anomaly_pending = False
+        self.anomaly_captured_pending = False
         final = route[-1]
         self._publish_state('anomaly_moving', final)
         self.navigator.info(
             f'[{self.namespace}] heading to anomaly via {len(route)} '
             f'waypoint(s), final ({final["x"]}, {final["y"]})...')
-        if not self._traverse_route_with_crossings(
-                route, 'anomaly_crossing_timeout', 'anomaly_arrival_failed'):
+        result = self._traverse_route_with_crossings(
+            route, 'anomaly_crossing_timeout', 'anomaly_arrival_failed',
+            extra_interrupt=(
+                'anomaly_captured', lambda: self.anomaly_captured_pending))
+        if result == 'failed':
             self._publish_anomaly_done(final, confirmed=None, failed=True)
             return True
+        if result == 'stopped_early':
+            self.anomaly_captured_pending = False
+            self.navigator.info(
+                f'[{self.namespace}] anomaly captured by onboard camera '
+                'before reaching target - stopping here')
 
         self._publish_state('anomaly_waiting', final)
         self.navigator.info(
@@ -483,8 +540,8 @@ class ControlNode:
         self.navigator.info(
             f'[{self.namespace}] heading to dock station via {len(route)} '
             f'waypoint(s), final ({final["x"]}, {final["y"]})...')
-        if not self._traverse_route_with_crossings(
-                route, 'dock_crossing_timeout', 'dock_arrival_failed'):
+        if self._traverse_route_with_crossings(
+                route, 'dock_crossing_timeout', 'dock_arrival_failed') != 'completed':
             return True
 
         self._publish_state('docking', final)

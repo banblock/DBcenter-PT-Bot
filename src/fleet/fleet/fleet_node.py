@@ -118,6 +118,7 @@ class FleetNode(Node):
         self._mission_pubs = {}
         self._anomaly_pubs = {}
         self._anomaly_resume_pubs = {}
+        self._anomaly_captured_pubs = {}
         self._emergency_pubs = {}
         self._dock_pubs = {}
         # 이상신호 로봇 선정용 로봇별 최신 위치. amcl_pose 구독도
@@ -155,6 +156,13 @@ class FleetNode(Node):
         # 필요하다. payload: {"robot": "robot3"}.
         self.create_subscription(
             String, '/backend/anomaly_resume', self._on_anomaly_resume, 10)
+
+        # 이상신호 카메라 포착 조기정지 - 이상신호 목적지로 가는 도중에
+        # 로봇 자신의 카메라가 그 상황을 먼저 포착하면, UI가 이 신호를
+        # 보내서 로봇이 끝까지 안 가고 그 자리에서 멈추게 한다(사용자
+        # 확인 결과). payload: {"robot": "robot3"}.
+        self.create_subscription(
+            String, '/backend/anomaly_captured', self._on_anomaly_captured, 10)
 
         # 긴급정지 - {"stop": true}면 등록된 로봇 전체를 정지시키고,
         # {"stop": false}면 그중 긴급정지 중이던 로봇만 골라 해제한다.
@@ -246,6 +254,9 @@ class FleetNode(Node):
         if ns not in self._anomaly_resume_pubs:
             self._anomaly_resume_pubs[ns] = self.create_publisher(
                 String, f'/fleet/{ns}/anomaly_resume', 10)
+        if ns not in self._anomaly_captured_pubs:
+            self._anomaly_captured_pubs[ns] = self.create_publisher(
+                String, f'/fleet/{ns}/anomaly_captured', 10)
         if ns not in self._emergency_pubs:
             self._emergency_pubs[ns] = self.create_publisher(
                 String, f'/fleet/{ns}/emergency_stop', 10)
@@ -453,6 +464,24 @@ class FleetNode(Node):
             return
         self.get_logger().info(f'anomaly resume -> {robot}')
         self._anomaly_resume_pubs[robot].publish(String())
+
+    def _on_anomaly_captured(self, msg):
+        """이상신호 목적지로 가는 도중 로봇 자신의 카메라가 그 상황을
+        먼저 포착했다고 UI가 알려주는 경우 - 그 로봇에게
+        /fleet/<ns>/anomaly_captured를 그대로 전달한다. _on_anomaly_resume()과
+        같은 패턴(Fleet은 등록 여부만 확인하고 그대로 중계, 실제 처리는
+        Control Node 몫)."""
+        try:
+            payload = json.loads(msg.data) if msg.data else {}
+            robot = payload['robot']
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            self.get_logger().warn(f'bad /backend/anomaly_captured payload, ignoring: {exc}')
+            return
+        if robot not in self._anomaly_captured_pubs:
+            self.get_logger().warn(f'anomaly captured: unknown robot {robot!r}, ignoring')
+            return
+        self.get_logger().info(f'anomaly captured -> {robot}')
+        self._anomaly_captured_pubs[robot].publish(String())
 
     def _on_emergency_stop_all(self, msg):
         """설계도 '비상정지 수신'(정지) / '전채 재개'(해제) - stop 필드로
