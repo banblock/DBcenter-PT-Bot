@@ -3,7 +3,6 @@ from __future__ import annotations
 import glob
 import re
 import threading
-from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -23,6 +22,8 @@ from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import Bool
 from ultralytics import YOLO
 
+from vision_detection.param_utils import declare_parameters_from_yaml
+
 @dataclass
 class CameraContext:
     """카메라 한 대에 속한 캡처 및 ROS 퍼블리셔 상태."""
@@ -33,7 +34,8 @@ class CameraContext:
     capture: cv2.VideoCapture
     image_publisher: Any
     last_status: Dict[str, bool]
-    detection_windows: Dict[str, "deque[bool]"]
+    hit_counts: Dict[str, int]
+    miss_counts: Dict[str, int]
     frame_lock: threading.Lock = field(default_factory=threading.Lock)
     latest_frame: Optional[Any] = None
     frame_sequence: int = 0
@@ -45,51 +47,44 @@ class DetectCctvNode(Node):
     카메라마다 전용 스레드가 계속 프레임을 읽어 최신 프레임 1장만 유지하고,
     타이머가 그 프레임들을 모아 한 번에 배치로 추론한다(카메라 대수만큼 모델을
     따로 부르는 것보다 GPU 효율이 좋음). 결과 이미지는 JPEG로 압축해서 발행하고
-    (네트워크 대역폭 절감), 판정은 detect_ambient_node와 동일하게 최근 프레임
-    윈도우의 과반수로 확정한다(순간적인 오검출/흔들림 방지).
+    (네트워크 대역폭 절감), 판정은 detect_ambient_node와 동일하게 진입은 연속
+    검출, 해제는 연속 미검출 카운트로 확정한다(순간적인 오검출/흔들림 방지).
     """
 
     STATUS_STATES = {"fire": 0, "smoke": 1, "coolant": 2,}
-    # 최근 N프레임 중 과반 이상 감지되면 확정 (켜짐/꺼짐 모두 동일 기준)
-    DETECTION_WINDOW_SIZE = 3
+    # 진입(켜짐)은 연속 이 프레임 수만큼 검출돼야 확정 - 1프레임짜리 순간 노이즈 필터링.
+    # 30fps 기준 0.1초라 실제 감지 반응속도엔 거의 영향 없음.
+    HIT_THRESHOLD = 3
+    # 해제(꺼짐)는 연속 이 프레임 수만큼 미검출이어야 확정. conf=0.13에서 CCTV
+    # recall=0.750(놓침률 25%) 기준 순수 놓침 노이즈만으로 7연속 미검출이 나올
+    # 확률은 0.25^7(약 0.006%)이고, 30fps에서 0.23초라 CCTV는 고정 카메라라
+    # ambient처럼 "다른 위치 사건을 씹는" 위험도 없어서 더 여유 있게 잡았다.
+    OFF_MISS_THRESHOLD = 7
 
     def __init__(self) -> None:
         """파라미터 로드, 모델 로드+워밍업, 카메라 오픈, 캡처 스레드 시작, 타이머 등록까지 한 번에 수행."""
         super().__init__("detect_cctv_node")
 
-        # 문자열 배열로 선언하면 카메라 인덱스("0")와 /dev 경로를 모두 사용할 수 있다.
+        declare_parameters_from_yaml(self, "detect_cctv_node")
+
+        camera_ids = self.get_parameter("camera_ids").value
+        self.min_camera_index = self.get_parameter("min_camera_index").value
+
+        # 문자열 배열로 통일하면 카메라 인덱스("0")와 /dev 경로를 모두 사용할 수 있다.
         # 비워두면(기본값) 연결된 웹캠을 자동 탐지한다.
-        self.declare_parameter("camera_devices", [])
-        self.declare_parameter("camera_ids", ["cctv1", "cctv2"])
-        # 노트북/PC 내장 카메라가 보통 낮은 인덱스를 차지하므로, 자동 탐지 시 이보다
-        # 낮은 인덱스의 /dev/videoN은 후보에서 제외한다.
-        self.declare_parameter("min_camera_index", 2)
-        self.declare_parameter("model_path", "models/cctv_best.pt")
-        self.declare_parameter("confidence", 0.5)
-        self.declare_parameter("jpeg_quality", 80)
-        self.declare_parameter("device", "")
-        self.declare_parameter("image_width", 1280)
-        self.declare_parameter("image_height", 960)
-        self.declare_parameter("camera_fps", 30.0)
-        self.declare_parameter("inference_size", 640)
-
-        camera_ids = list(self.get_parameter("camera_ids").value)
-        self.min_camera_index = int(self.get_parameter("min_camera_index").value)
-
         configured_devices = [
             str(value) for value in self.get_parameter("camera_devices").value
         ]
         camera_devices = configured_devices or self._discover_camera_devices(len(camera_ids))
 
-        configured_model_path = str(self.get_parameter("model_path").value)
-        self.model_path = self._resolve_model_path(configured_model_path)
-        self.confidence = float(self.get_parameter("confidence").value)
-        self.jpeg_quality = int(self.get_parameter("jpeg_quality").value)
-        self.device = str(self.get_parameter("device").value)
-        self.image_width = int(self.get_parameter("image_width").value)
-        self.image_height = int(self.get_parameter("image_height").value)
-        self.camera_fps = float(self.get_parameter("camera_fps").value)
-        self.inference_size = int(self.get_parameter("inference_size").value)
+        self.model_path = self._resolve_model_path(self.get_parameter("model_path").value)
+        self.confidence = self.get_parameter("confidence").value
+        self.jpeg_quality = self.get_parameter("jpeg_quality").value
+        self.device = self.get_parameter("device").value
+        self.image_width = self.get_parameter("image_width").value
+        self.image_height = self.get_parameter("image_height").value
+        self.camera_fps = self.get_parameter("camera_fps").value
+        self.inference_size = self.get_parameter("inference_size").value
 
         self._validate_camera_parameters(camera_devices, camera_ids)
 
@@ -245,15 +240,13 @@ class DetectCctvNode(Node):
             capture=capture,
             image_publisher=image_publisher,
             last_status=self._default_status(),
-            detection_windows=self._new_detection_windows(),
+            hit_counts=self._zero_counts(),
+            miss_counts=self._zero_counts(),
         )
 
-    def _new_detection_windows(self) -> Dict[str, "deque[bool]"]:
-        """클래스별로 최근 프레임 감지 여부를 담을 빈 debounce 윈도우를 생성."""
-        return {
-            event_name: deque(maxlen=self.DETECTION_WINDOW_SIZE)
-            for event_name in self.STATUS_STATES
-        }
+    def _zero_counts(self) -> Dict[str, int]:
+        """클래스별 연속 검출/미검출 카운터를 0으로 초기화한 딕셔너리를 생성."""
+        return dict.fromkeys(self.STATUS_STATES, 0)
 
     def _default_status(self) -> Dict[str, bool]:
         """모든 클래스가 미검출(False)인 초기 상태 딕셔너리를 생성."""
@@ -262,7 +255,8 @@ class DetectCctvNode(Node):
     def _publish_initial_status(self, camera: CameraContext) -> None:
         """구독자가 시작 시 정상 상태(False)를 받을 수 있게 발행한다."""
         camera.last_status = self._default_status()
-        camera.detection_windows = self._new_detection_windows()
+        camera.hit_counts = self._zero_counts()
+        camera.miss_counts = self._zero_counts()
         for event_name in self.STATUS_STATES:
             self._publish_status_message(camera, event_name)
 
@@ -450,14 +444,25 @@ class DetectCctvNode(Node):
     def _apply_debounce(
         self, camera: CameraContext, detected_status: Dict[str, bool]
     ) -> Dict[str, bool]:
-        """최근 DETECTION_WINDOW_SIZE프레임 중 과반 이상 감지되면 확정 상태로 반영."""
+        """진입은 연속 HIT_THRESHOLD프레임 검출, 해제는 연속 OFF_MISS_THRESHOLD프레임
+        미검출이어야 상태를 반영한다(순간 노이즈로 인한 반복 발행 방지)."""
         stable_status = camera.last_status.copy()
-        majority = self.DETECTION_WINDOW_SIZE // 2 + 1
 
         for event_name, detected in detected_status.items():
-            window = camera.detection_windows[event_name]
-            window.append(detected)
-            stable_status[event_name] = sum(window) >= majority
+            if detected:
+                camera.miss_counts[event_name] = 0
+                if not stable_status[event_name]:
+                    camera.hit_counts[event_name] += 1
+                    if camera.hit_counts[event_name] >= self.HIT_THRESHOLD:
+                        camera.hit_counts[event_name] = 0
+                        stable_status[event_name] = True
+            else:
+                camera.hit_counts[event_name] = 0
+                if stable_status[event_name]:
+                    camera.miss_counts[event_name] += 1
+                    if camera.miss_counts[event_name] >= self.OFF_MISS_THRESHOLD:
+                        camera.miss_counts[event_name] = 0
+                        stable_status[event_name] = False
 
         return stable_status
 

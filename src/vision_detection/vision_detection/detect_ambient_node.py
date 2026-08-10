@@ -1,4 +1,3 @@
-from collections import deque
 from pathlib import Path
 
 import cv2
@@ -17,23 +16,26 @@ from std_msgs.msg import Bool
 from std_srvs.srv import SetBool
 from patrol_interfaces.msg import CamState
 
-# AMR cam에서 감지되면 "이상 상황"으로 취급할 클래스 이름들
-DEFAULT_ANOMALY_CLASSES = ['fire', 'smoke', 'coolant']
-# 신뢰도 값
-CONF_THRESHOLD = 0.25
-
-# 3모델 WBF(Weighted Boxes Fusion) 앙상블 구성
-ENSEMBLE_MODEL_FILES = ['ambient_yolov8n_v2.pt', 'ambient_yolo26n_v2.pt', 'ambient_yolo11n_v3.pt']
-ENSEMBLE_MODEL_TTA = [True, False, True]  # yolo26 계열은 augment=True 미지원(자동 revert)
-WBF_MERGE_IOU = 0.5
+from vision_detection.param_utils import declare_parameters_from_yaml
 
 # CamState.msg의 state 값
 STATE_BY_CLASS = {'fire': 0, 'smoke': 1, 'coolant': 2}
 # CamState.msg의 camera_id 값 (0/1은 cctv1/cctv2가 사용, AMR 캠은 2번부터)
 CAMERA_ID_BY_ROBOT = {'robot3': 2, 'robot8': 3}
-# 감지 해제 판단용 윈도우 크기. 감지(켜짐)는 1프레임만 봐도 즉시 반응하지만,
-# 해제(꺼짐)는 최근 이 프레임 수 중 과반이 미검출이어야 확정한다.
-EVENT_WINDOW_SIZE = 3
+# 진입(켜짐)은 연속 이 프레임 수만큼 검출돼야 확정한다. 모션블러/순간 조명 변화 같은
+# 1~2프레임짜리 일시적 노이즈를 걸러내기 위함 - 실제 화재/연기는 한두 프레임만 반짝이고
+# 사라지지 않으므로 이 정도 지연(10Hz에서 0.3초)은 실제 감지 반응속도에 거의 영향 없다.
+# 다만 오탐 자체가 "잘못된 사물을 계속 화재로 오인"하는 구조적 문제라면(비상등, 스팀 등)
+# 몇 프레임을 요구하든 못 거른다 - 이건 debounce가 아니라 재학습으로 풀어야 하는 문제.
+HIT_THRESHOLD = 3
+
+# 해제(꺼짐)는 연속 이 프레임 수만큼 미검출이어야 확정한다. AMR 앙상블 recall(87.2%)
+# 기준으로 순수 놓침 노이즈만으로 5연속 미검출이 나올 확률은 0.128^5(약 0.003%)라
+# 사실상 무시할 수준이고, 10Hz에서 0.5초면 AMR이 실제로 지나쳐서 안 보이게 된 상황에도
+# 충분히 빠르게 반응한다. 너무 길면(=꺼짐 판정이 너무 느리면) AMR이 다른 지점으로
+# 이동한 뒤에도 active 상태가 오래 남아서, 그 사이 실제로 다른 위치에서 발생한 새
+# 이상상황을 "이미 진행 중"으로 착각해 재발행을 놓칠 위험이 커진다.
+OFF_MISS_THRESHOLD = 5
 
 CLASS_COLORS = {'fire': (0, 0, 255), 'smoke': (0, 255, 255), 'coolant': (255, 128, 0)}
 
@@ -112,27 +114,20 @@ class DetectAmbientNode(Node):
 
         self.task_started = False
 
-        self.declare_parameter('model_paths', ENSEMBLE_MODEL_FILES)
-        self.declare_parameter('model_tta', ENSEMBLE_MODEL_TTA)
-        self.declare_parameter('amr_cam_topics', ['/robot3/oakd/rgb/preview/image_raw',
-                                                    '/robot8/oakd/rgb/preview/image_raw'])
-        self.declare_parameter('anomaly_classes', DEFAULT_ANOMALY_CLASSES)
-        #평상시 1장마다 1번씩 처리, 쓰로틀 시 10장마다 1번씩 처리
-        self.declare_parameter('normal_process_every_n', 1)
-        self.declare_parameter('throttled_process_every_n', 10)
-        self.declare_parameter('jpeg_quality', 80)
+        declare_parameters_from_yaml(self, 'detect_ambient_node')
 
-        model_paths = list(self.get_parameter('model_paths').value)
-        model_tta = list(self.get_parameter('model_tta').value)
+        model_paths = self.get_parameter('model_paths').value
+        model_tta = self.get_parameter('model_tta').value
         if len(model_paths) != len(model_tta):
             raise ValueError('model_paths와 model_tta의 항목 수가 같아야 합니다.')
 
-        self.conf_threshold = CONF_THRESHOLD
+        self.conf_threshold = self.get_parameter('conf_threshold').value
+        self.wbf_merge_iou = self.get_parameter('wbf_merge_iou').value
         self.amr_cam_topics = self.get_parameter('amr_cam_topics').value
         self.anomaly_classes = set(self.get_parameter('anomaly_classes').value)
         self.normal_process_every_n = self.get_parameter('normal_process_every_n').value
         self.throttled_process_every_n = self.get_parameter('throttled_process_every_n').value
-        self.jpeg_quality = int(self.get_parameter('jpeg_quality').value)
+        self.jpeg_quality = self.get_parameter('jpeg_quality').value
 
         self.bridge = CvBridge()
         self.models = [YOLO(self._resolve_model_path(p)) for p in model_paths]
@@ -151,9 +146,11 @@ class DetectAmbientNode(Node):
         self._frame_counters = {}
 
         # CamState 재발행을 막기 위해 클래스별로 "지금 이상상황이 진행 중인가"를 기억해둔다.
-        # 켜짐은 즉시 반영하고, 꺼짐은 최근 프레임 윈도우의 과반 판정으로만 반영한다.
+        # 진입은 연속 검출 카운트가 HIT_THRESHOLD에, 해제는 연속 미검출 카운트가
+        # OFF_MISS_THRESHOLD에 닿아야 반영한다.
         self._active_classes = {}
-        self._recent_detections = {}
+        self._hit_counts = {}
+        self._miss_counts = {}
         self._camera_id_by_topic = {}
 
         self._subs = []
@@ -162,9 +159,8 @@ class DetectAmbientNode(Node):
             robot_id = self._robot_id_from_topic(topic)
             self._frame_counters[topic] = 0
             self._active_classes[topic] = set()
-            self._recent_detections[topic] = {
-                class_name: deque(maxlen=EVENT_WINDOW_SIZE) for class_name in self.anomaly_classes
-            }
+            self._hit_counts[topic] = {class_name: 0 for class_name in self.anomaly_classes}
+            self._miss_counts[topic] = {class_name: 0 for class_name in self.anomaly_classes}
             self._camera_id_by_topic[topic] = CAMERA_ID_BY_ROBOT.get(robot_id)
             self._image_pubs[topic] = self.create_publisher(
                 CompressedImage, f'/detection/{robot_id}_cam/detection_image', image_qos)
@@ -245,7 +241,7 @@ class DetectAmbientNode(Node):
             labels_list.append(result.boxes.cls.cpu().numpy().astype(int).tolist())
 
         fused_boxes, fused_scores, fused_labels = weighted_boxes_fusion(
-            boxes_list, scores_list, labels_list, iou_thr=WBF_MERGE_IOU)
+            boxes_list, scores_list, labels_list, iou_thr=self.wbf_merge_iou)
         keep = fused_scores >= self.conf_threshold
         fused_boxes = (fused_boxes[keep] * np.array([w, h, w, h])) if len(fused_boxes) else fused_boxes
         fused_scores = fused_scores[keep]
@@ -309,18 +305,24 @@ class DetectAmbientNode(Node):
             if detected_classes:
                 self._image_pubs[topic].publish(self._to_compressed_image_msg(annotated_image))
 
-            # CamState: 감지(켜짐)는 1프레임만 봐도 즉시 발행하되, 이미 진행 중인 상황은 재발행하지
-            # 않는다. 진행 중 여부(꺼짐 판정)는 최근 프레임 윈도우의 과반으로만 해제해서,
-            # 프레임 간 미세한 검출 흔들림(flicker) 때문에 같은 상황이 반복 발행되는 것을 막는다.
+            # CamState: 진입은 연속 HIT_THRESHOLD프레임 검출돼야, 해제는 연속 OFF_MISS_THRESHOLD
+            # 프레임 미검출이어야 확정한다. 둘 다 모델이 가끔 놓치거나(recall<100%) 순간
+            # 노이즈로 헛 잡는 것만으로 같은 상황이 반복 발행되는 걸 막기 위함.
             camera_id = self._camera_id_by_topic[topic]
-            majority = EVENT_WINDOW_SIZE // 2 + 1
             active_classes = self._active_classes[topic]
+            hit_counts = self._hit_counts[topic]
+            miss_counts = self._miss_counts[topic]
             for class_name in self.anomaly_classes:
                 detected = class_name in detected_classes
-                window = self._recent_detections[topic][class_name]
-                window.append(detected)
 
-                if detected and class_name not in active_classes:
+                if detected:
+                    miss_counts[class_name] = 0
+                    if class_name in active_classes:
+                        continue
+                    hit_counts[class_name] += 1
+                    if hit_counts[class_name] < HIT_THRESHOLD:
+                        continue
+                    hit_counts[class_name] = 0
                     active_classes.add(class_name)
                     # AMR 캠은 CCTV처럼 고정 설치가 아니라 호모그래피(픽셀->맵) 캘리브레이션이
                     # 없어서 bbox를 실어 보내도 백엔드가 맵 좌표로 못 바꾼다. 그래서 항상
@@ -328,13 +330,13 @@ class DetectAmbientNode(Node):
                     self.cam_state_pub.publish(CamState(
                         camera_id=camera_id, state=STATE_BY_CLASS[class_name],
                         bbox_x1=-1.0, bbox_y1=-1.0, bbox_x2=-1.0, bbox_y2=-1.0, confidence=0.0))
-                elif (
-                    class_name in active_classes
-                    and len(window) == window.maxlen
-                    and sum(window) < majority
-                ):
-                    # 윈도우가 다 찼을 때만 해제 판정 (덜 찬 상태에서 미스 1번으로 바로 꺼짐 처리되는 것 방지)
-                    active_classes.discard(class_name)
+                else:
+                    hit_counts[class_name] = 0
+                    if class_name in active_classes:
+                        miss_counts[class_name] += 1
+                        if miss_counts[class_name] >= OFF_MISS_THRESHOLD:
+                            active_classes.discard(class_name)
+                            miss_counts[class_name] = 0
 
         return callback
 

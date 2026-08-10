@@ -12,6 +12,7 @@ from std_msgs.msg import Bool
 from patrol_interfaces.srv import CheckGate
 
 from vision_detection.gate_color_detector import GateColorDetector
+from vision_detection.param_utils import declare_parameters_from_yaml
 
 class DetectStationNode(Node):
     """차단기(gate) 상태를 검사하는 노드.
@@ -28,24 +29,7 @@ class DetectStationNode(Node):
 
         self.task_started = False
 
-        self.declare_parameter('amr_cam_topics', ['/robot3/oakd/rgb/preview/image_raw',
-                                                    '/robot8/oakd/rgb/preview/image_raw'])
-        self.declare_parameter('fresh_frame_timeout_sec', 2.0)
-        self.declare_parameter('sample_frame_count', 3)
-        self.declare_parameter('hough_dp', 1.2)
-        self.declare_parameter('hough_min_dist', 50.0)
-        self.declare_parameter('hough_param1', 100.0)
-        self.declare_parameter('hough_param2', 30.0)
-        self.declare_parameter('hough_min_radius', 10)
-        self.declare_parameter('hough_max_radius', 100)
-        # 빨간색은 OpenCV HSV에서 hue 0/180 양쪽에 걸쳐 있어서 "닫힘" 판정엔 범위가 2개 필요
-        self.declare_parameter('closed_hsv_lower1', [0, 70, 50])
-        self.declare_parameter('closed_hsv_upper1', [10, 255, 255])
-        self.declare_parameter('closed_hsv_lower2', [170, 70, 50])
-        self.declare_parameter('closed_hsv_upper2', [180, 255, 255])
-        self.declare_parameter('open_hsv_lower', [40, 70, 50])
-        self.declare_parameter('open_hsv_upper', [80, 255, 255])
-        self.declare_parameter('min_color_ratio', 0.3)
+        declare_parameters_from_yaml(self, 'detect_station_node')
 
         self.amr_cam_topics = self.get_parameter('amr_cam_topics').value
         self.fresh_frame_timeout_sec = self.get_parameter('fresh_frame_timeout_sec').value

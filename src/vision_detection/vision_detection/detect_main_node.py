@@ -9,6 +9,8 @@ from std_msgs.msg import Bool
 from std_srvs.srv import SetBool
 from patrol_interfaces.srv import CheckGate
 
+from vision_detection.param_utils import declare_parameters_from_yaml
+
 class DetectMainNode(Node):
     """전체 detection 흐름을 관리하는 중앙 노드.
     외부(UI)로부터 CheckGate 서비스 요청을 받으면,
@@ -22,7 +24,7 @@ class DetectMainNode(Node):
 
         self.task_started = False
 
-        self.declare_parameter('service_call_timeout_sec', 5.0)
+        declare_parameters_from_yaml(self, 'detect_main_node')
         self.service_call_timeout_sec = self.get_parameter('service_call_timeout_sec').value
 
         # 서비스 콜백 안에서 다른 서비스를 동기적으로 호출해야 하므로
