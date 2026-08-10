@@ -298,8 +298,12 @@ class FleetNode(Node):
             self._status_pubs[ns].publish(msg)
 
     def _on_request(self, msg):
-        req = json.loads(msg.data)
-        robot, point = req['robot'], req['point']
+        try:
+            req = json.loads(msg.data)
+            robot, point = req['robot'], req['point']
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            self.get_logger().warn(f'bad /fleet/occupancy_request payload, ignoring: {exc}')
+            return
         with self._lock:
             holder = self._occupied.get(point)
             if holder is None or holder == robot:
@@ -370,7 +374,11 @@ class FleetNode(Node):
         self._anomaly_pubs[robot].publish(out)
 
     def _on_anomaly_done(self, msg):
-        payload = json.loads(msg.data)
+        try:
+            payload = json.loads(msg.data)
+        except json.JSONDecodeError as exc:
+            self.get_logger().warn(f'bad /fleet/anomaly_done payload, ignoring: {exc}')
+            return
         robot = payload.get('robot')
         self._anomaly_busy.discard(robot)
         self.get_logger().info(f'{robot} finished handling anomaly, ready for new triggers')
@@ -474,8 +482,12 @@ class FleetNode(Node):
         self.get_logger().warn(f'dock return triggered -> {dispatched}')
 
     def _on_release(self, msg):
-        rel = json.loads(msg.data)
-        robot, point = rel['robot'], rel['point']
+        try:
+            rel = json.loads(msg.data)
+            robot, point = rel['robot'], rel['point']
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            self.get_logger().warn(f'bad /fleet/occupancy_release payload, ignoring: {exc}')
+            return
         with self._lock:
             if self._occupied.get(point) == robot:
                 del self._occupied[point]

@@ -313,24 +313,33 @@ class ControlNode:
         # Stub for the real anomaly inspection (camera/vision node).
         if not self._wait_for_anomaly_arrival():
             self._report_failure('anomaly_arrival_failed', loc)
+            self._publish_anomaly_done(loc, confirmed=None, failed=True)
             return
         self._publish_state('anomaly_checking', loc)
         self.navigator.info(f'[{self.namespace}] checking anomaly...')
         inspection = self.inspection_flow.inspect_anomaly(loc)
         if inspection['confirmed'] is None:
             self._report_failure('anomaly_check_failed', loc)
+            self._publish_anomaly_done(loc, confirmed=None, failed=True)
             return
         self.navigator.info(
             f'[{self.namespace}] anomaly check done, resuming patrol')
+        self._publish_anomaly_done(
+            loc, confirmed=inspection['confirmed'], failed=False)
+        self._publish_state('patrol_resuming')
 
+    def _publish_anomaly_done(self, loc, confirmed, failed):
+        # 도착/점검 실패로 여기까지 왔더라도 반드시 발행해야 한다 - 안 그러면
+        # 이 로봇이 Fleet의 _anomaly_busy에서 영영 안 빠져서 이후 이상신호
+        # 급파 후보에서도 영구 제외된다 (known issue 1번).
         done = String()
         done.data = json.dumps({
             'robot': self.namespace,
-            'confirmed': inspection['confirmed'],
+            'confirmed': confirmed,
             'location': loc,
+            'failed': failed,
         })
         self.anomaly_done_pub.publish(done)
-        self._publish_state('patrol_resuming')
 
     def _handle_emergency_stop(self):
         """긴급정지 - 해제될 때까지 제자리에서 대기한 뒤, 해제되면
@@ -444,9 +453,14 @@ class ControlNode:
 
         while rclpy.ok():
             self.mission_aborted = False
-            if not self._run_current_mission():
-                return
+            mission_completed = self._run_current_mission()
             self.mission = None
+            if not mission_completed:
+                # abort는 이 로봇 1대만의 문제로 프로세스를 죽일 이유가 아니다
+                # (known issue 2번) - 다음 미션을 기다리는 상태로 돌아간다.
+                # Fleet이 같은 미션을 주기 재발행 중이라 대개 곧바로 재시도된다.
+                self._wait_for_mission()
+                continue
             self._publish_state('patrol_waiting', {
                 'delay_sec': self.mission_flow.get_next_patrol_delay_sec()})
             self.mission_flow.wait_until_next_patrol()

@@ -10,7 +10,14 @@
 
 ## 심각 — 하드웨어 테스트에서 바로 터질 수 있음
 
-### 1. 이상신호 실패 시 `anomaly_done`이 영영 안 나가서 로봇이 Fleet에서 영구 busy가 됨
+### 1. ~~이상신호 실패 시 `anomaly_done`이 영영 안 나가서 로봇이 Fleet에서 영구 busy가 됨~~ — **해결됨**
+
+`_handle_anomaly()`의 도착 실패/점검 실패 경로 모두에서 `_publish_anomaly_done()`
+(신규 helper, `confirmed: null` + `failed: true`)을 호출하도록 수정. Fleet의
+`_on_anomaly_done()`은 `robot` 필드만 보고 `_anomaly_busy`에서 제거하므로 그대로
+호환됨.
+
+<details><summary>원본 문제 설명</summary>
 
 **대상**: `src/control_amr/control_amr/control_node.py:303` (`_handle_anomaly`),
 `src/control_amr/control_amr/inspection_flow.py:84` (`inspect_anomaly`)
@@ -29,7 +36,17 @@
 **제안**: 실패 경로에서도 `anomaly_done`을(`confirmed: null` 또는 별도
 `failed: true` 필드로) 발행하도록 고칠 것.
 
-### 2. 미션이 한 번이라도 실패(abort)하면 `control_node` 프로세스가 그대로 종료됨
+</details>
+
+### 2. ~~미션이 한 번이라도 실패(abort)하면 `control_node` 프로세스가 그대로 종료됨~~ — **해결됨**
+
+`run()`의 메인 루프에서 `_run_current_mission()`이 `False`(abort)를 반환해도
+더 이상 `return`하지 않고, `self.mission = None` 후 `_wait_for_mission()`으로
+돌아가 다음 미션을 기다리도록 수정. Fleet이 같은 미션을 1초 간격으로 계속
+재발행하므로(`fleet_node.py`의 `_publish_missions()` 타이머) 대개 곧바로
+재시도된다.
+
+<details><summary>원본 문제 설명</summary>
 
 **대상**: `src/control_amr/control_amr/control_node.py:437-448` (`run`)
 
@@ -56,6 +73,8 @@
 다음 미션을 기다리는 구조로 바꿀 것. (실제 운영에서 control_node가 로봇
 1대당 1개 프로세스인데, 이게 죽으면 그 로봇은 재기동 전까지 완전히
 이탈한다.)
+
+</details>
 
 ### 3. 도킹/이상신호 인터럽트가 `_move_to()` 폴링 중에만 처리됨 — 이동 중이 아니면 무시됨
 
@@ -182,7 +201,16 @@
 
 ## 경미 — 견고성 (당장 흐름을 막진 않지만 예외 상황에서 깨짐)
 
-### 9. Fleet 콜백 3개가 JSON 파싱 예외를 안 잡음
+### 9. ~~Fleet 콜백 3개가 JSON 파싱 예외를 안 잡음~~ — **해결됨**
+
+`_on_request`/`_on_anomaly_done`/`_on_release` 모두 다른 콜백들과 같은
+try/except 패턴으로 통일. `_on_request`/`_on_release`는 `robot`/`point`가
+필수 필드라 `_on_map_points`처럼 `(json.JSONDecodeError, KeyError,
+TypeError)`를 잡아 경고 로그 후 return, `_on_anomaly_done`은
+`payload.get('robot')`이라 필드 누락엔 원래도 안전해서 `_on_emergency_stop_all`
+처럼 `json.JSONDecodeError`만 잡음.
+
+<details><summary>원본 문제 설명</summary>
 
 **대상**: `src/fleet/fleet/fleet_node.py:294` (`_on_request`),
 `:366` (`_on_anomaly_done`), `:470` (`_on_release`)
@@ -199,6 +227,8 @@
 
 **제안**: 세 콜백 모두 다른 콜백들과 같은 `try/except
 (json.JSONDecodeError, ...)` 패턴으로 통일할 것.
+
+</details>
 
 ### 10. 도킹 후에도 Fleet이 그 로봇을 계속 `PATROLLING`으로 판정함
 
@@ -237,12 +267,14 @@
 
 ## 요약 — 지금 이대로 하드웨어 테스트 시나리오를 돌리면
 
-- **시나리오 4·5(이상신호)**: 문제 1번 때문에 최소 한 번은 로봇이 영구
-  busy로 남을 가능성이 높음 (비전 노드가 없어서 100% 재현).
-- **시나리오 6(인터럽트 우선순위) 및 교차/충돌/gate가 관여하는 모든 경로**:
-  문제 2번 때문에 `control_node` 프로세스 종료로 끝날 수 있음.
+- ~~**시나리오 4·5(이상신호)**: 문제 1번 때문에 최소 한 번은 로봇이 영구
+  busy로 남을 가능성이 높음 (비전 노드가 없어서 100% 재현).~~ 문제 1번
+  해결됨 — 실패해도 `anomaly_done`이 나가서 busy가 안 남는다.
+- ~~**시나리오 6(인터럽트 우선순위) 및 교차/충돌/gate가 관여하는 모든 경로**:
+  문제 2번 때문에 `control_node` 프로세스 종료로 끝날 수 있음.~~ 문제 2번
+  해결됨 — abort돼도 프로세스는 살아서 다음 미션을 기다린다.
 - 문제 4·5·8은 지금 구역 데이터(gate 없음, 1홉 교차)에서는 잠복 상태지만
   구역/gate 데이터가 바뀌는 순간 조건 없이 재현되는 유형이라, 그 전에
   고쳐두는 게 안전함.
 
-우선순위 제안: **1, 2 → 9 (죽는 문제부터) → 3, 4 → 5, 6, 7, 8 → 10, 11**.
+우선순위 제안: ~~1, 2 → 9~~ (죽는 문제부터, 전부 해결됨) → 3, 4 → 5, 6, 7, 8 → 10, 11.
