@@ -13,7 +13,7 @@
 | `dock.sh [<ns> ...]` | 3 | 도킹 복귀 (인자 없으면 전체 대상) |
 | `anomaly_self.sh <ns>` | 4 | 이상신호 - AMR 자체감지 |
 | `anomaly_cctv.sh [x] [y]` | 5 | 이상신호 - CCTV 감지 (좌표 생략 시 기본값) |
-| `anomaly_done.sh <ns>` | 4/5 마무리 | 이상신호 대응 완료 처리 |
+| `anomaly_resume.sh <ns>` | 4/5 마무리 | 운영자 "재개" 결정 (도킹 결정은 `dock.sh` 재사용) |
 
 사용 전 실행 권한 부여:
 ```
