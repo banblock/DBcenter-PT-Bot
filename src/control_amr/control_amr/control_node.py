@@ -402,11 +402,12 @@ class ControlNode:
             f'[{self.namespace}] heading to dock station via {len(route)} '
             f'waypoint(s), final ({final["x"]}, {final["y"]})...')
 
-        for wp in route:
+        for idx, wp in enumerate(route):
             point_id = wp.get('point_id')
-            if point_id and not self._request_crossing(point_id):
-                self._report_failure('dock_crossing_timeout', wp)
-                return True
+            if point_id and self.granted_point != point_id:
+                if not self._request_crossing(point_id):
+                    self._report_failure('dock_crossing_timeout', wp)
+                    return True
             pose = self.navigator.getPoseStamped([wp['x'], wp['y']], wp['yaw'])
             while not self._move_to(pose):
                 interrupt_result = self._handle_navigation_interrupt(wp)
@@ -415,16 +416,24 @@ class ControlNode:
                     # 미션과 달리 도킹 이동은 그대로 이어받지 않고 실패
                     # 처리한다(anomaly 이동도 지금 이 정도 수준의 재시도만
                     # 함 - 재요청은 Fleet이 다시 dock 명령을 보내면 됨).
-                    if point_id and self.granted_point == point_id:
-                        self._release_crossing(point_id)
+                    if self.granted_point is not None:
+                        self._release_crossing(self.granted_point)
                     self._report_failure('dock_arrival_failed', wp)
                     return True
-            if point_id:
+            # 다음 웨이포인트도 같은 point_id면 여기서 놓지 않고 그대로
+            # 들고 간다. 마지막 지점이면(그 지점 자체가 공유 자원 위일
+            # 수 있으니) 아예 여기서 안 놓고 실제 도킹(navigator.dock())
+            # 까지 끝난 뒤에야 놓는다. 순찰 미션의 동일한 문제(알려진
+            # 이슈 #4)와 같은 이유.
+            is_last = idx + 1 >= len(route)
+            if point_id and not is_last and point_id != route[idx + 1].get('point_id'):
                 self._release_crossing(point_id)
 
         self._publish_state('docking', final)
         self.navigator.info(f'[{self.namespace}] docking...')
         self.navigator.dock()
+        if self.granted_point is not None:
+            self._release_crossing(self.granted_point)
         self.docked = True
         self._publish_state('docked')
         self.navigator.info(
@@ -527,9 +536,13 @@ class ControlNode:
         while i < len(waypoints):
             wp = waypoints[i]
             point_id = wp.get('point_id')
-            if point_id and not self._request_crossing(point_id):
-                self.mission_aborted = True
-                break
+            # 이미 같은 point_id를 쥐고 있으면(직전 웨이포인트에서 이어짐)
+            # 다시 요청하지 않는다 - 아래에서 release를 미루는 것과
+            # 짝을 이루는 부분.
+            if point_id and self.granted_point != point_id:
+                if not self._request_crossing(point_id):
+                    self.mission_aborted = True
+                    break
 
             self._publish_state(
                 'moving', {'waypoint_index': i, 'waypoint': wp})
@@ -541,8 +554,8 @@ class ControlNode:
             while not self._move_to(pose):
                 interrupt_result = self._handle_navigation_interrupt(wp)
                 if isinstance(interrupt_result, list):
-                    if point_id and self.granted_point == point_id:
-                        self._release_crossing(point_id)
+                    if self.granted_point is not None:
+                        self._release_crossing(self.granted_point)
                     waypoints = interrupt_result
                     self.mission = waypoints
                     i = 0
@@ -557,7 +570,16 @@ class ControlNode:
             if self.mission_aborted:
                 break
 
-            if point_id:
+            # 다음 웨이포인트도 같은 point_id를 쓰면 여기서 놓지 않고
+            # 그대로 들고 간다 - 순찰 지점이 하필 공유 통로/교차로 위에
+            # 있어서 로봇이 그 자리에 멈춰 서는 경우, 여기서 놓았다가
+            # 다음 홉에서 다시 요청하는 그 짧은 틈에 다른 로봇이 grant를
+            # 가로챌 수 있다(하드웨어 테스트 중 실제로 관찰된 문제 -
+            # 알려진 이슈 #4와 같은 부류).
+            next_point_id = (
+                waypoints[i + 1].get('point_id') if i + 1 < len(waypoints)
+                else None)
+            if point_id and point_id != next_point_id:
                 self._release_crossing(point_id)
 
             if wp.get('has_gate'):
@@ -572,6 +594,11 @@ class ControlNode:
             i += 1
 
         if self.mission_aborted:
+            # abort 원인과 무관하게, 지금 쥐고 있는 크로싱이 있으면 반드시
+            # 놓는다 - 안 그러면 Fleet 쪽에 이 로봇이 영구 홀더로 남아
+            # 다른 로봇을 영영 막는다.
+            if self.granted_point is not None:
+                self._release_crossing(self.granted_point)
             self._report_failure('mission_aborted')
             return False
         self._handle_mission_complete()
