@@ -348,13 +348,46 @@ Active 전환이 안 돼 `amcl_pose`를 못 받는 문제가 있었다(DDS/시�
   안 본다. hang은 안 나지만, 긴급정지 중에도 크로싱 grant를 계속
   요청하다가 15초 뒤 그냥 abort → 미션 재시도 루프를 탈 수 있다 -
   기능적으로 멈추진 않지만 낭비고 로그도 지저분해짐.
-- `_handle_anomaly()`/`_handle_dock()`이 쓰는
-  `navigation_flow.wait_until_pose_reached()`는 애초에
-  `emergency_stopped`를 전혀 체크하지 않는다 - 이상신호/도킹 이동
+- `_handle_anomaly()`가 쓰는 `navigation_flow.wait_until_pose_reached()`는
+  애초에 `emergency_stopped`를 전혀 체크하지 않는다 - 이상신호 이동
   중에 긴급정지를 걸면 지금 이 수정 이후로는 로봇이 안 멈출 수 있다
   (수정 전에도 콜백의 직접 `cancelTask()`가 같은 재진입 위험을 안고
   있어서 원래부터 불안정했음). 체크리스트 시나리오 6이 정확히 이
-  케이스를 검증하니, 테스트 후 문제 있으면 별도로 고칠 것.
+  케이스를 검증하니, 테스트 후 문제 있으면 별도로 고칠 것. (`_handle_dock()`은
+  이슈 14번에서 `_move_to()` 기반으로 재작성돼 이 문제가 없다.)
+
+### 14. ~~도킹 이동이 통로 그래프/occupancy 없이 좌표 하나로 직행~~ — **해결됨**
+
+**대상**: `src/fleet/fleet/dock_control.py`, `fleet_node.py:_on_dock_return`,
+`src/control_amr/control_amr/control_node.py:_on_dock`/`_handle_dock`
+
+`/backend/dock`이 들어오면 Fleet은 `DOCK_STATIONS[ns]` 좌표를 그대로
+JSON으로 실어 보냈고, Control Node는 그 좌표 하나로 `startToPose()` 직행
+- 이슈 12번(0번 순찰 지점 무보호 직행)과 완전히 같은 부류의 위험을
+도킹 이동도 그대로 갖고 있었다: 통로 그래프도 occupancy 중재도 전혀
+안 거치므로, 도킹하러 가는 로봇이 다른 로봇이 정상적으로 grant받아
+지나가는 통로와 물리적으로 마주칠 수 있었다.
+
+**수정**: `zone_router.py`에 `route_to_point(graph, start_pos, target,
+id_prefix)` 신규 - 순찰 미션과 같은 `_emit_hop()` 파이프라인으로
+시작 위치→목표 지점 경로를 계산한다. 순찰과 달리 그 순간 다른 로봇과
+실제로 겹치는지 미리 알 수 없는 1회성 이동이라, "공유되는 자원만"
+거르는 최적화 없이 지나가는 모든 홉에 항상 `point_id`를 태깅한다(안
+겹치면 grant가 거의 즉시 나오므로 비용은 미미). `fleet_node.py`가
+`self._robot_pose`를 시작 위치로 넘겨 이 함수로 웨이포인트 리스트를
+만들고, 좌표 하나 대신 `/fleet/<ns>/mission`과 같은 모양으로
+`/fleet/<ns>/dock`에 발행한다. `control_node.py`의 `_on_dock()`은
+`mission_flow.validate_mission()`으로 그 리스트를 검증하고,
+`_handle_dock()`은 각 홉마다 `_request_crossing()`/`_move_to()`/
+`_release_crossing()`으로 순찰과 동일한 점유 프로토콜을 지키며 이동한
+뒤 마지막 지점에서 실제 `navigator.dock()`을 호출한다. 로봇 위치를
+아직 모르면(amcl_pose 없음) 예전처럼 좌표 하나짜리 무보호 폴백으로
+안전하게 떨어진다.
+
+**부수 효과**: 예전엔 `startToPose()` + `wait_until_pose_reached()`를
+써서 긴급정지/이상신호 인터럽트를 거의 못 봤는데(이슈 13번 "남은
+과제" 참고), 이제 `_move_to()`를 재사용하므로 도킹 이동 중에도
+긴급정지/충돌위험 인터럽트가 정상적으로 감지된다.
 
 ---
 
@@ -369,10 +402,10 @@ Active 전환이 안 돼 `amcl_pose`를 못 받는 문제가 있었다(DDS/시�
 - 문제 4·5·8은 지금 구역 데이터(gate 없음, 1홉 교차)에서는 잠복 상태지만
   구역/gate 데이터가 바뀌는 순간 조건 없이 재현되는 유형이라, 그 전에
   고쳐두는 게 안전함.
-- ~~**robot3/robot8 실기 테스트에서 실제로 재현된 두 문제(12·13)**: 0번
-  지점 무보호 직행으로 인한 통로 충돌, 긴급정지 중 cancelTask() hang.~~
-  둘 다 해결됨 — 자세한 내용은 위 "2026-08-10 하드웨어 테스트에서 새로
-  발견된 문제" 참고.
+- ~~**robot3/robot8 실기 테스트에서 실제로 재현/발견된 세 문제(12·13·14)**:
+  0번 지점 무보호 직행으로 인한 통로 충돌, 긴급정지 중 cancelTask()
+  hang, 도킹 이동도 같은 부류의 무보호 직행.~~ 전부 해결됨 - 자세한
+  내용은 위 "2026-08-10 하드웨어 테스트에서 새로 발견된 문제" 참고.
 
-우선순위 제안: ~~1, 2 → 9~~ (죽는 문제부터, 전부 해결됨) → ~~12, 13~~ (실기
-테스트 중 발견, 전부 해결됨) → 3, 4 → 5, 6, 7, 8 → 10, 11.
+우선순위 제안: ~~1, 2 → 9~~ (죽는 문제부터, 전부 해결됨) → ~~12, 13, 14~~
+(실기 테스트 중 발견, 전부 해결됨) → 3, 4 → 5, 6, 7, 8 → 10, 11.

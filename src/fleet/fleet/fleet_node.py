@@ -496,8 +496,28 @@ class FleetNode(Node):
             self._release_emergency(released_from_emergency)
 
         for ns in dispatched:
+            target = dock_control.DOCK_STATIONS[ns]
+            start_pos = self._robot_pose.get(ns)
+            if start_pos is None:
+                # amcl_pose를 아직 한 번도 못 받았으면(막 켜진 직후 등)
+                # 그래프 경로를 계산할 방법이 없다 - 예전처럼 좌표
+                # 하나짜리 무보호 웨이포인트로 폴백한다(0번 순찰 지점의
+                # start_pos=None 폴백과 동일한 패턴, zone_router.py 참고).
+                route = [{
+                    'x': target['x'], 'y': target['y'],
+                    'yaw': target.get('yaw', 0.0),
+                    'has_gate': False, 'point_id': None, 'origin': 'patrol',
+                }]
+            else:
+                # 도킹 대기 지점까지도 순찰 미션과 같은 통로 그래프
+                # 경로로 계산해서 occupancy 보호를 받게 한다 - 예전엔
+                # 좌표 하나만 보내서 Control이 Nav2로 직행했는데, 이
+                # 이동이 공유 통로를 가로지르면 다른 로봇과 중재 없이
+                # 마주칠 수 있었다(0번 순찰 지점 문제와 같은 부류).
+                route = zone_router.route_to_point(
+                    self.graph, start_pos, target, f'dock_{ns}')
             out = String()
-            out.data = json.dumps(dock_control.DOCK_STATIONS[ns])
+            out.data = json.dumps(route)
             self._dock_pubs[ns].publish(out)
         self.get_logger().warn(f'dock return triggered -> {dispatched}')
 

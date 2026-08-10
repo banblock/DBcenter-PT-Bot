@@ -97,12 +97,13 @@ class ControlNode:
             String, f'/fleet/{namespace}/emergency_stop',
             self._on_emergency_stop, 10)
 
-        # 도킹 복귀 - {"x","y","yaw"}. 지정된 도킹 스테이션 대기 지점까지
-        # 이동한 뒤 실제 Dock 액션을 호출한다. 도킹 후에는 self.docked를
-        # 세워서 재순찰 신호(아직 Fleet에 없음)가 오기 전까지 새 미션을
-        # 무시한다.
+        # 도킹 복귀 - 통로 그래프로 라우팅된 웨이포인트 리스트
+        # (zone_router.route_to_point(), /fleet/<ns>/mission과 같은 모양).
+        # 그 경로를 점유 프로토콜을 지키며 따라간 뒤 실제 Dock 액션을
+        # 호출한다. 도킹 후에는 self.docked를 세워서 재순찰 신호(아직
+        # Fleet에 없음)가 오기 전까지 새 미션을 무시한다.
         self.dock_pending = False
-        self.dock_location = None
+        self.dock_route = None
         self.docked = False
         self.navigator.create_subscription(
             String, f'/fleet/{namespace}/dock', self._on_dock, 10)
@@ -183,14 +184,19 @@ class ControlNode:
                 f'[{self.namespace}] emergency stop released')
 
     def _on_dock(self, msg):
+        # Fleet이 이제 좌표 하나가 아니라 통로 그래프로 라우팅한
+        # 웨이포인트 리스트를 보낸다(zone_router.route_to_point() 참고,
+        # /fleet/<ns>/mission과 같은 모양) - _validate_mission()으로 그
+        # 검증 로직을 그대로 재사용한다.
         try:
-            location = json.loads(msg.data)
-            if not self._is_valid_pose(location):
-                raise ValueError('x, y, yaw must be finite numbers')
-        except (json.JSONDecodeError, ValueError) as exc:
+            route = json.loads(msg.data)
+        except json.JSONDecodeError as exc:
             self._report_failure('invalid_dock_json', {'error': str(exc)})
             return
-        self.dock_location = location
+        if not self.mission_flow.validate_mission(route, publish_rejection=False):
+            self._report_failure('invalid_dock_route', {'route': route})
+            return
+        self.dock_route = route
         self.dock_pending = True
 
     def _on_grant(self, msg):
@@ -372,28 +378,51 @@ class ControlNode:
         return True
 
     def _handle_dock(self):
-        """도킹 복귀 - 지정된 도킹 스테이션 대기 지점까지 이동한 뒤 실제
-        Dock 액션을 호출한다. 성공하면 빈 리스트를 돌려줘서 호출부가
-        현재 미션을 종료 처리하게 한다 (route_replaced 경로 재사용 -
-        mission_aborted로 실패 취급하지 않으면서 원래 웨이포인트로는
-        돌아가지 않음). 도킹 이후 재순찰을 언제/어떻게 트리거할지는
-        아직 Fleet 쪽에 신호가 없어서 미구현 - self.docked가 True인 동안
-        _on_mission()이 새 미션을 무시하므로 명시적 재개 신호가 오기
-        전까지는 도킹 상태 그대로 대기한다."""
-        loc = self.dock_location
-        self.dock_pending = False
-        self._publish_state('dock_moving', loc)
-        self.navigator.info(
-            f'[{self.namespace}] heading to dock station at '
-            f'({loc["x"]}, {loc["y"]})')
-        pose = self.navigator.getPoseStamped(
-            [float(loc['x']), float(loc['y'])], float(loc['yaw']))
-        self.navigator.startToPose(pose)
-        if not self.navigation_flow.wait_until_pose_reached():
-            self._report_failure('dock_arrival_failed', loc)
-            return True
+        """도킹 복귀 - Fleet이 통로 그래프로 라우팅해 보낸 웨이포인트
+        리스트(self.dock_route, zone_router.route_to_point() 참고)를
+        순찰 미션과 같은 점유 프로토콜(크로싱 요청/해제)로 따라간 뒤,
+        마지막 지점에서 실제 Dock 액션을 호출한다. 예전엔 좌표 하나로
+        Nav2에 직행해서 도킹 이동이 공유 통로를 가로질러도 occupancy
+        중재를 전혀 안 받았는데(0번 순찰 지점과 같은 부류의 문제,
+        하드웨어 테스트에서 지적됨), 이제는 각 홉마다 크로싱을 확보하고
+        지나간 뒤 반납한다.
 
-        self._publish_state('docking', loc)
+        성공하면 빈 리스트를 돌려줘서 호출부가 현재 미션을 종료
+        처리하게 한다 (route_replaced 경로 재사용 - mission_aborted로
+        실패 취급하지 않으면서 원래 웨이포인트로는 돌아가지 않음). 도킹
+        이후 재순찰을 언제/어떻게 트리거할지는 아직 Fleet 쪽에 신호가
+        없어서 미구현 - self.docked가 True인 동안 _on_mission()이 새
+        미션을 무시하므로 명시적 재개 신호가 오기 전까지는 도킹 상태
+        그대로 대기한다."""
+        route = self.dock_route
+        self.dock_pending = False
+        final = route[-1]
+        self._publish_state('dock_moving', final)
+        self.navigator.info(
+            f'[{self.namespace}] heading to dock station via {len(route)} '
+            f'waypoint(s), final ({final["x"]}, {final["y"]})...')
+
+        for wp in route:
+            point_id = wp.get('point_id')
+            if point_id and not self._request_crossing(point_id):
+                self._report_failure('dock_crossing_timeout', wp)
+                return True
+            pose = self.navigator.getPoseStamped([wp['x'], wp['y']], wp['yaw'])
+            while not self._move_to(pose):
+                interrupt_result = self._handle_navigation_interrupt(wp)
+                if isinstance(interrupt_result, list) or not interrupt_result:
+                    # 경로 재계산(list)이나 복구 불가능한 실패 - 순찰
+                    # 미션과 달리 도킹 이동은 그대로 이어받지 않고 실패
+                    # 처리한다(anomaly 이동도 지금 이 정도 수준의 재시도만
+                    # 함 - 재요청은 Fleet이 다시 dock 명령을 보내면 됨).
+                    if point_id and self.granted_point == point_id:
+                        self._release_crossing(point_id)
+                    self._report_failure('dock_arrival_failed', wp)
+                    return True
+            if point_id:
+                self._release_crossing(point_id)
+
+        self._publish_state('docking', final)
         self.navigator.info(f'[{self.namespace}] docking...')
         self.navigator.dock()
         self.docked = True
@@ -478,7 +507,16 @@ class ControlNode:
                 continue
             self._publish_state('patrol_waiting', {
                 'delay_sec': self.mission_flow.get_next_patrol_delay_sec()})
-            self.mission_flow.wait_until_next_patrol()
+            self.mission_flow.wait_until_next_patrol(
+                should_interrupt=lambda: self.dock_pending)
+            if self.dock_pending:
+                # 10분 순찰 대기 도중 도킹 복귀가 왔다 - 알려진 이슈 #3
+                # (인터럽트가 _move_to() 폴링 중에만 처리됨)의 한 갈래.
+                # _handle_dock()은 self.dock_route만 보고 동작하므로
+                # 웨이포인트 컨텍스트 없이 여기서 바로 불러도 된다.
+                self._handle_dock()
+                self._wait_for_mission()
+                continue
             self.mission_flow.request_next_mission()
             self._wait_for_mission()
 

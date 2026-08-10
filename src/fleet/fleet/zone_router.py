@@ -300,3 +300,55 @@ def build_missions(graph, zones, robot_positions=None):
         for point_id, robots in crossing_robots.items()
     ]
     return per_robot_waypoints, crossing_log
+
+
+def route_to_point(graph, start_pos, target, id_prefix):
+    """`start_pos`(x, y)에서 `target`({'x','y','yaw', ...})까지 그래프
+    경로를 계산해 웨이포인트 리스트를 만든다. 순찰 미션(`build_missions`)
+    밖에서 일어나는 1회성 이동 - 지금은 도킹 복귀(`fleet_node._on_dock_return`)
+    - 에 쓴다. `_route_zone()`/`_emit_hop()`과 같은 파이프라인을 그대로
+    타므로, 지나가는 통로도 occupancy 프로토콜 보호를 받는다 (0번 순찰
+    지점이 그래프 밖에서 무보호로 직행하던 것과 같은 부류의 위험이
+    도킹 이동에도 그대로 있었다 - 이 함수로 막는다).
+
+    순찰 미션과 달리 이건 그 순간 다른 로봇이 실제로 같은 자원을 쓰는지
+    미리 알 방법이 없는 1회성 이동이다(build_missions()처럼 전체 로봇의
+    경로를 한 번에 놓고 비교할 수 없음). 그래서 "실제로 공유되는
+    자원만" 골라 태깅하는 최적화 없이, 지나가는 모든 통로/교차로에
+    항상 point_id를 태깅한다 - 그 순간 안 겹치면 grant는 거의 즉시
+    나오니 비용은 미미하고, 겹치면 안전하게 막힌다.
+
+    반환값은 다른 웨이포인트와 같은 모양의 딕셔너리 리스트:
+    {'x','y','yaw','has_gate','point_id','origin'}."""
+    g = graph.copy()
+    start_node = g.insert_point(
+        f'{id_prefix}_start', (float(start_pos[0]), float(start_pos[1])))
+    end_node = g.insert_point(
+        f'{id_prefix}_end', (float(target['x']), float(target['y'])))
+
+    if start_node == end_node:
+        # 이미 목표 지점 바로 근처(snap_threshold 이내) - 홉이 없으니
+        # 그냥 직접 웨이포인트 하나로 박아 넣는다.
+        return [{
+            'x': float(target['x']), 'y': float(target['y']),
+            'yaw': float(target.get('yaw', 0.0)),
+            'has_gate': False, 'point_id': None, 'origin': 'patrol',
+        }]
+
+    waypoints, incoming_edge, waypoint_node_ids = [], [], []
+    _emit_hop(g, start_node, end_node, target,
+              waypoints, incoming_edge, waypoint_node_ids)
+
+    # 지나가는 모든 홉에 항상 point_id를 태깅한다(위 docstring 참고) -
+    # 엣지/교차로 자원을 build_missions()와 같은 방식(union-find)으로
+    # 하나의 point_id로 합친다.
+    uf = _UnionFind()
+    for i, eid in enumerate(incoming_edge):
+        nid = waypoint_node_ids[i]
+        if graph.is_junction(nid):
+            uf.union(f'X_{eid}', f'J_{nid}')
+    for i, eid in enumerate(incoming_edge):
+        nid = waypoint_node_ids[i]
+        key = f'J_{nid}' if graph.is_junction(nid) else f'X_{eid}'
+        waypoints[i]['point_id'] = uf.find(key)
+    return waypoints

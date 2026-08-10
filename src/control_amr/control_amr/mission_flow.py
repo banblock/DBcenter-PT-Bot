@@ -120,12 +120,20 @@ class MissionFlowSupport:
         msg.data = json.dumps({'robot': self.namespace})
         self.mission_complete_pub.publish(msg)
 
-    def wait_until_next_patrol(self):
+    def wait_until_next_patrol(self, should_interrupt=None):
+        """다음 순찰까지 대기한다. `should_interrupt`(인자 없이 bool을
+        반환하는 콜백)가 주어지고 True를 반환하면 대기를 그 자리에서
+        끝낸다 - 도킹 복귀처럼 이 10분 대기 도중에도 즉시 반응해야 하는
+        인터럽트를 위한 것(알려진 이슈 #3: 인터럽트 체크가 _move_to()
+        폴링 중에만 있어서 이런 유휴 대기 구간은 원래 안 보고 있었음).
+        호출부(control_node.run())가 왜 일찍 끝났는지 판단해서 처리한다."""
         self.navigator.info(
             f'[{self.namespace}] next patrol in '
             f'{NEXT_PATROL_DELAY_SEC} seconds')
         deadline = time.monotonic() + NEXT_PATROL_DELAY_SEC
         while time.monotonic() < deadline:
+            if should_interrupt is not None and should_interrupt():
+                return
             remaining = deadline - time.monotonic()
             rclpy.spin_once(
                 self.navigator, timeout_sec=min(0.5, remaining))
