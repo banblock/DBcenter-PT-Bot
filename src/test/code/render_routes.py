@@ -37,7 +37,7 @@ h, w = arr.shape
 extent = [ORIGIN_X, ORIGIN_X + w * RESOLUTION, ORIGIN_Y, ORIGIN_Y + h * RESOLUTION]
 
 graph = RouteGraph.from_yaml(GRAPH_YAML)
-missions, crossing_log = zone_router.build_missions(graph, DEFAULT_ZONES)
+missions, crossing_log, _ = zone_router.build_missions(graph, DEFAULT_ZONES)
 print('crossings:', crossing_log)
 
 fig, ax = plt.subplots(figsize=(10, 7))

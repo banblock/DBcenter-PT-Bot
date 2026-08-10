@@ -38,7 +38,7 @@ ZONES = [
 
 
 def test_missions_built_for_every_robot(graph):
-    missions, _ = zone_router.build_missions(graph, ZONES)
+    missions, _, _ = zone_router.build_missions(graph, ZONES)
     assert set(missions.keys()) == {'robot3', 'robot8'}
     # dense hop-by-hop route, not a direct 2-point jump
     assert len(missions['robot3']) > 2
@@ -46,7 +46,7 @@ def test_missions_built_for_every_robot(graph):
 
 
 def test_shared_aisle_edge_is_flagged_as_crossing(graph):
-    missions, crossing_log = zone_router.build_missions(graph, ZONES)
+    missions, crossing_log, _ = zone_router.build_missions(graph, ZONES)
     assert len(crossing_log) == 1
     eid, robots, point_id = crossing_log[0]
     # route_graph.yaml이 rviz 실측값으로 바뀌면서 front/rear 배치가
@@ -62,7 +62,7 @@ def test_shared_aisle_edge_is_flagged_as_crossing(graph):
 
 
 def test_gate_points_tagged_has_gate(graph):
-    missions, _ = zone_router.build_missions(graph, ZONES)
+    missions, _, _ = zone_router.build_missions(graph, ZONES)
     assert any(wp['has_gate'] for wp in missions['robot3'])
     assert any(wp['has_gate'] for wp in missions['robot8'])
     # pass-through junction waypoints must not accidentally be gate stops
@@ -71,7 +71,7 @@ def test_gate_points_tagged_has_gate(graph):
 
 
 def test_origin_marks_patrol_points_vs_inserted_transit_hops(graph):
-    missions, _ = zone_router.build_missions(graph, ZONES)
+    missions, _, _ = zone_router.build_missions(graph, ZONES)
     # every input point (2 per zone here) must land as 'patrol'; anything
     # else the router had to insert to connect them is 'transit'
     assert sum(wp['origin'] == 'patrol' for wp in missions['robot3']) == 2
@@ -105,7 +105,7 @@ def test_junction_shared_via_different_edges_is_flagged_as_crossing(graph):
             ],
         },
     ]
-    missions, crossing_log = zone_router.build_missions(graph, zones)
+    missions, crossing_log, _ = zone_router.build_missions(graph, zones)
     assert len(crossing_log) == 1
     key, robots, point_id = crossing_log[0]
     assert key == 'F_BC'
@@ -148,7 +148,7 @@ def test_shared_edge_endpoints_at_different_junctions_still_flagged(graph):
             ],
         },
     ]
-    missions, crossing_log = zone_router.build_missions(graph, zones)
+    missions, crossing_log, _ = zone_router.build_missions(graph, zones)
     assert len(crossing_log) == 1
     key, robots, point_id = crossing_log[0]
     assert key == 'V_BC'
@@ -188,7 +188,7 @@ def test_edge_and_junction_resources_merge_into_one_point_id(graph):
             ],
         },
     ]
-    missions, crossing_log = zone_router.build_missions(graph, zones)
+    missions, crossing_log, _ = zone_router.build_missions(graph, zones)
     assert len(crossing_log) == 1
     key, robots, point_id = crossing_log[0]
     assert robots == ['robotA', 'robotB', 'robotC']
@@ -219,6 +219,6 @@ def test_non_overlapping_routes_have_no_crossings(graph):
             ],
         },
     ]
-    missions, crossing_log = zone_router.build_missions(graph, zones)
+    missions, crossing_log, _ = zone_router.build_missions(graph, zones)
     assert crossing_log == []
     assert all(wp['point_id'] is None for wps in missions.values() for wp in wps)

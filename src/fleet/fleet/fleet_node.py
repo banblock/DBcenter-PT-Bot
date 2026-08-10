@@ -191,6 +191,7 @@ class FleetNode(Node):
         self.create_subscription(String, '/backend/map_points', self._on_map_points, 10)
 
         self.missions = {}
+        self._resource_canonical = {}  # _apply_zones()가 채움 - route_to_point() 참고
         # DEFAULT_ZONES는 바로 적용하지 않고 스페이스바를 눌러야 적용된다 -
         # 하드웨어 테스트에서 로봇을 원하는 위치에 정렬해두고 원하는
         # 시점에 순찰을 시작하기 위함 (_wait_for_start_key 참고). 실제
@@ -291,7 +292,7 @@ class FleetNode(Node):
         # build_missions() 이후에 구독을 만들면 첫 적용 때는 항상 늦는다.
         for zone in zones:
             self._ensure_robot_pubs(zone['robot'])
-        missions, crossing_log = zone_router.build_missions(
+        missions, crossing_log, resource_canonical = zone_router.build_missions(
             self.graph, zones, robot_positions=self._robot_pose)
         for key, robots, point_id in crossing_log:
             # point_id 접두사로 판정 단위를 구분한다 - 'J_'면 교차로
@@ -300,6 +301,11 @@ class FleetNode(Node):
             self.get_logger().info(
                 f'crossing point {point_id}: {kind} {key} shared by {robots}')
         self.missions = missions
+        # 도킹/이상신호처럼 순찰 미션 밖에서 route_to_point()로 따로
+        # 경로를 짤 때도 이 매핑을 참고해야, 순찰 로봇이 쓰는(엣지+교차로가
+        # 합쳐진) point_id와 어긋나지 않는다 - zone_router.build_missions()
+        # docstring 참고.
+        self._resource_canonical = resource_canonical
         for ns in missions:
             self._ensure_robot_pubs(ns)
 
@@ -432,7 +438,8 @@ class FleetNode(Node):
             }]
         else:
             route = zone_router.route_to_point(
-                self.graph, start_pos, loc, f'anomaly_{robot}')
+                self.graph, start_pos, loc, f'anomaly_{robot}',
+                canonical_point_ids=self._resource_canonical)
         out = String()
         out.data = json.dumps(route)
         self._anomaly_pubs[robot].publish(out)
@@ -595,7 +602,8 @@ class FleetNode(Node):
                 # 이동이 공유 통로를 가로지르면 다른 로봇과 중재 없이
                 # 마주칠 수 있었다(0번 순찰 지점 문제와 같은 부류).
                 route = zone_router.route_to_point(
-                    self.graph, start_pos, target, f'dock_{ns}')
+                    self.graph, start_pos, target, f'dock_{ns}',
+                    canonical_point_ids=self._resource_canonical)
             out = String()
             out.data = json.dumps(route)
             self._dock_pubs[ns].publish(out)

@@ -224,7 +224,17 @@ def build_missions(graph, zones, robot_positions=None):
     0번 순찰 지점까지도 그래프 경로로 계산돼 점유 조정 대상이 되고
     (`_route_zone()`의 start_pos 참고), 위치를 모르는 로봇(딕셔너리에
     없거나 robot_positions 자체가 None)은 예전처럼 0번 지점으로 직행하는
-    폴백을 그대로 쓴다. (missions, crossing_log)를 반환한다."""
+    폴백을 그대로 쓴다. (missions, crossing_log, resource_canonical)을
+    반환한다 - resource_canonical(`{'X_<eid>' | 'J_<nid>': point_id}`)은
+    이 호출에서 실제로 계산된 "물리적 자원 -> 정규 point_id" 매핑이다.
+    `route_to_point()`가 이상신호/도킹처럼 순찰 미션 밖에서 별도로
+    point_id를 계산할 때 이 매핑을 그대로 참고해야, 순찰 로봇이 쓰는
+    (엣지+교차로가 합쳐진) id와 어긋나지 않는다 - 안 그러면 물리적으로
+    같은 통로인데 서로 다른 point_id 문자열을 써서 occupancy 뮤텍스가
+    실제로는 안 걸리는 사고가 난다(하드웨어 테스트 중 실제로 재현:
+    이상신호 대응 로봇이 X_V_BC를 쥐고 서 있는데, 순찰 로봇은 같은
+    구간을 (다른 웨이포인트에서 교차로와 합쳐진) J_F_BC로 지나가버려서
+    서로 다른 자원으로 보여 그냥 지나침)."""
     robot_positions = robot_positions or {}
     per_robot_waypoints = {}
     per_robot_edges = {}
@@ -299,17 +309,23 @@ def build_missions(graph, zones, robot_positions=None):
         (point_id[2:], sorted(robots), point_id)
         for point_id, robots in crossing_robots.items()
     ]
-    return per_robot_waypoints, crossing_log
+    resource_canonical = {}
+    for eid in active_edges:
+        resource_canonical[f'X_{eid}'] = uf.find(f'X_{eid}')
+    for nid in active_nodes:
+        resource_canonical[f'J_{nid}'] = uf.find(f'J_{nid}')
+    return per_robot_waypoints, crossing_log, resource_canonical
 
 
-def route_to_point(graph, start_pos, target, id_prefix):
+def route_to_point(graph, start_pos, target, id_prefix, canonical_point_ids=None):
     """`start_pos`(x, y)에서 `target`({'x','y','yaw', ...})까지 그래프
     경로를 계산해 웨이포인트 리스트를 만든다. 순찰 미션(`build_missions`)
-    밖에서 일어나는 1회성 이동 - 지금은 도킹 복귀(`fleet_node._on_dock_return`)
-    - 에 쓴다. `_route_zone()`/`_emit_hop()`과 같은 파이프라인을 그대로
-    타므로, 지나가는 통로도 occupancy 프로토콜 보호를 받는다 (0번 순찰
-    지점이 그래프 밖에서 무보호로 직행하던 것과 같은 부류의 위험이
-    도킹 이동에도 그대로 있었다 - 이 함수로 막는다).
+    밖에서 일어나는 1회성 이동 - 도킹 복귀(`fleet_node._on_dock_return`),
+    이상신호 급파(`fleet_node._on_anomaly_trigger`) - 에 쓴다.
+    `_route_zone()`/`_emit_hop()`과 같은 파이프라인을 그대로 타므로,
+    지나가는 통로도 occupancy 프로토콜 보호를 받는다 (0번 순찰 지점이
+    그래프 밖에서 무보호로 직행하던 것과 같은 부류의 위험이 도킹/이상신호
+    이동에도 그대로 있었다 - 이 함수로 막는다).
 
     순찰 미션과 달리 이건 그 순간 다른 로봇이 실제로 같은 자원을 쓰는지
     미리 알 방법이 없는 1회성 이동이다(build_missions()처럼 전체 로봇의
@@ -318,8 +334,21 @@ def route_to_point(graph, start_pos, target, id_prefix):
     항상 point_id를 태깅한다 - 그 순간 안 겹치면 grant는 거의 즉시
     나오니 비용은 미미하고, 겹치면 안전하게 막힌다.
 
+    `canonical_point_ids`: `build_missions()`가 마지막으로 계산한
+    `{'X_<eid>' | 'J_<nid>': point_id}` 매핑(옵션). 이 함수도 자체
+    union-find로 엣지+교차로를 합치지만, 그건 이 호출 하나만 놓고 보는
+    "지역적" 합침이라 순찰 로봇들 전체를 놓고 계산한 "정규" 합침과
+    문자열이 다를 수 있다 - 예를 들어 순찰 쪽에서는 V_BC 엣지가
+    F_BC 교차로와 합쳐져 `J_F_BC`로 쓰이는데, 이 함수 혼자 계산하면
+    (이 경로가 그 교차로를 안 지나가면) 그냥 `X_V_BC`로 남아서, 물리적으로
+    같은 통로인데 서로 다른 point_id가 되어 occupancy 뮤텍스가 실제로는
+    안 걸리는 사고가 난다(하드웨어 테스트 중 실제로 재현됨). 최종
+    point_id를 이 매핑에 한 번 더 통과시켜서, 있으면 정규 id로
+    치환한다.
+
     반환값은 다른 웨이포인트와 같은 모양의 딕셔너리 리스트:
     {'x','y','yaw','has_gate','point_id','origin'}."""
+    canonical_point_ids = canonical_point_ids or {}
     g = graph.copy()
     start_node = g.insert_point(
         f'{id_prefix}_start', (float(start_pos[0]), float(start_pos[1])))
@@ -350,5 +379,6 @@ def route_to_point(graph, start_pos, target, id_prefix):
     for i, eid in enumerate(incoming_edge):
         nid = waypoint_node_ids[i]
         key = f'J_{nid}' if graph.is_junction(nid) else f'X_{eid}'
-        waypoints[i]['point_id'] = uf.find(key)
+        local_id = uf.find(key)
+        waypoints[i]['point_id'] = canonical_point_ids.get(local_id, local_id)
     return waypoints

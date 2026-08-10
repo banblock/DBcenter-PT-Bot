@@ -30,7 +30,7 @@ OX, OY = -5.15, -0.659
 
 # ---- compute (real code, not hand-transcribed) -----------------------
 graph = RouteGraph.from_yaml(GRAPH_YAML)
-missions, crossing_log = zone_router.build_missions(graph, DEFAULT_ZONES)
+missions, crossing_log, _ = zone_router.build_missions(graph, DEFAULT_ZONES)
 
 im = Image.open(MAP_PGM).convert('L')
 img_w, img_h = im.size

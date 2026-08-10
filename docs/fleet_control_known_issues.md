@@ -516,6 +516,58 @@ self.anomaly_captured_pending)`를 넘긴다. 조기정지 시 카메라(로봇
 결정 때 정상적으로 반납된다(이슈 16번의 "물리적으로 서 있는 동안은
 점유를 지킨다" 원칙과 동일).
 
+### 18. 이상신호/도킹 경로의 point_id가 순찰 로봇의 point_id와 어긋나서 occupancy 뮤텍스가 실제로는 안 걸림 — 심각, 하드웨어 테스트 중 실제 재현
+
+**대상**: `src/fleet/fleet/zone_router.py` (`build_missions`, `route_to_point`),
+`src/fleet/fleet/fleet_node.py` (`_apply_zones`, `_on_dock_return`,
+`_on_anomaly_trigger`)
+
+`build_missions()`(순찰)와 `route_to_point()`(도킹/이상신호)가 각자
+**독립적인** `_UnionFind`로 "엣지+교차로를 하나의 point_id로 합칠지"를
+계산했다. `build_missions()`는 등록된 순찰 로봇 전체를 한 번에 놓고
+계산하므로, 예를 들어 V_BC 엣지가 F_BC 교차로와 어느 로봇의 한
+웨이포인트에서 동시에 필요하면 그 즉시 **전역적으로** `X_V_BC`와
+`J_F_BC`를 합쳐서 이후 V_BC를 쓰는 모든 웨이포인트가 정규 id
+`J_F_BC`로 통일된다. 그런데 `route_to_point()`는 도킹/이상신호 목적지
+하나만 놓고 **그 호출 하나만의 지역적** union-find를 새로 계산한다 -
+그 경로가 마침 F_BC 교차로를 안 지나가면(목적지가 V_BC 엣지 중간이면
+당연히 안 지나감) 합쳐질 이유가 없어서 그냥 `X_V_BC`로 남는다.
+
+**실패 시나리오 (실제 재현됨)**: 이상신호가 V_BC 엣지 중간(공유 구간)에
+뜨자, 급파된 로봇은 `X_V_BC`를 요청해 정상적으로 grant받고 그 자리에
+멈췄다. 그런데 같은 구간을 지나가던 **순찰 로봇은 자기 미션에서 그
+구간이 `J_F_BC`로 태깅돼 있어서** `J_F_BC`를 요청했고, Fleet 입장에선
+`X_V_BC`와 `J_F_BC`가 서로 무관한 자원이라 **둘 다 grant해줬다** -
+물리적으로 완전히 같은 통로인데 occupancy 뮤텍스가 전혀 안 걸려서
+순찰 로봇이 정지해 있던 이상신호 로봇을 그대로 지나쳐버렸다.
+
+**수정**: `build_missions()`가 세 번째 반환값으로
+`resource_canonical`(`{'X_<eid>'|'J_<nid>': point_id}`, 그 호출에서
+실제로 계산된 정규 매핑)을 돌려준다. `fleet_node._apply_zones()`가
+이걸 `self._resource_canonical`로 저장해뒀다가, `_on_dock_return()`/
+`_on_anomaly_trigger()`가 `route_to_point(..., canonical_point_ids=
+self._resource_canonical)`로 넘긴다. `route_to_point()`는 자기
+지역적 union-find로 계산한 `local_id`를 이 매핑에 한 번 더 통과시켜서
+(`canonical_point_ids.get(local_id, local_id)`) 있으면 정규 id로
+치환한다 - 순찰 시스템이 이미 그 자원을 다른 것과 합쳐서 쓰고 있으면
+도킹/이상신호도 정확히 같은 id를 쓰게 된다.
+
+시뮬레이션으로 검증됨: 수정 전 이상신호 경로의 V_BC 중간 지점
+point_id는 `X_V_BC`였는데, 수정 후엔 순찰 로봇(robot8)의 해당 구간
+point_id와 정확히 같은 `J_F_BC`로 나온다.
+
+**참고**: `build_missions()`/`route_to_point()`를 부르는 기존 테스트/리포트
+스크립트(`test_zone_router.py`, `build_route_report.py`, `render_routes.py`)는
+반환값이 2개에서 3개로 늘어나서 전부 `missions, crossing_log, _ =
+...` 형태로 같이 갱신했다.
+
+**남은 한계**: `route_to_point()`가 `start_node == end_node`(목적지에
+이미 도착해 있어 홉이 0인 경우)면 여전히 `point_id: None`으로 무보호
+직행 처리한다 - 도킹/이상신호 로봇이 그 순간 이미 어떤 크로싱을 쥐고
+있었다면(예: 이동 도중 인터럽트됨) 그건 그대로 유지되니 대개 문제
+없지만, 처음부터 목적지 바로 근처에서 출발한 경우는 이론상 여전히
+무보호다. 지금까지 재현된 적은 없고 범위가 좁아 우선순위 낮게 남겨둠.
+
 ---
 
 ## 요약 — 지금 이대로 하드웨어 테스트 시나리오를 돌리면
