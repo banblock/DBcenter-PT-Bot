@@ -24,6 +24,11 @@ class Settings(BaseSettings):
         env_file=(BASE_DIR / ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
+        # 리스트/딕트 필드를 JSON 으로 자동 디코딩하지 않는다. `AMR_CORS_ORIGINS=a,b,c`
+        # 같은 콤마 구분 값은 아래 `_split_csv` (mode="before") 가 직접 파싱한다.
+        # (pydantic-settings 2.x 는 기본적으로 복합 타입 env 값을 JSON 으로 먼저 파싱해
+        #  콤마 구분 문자열에서 SettingsError 를 낸다.)
+        enable_decoding=False,
     )
 
     # ── 서비스 ────────────────────────────────────────────────────────────
@@ -56,9 +61,11 @@ class Settings(BaseSettings):
     log_request_body: bool = False
 
     # ── 로봇 / ROS2 브리지 ────────────────────────────────────────────────
-    robot_ids: list[str] = Field(default_factory=lambda: ["amr_1", "amr_2"])
+    robot_ids: list[str] = Field(default_factory=lambda: ["AMR-01", "AMR-02"])
+    #: 논리 robot_id → ROS-safe 네임스페이스. 실 robot_bridge_node 가 쓰는 값과 반드시 일치.
+    #: 명령 토픽 = /backend{ns}/command (예: AMR-01 → /amr_1 → /backend/amr_1/command).
     topic_prefix_map: dict[str, str] = Field(
-        default_factory=lambda: {"amr_1": "/amr01", "amr_2": "/amr02"}
+        default_factory=lambda: {"AMR-01": "/amr_1", "AMR-02": "/amr_2"}
     )
     heartbeat_timeout_sec: float = 3.0
     ros_enabled: bool = False  # 실장비 없이 기동할 때 False
@@ -83,6 +90,9 @@ class Settings(BaseSettings):
     #: 화재 감지 즉시 자동 급파(로봇에 GOTO 좌표 전송). 2026-08-09 정책 확정. False 면
     #: 이벤트/알림만 만들고 급파는 운영자(POST /events/{id}/dispatch)가 한다.
     vision_auto_dispatch: bool = True
+
+    #: 인프로세스 데모 로봇 시뮬레이터 (실장비/ROS2 없이 로봇을 실제로 구동). AMR_DEMO_SIM=1 로 켠다.
+    demo_sim: bool = False
 
     # ── 이벤트 / 검증 ─────────────────────────────────────────────────────
     dedup_window_sec: int = 10

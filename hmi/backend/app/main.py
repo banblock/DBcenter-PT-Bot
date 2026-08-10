@@ -134,6 +134,15 @@ async def lifespan(app: FastAPI):
     #   lifespan은 "서버 수명"을 관리 — yield 위=시작, 아래(finally)=종료 정리.
     consumer = asyncio.create_task(manager.consumer_loop(), name="broadcast-consumer")
     watchdog = asyncio.create_task(_heartbeat_watchdog(), name="heartbeat-watchdog")
+    tasks = [consumer, watchdog]
+
+    # 데모 시뮬레이터 — 실장비 없이 로봇을 실제로 구동한다(AMR_DEMO_SIM=1).
+    if settings.demo_sim:
+        from app.demo_sim import demo_sim_loop
+
+        tasks.append(asyncio.create_task(demo_sim_loop(), name="demo-sim"))
+        log.info("데모 시뮬레이터 활성화 (AMR_DEMO_SIM=1)")
+
     log.info("REST %d개 라우터 · WS /ws/monitor 준비 완료", len(ALL_ROUTERS))
     log.info("=" * 70)
 
@@ -144,9 +153,9 @@ async def lifespan(app: FastAPI):
             vision_mgr.stop()
         if bridge_mgr is not None:
             bridge_mgr.stop()
-        for task in (consumer, watchdog):
+        for task in tasks:
             task.cancel()
-        await asyncio.gather(consumer, watchdog, return_exceptions=True)
+        await asyncio.gather(*tasks, return_exceptions=True)
         log.info("서버 종료")
 
 

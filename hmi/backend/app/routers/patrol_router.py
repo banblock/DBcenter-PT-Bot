@@ -341,8 +341,9 @@ async def pause_patrol(mission_id: str, body: PatrolReasonIn, db: DbDep):
         "current_index": index,
         "reason": body.reason,
     }
+    robot = None
     if mission.robot_id:
-        crud.robots.set_state(db, mission.robot_id, RobotState.PATROL_PAUSED.value)
+        robot = crud.robots.set_state(db, mission.robot_id, RobotState.PATROL_PAUSED.value)
         get_bridge().publish_command(
             mission.robot_id, "PAUSE", {"mission_id": mission_id, "reason": body.reason}
         )
@@ -350,6 +351,8 @@ async def pause_patrol(mission_id: str, body: PatrolReasonIn, db: DbDep):
     await manager.publish_async(
         WsMessageType.MISSION_STATUS.value, crud.robots.mission_to_dict(db, mission)
     )
+    if robot is not None:
+        await manager.publish_async(WsMessageType.ROBOT_STATUS.value, crud.robots.to_dict(robot))
     return ok({"mission_id": mission_id, "status": mission.status})
 
 
@@ -360,13 +363,16 @@ async def resume_patrol(mission_id: str, db: DbDep):
     resumed_node = (context.get("remaining_nodes") or [None])[0]
     mission.current_node_id = resumed_node or mission.current_node_id
     mission.resume_context_json = None
+    robot = None
     if mission.robot_id:
-        crud.robots.set_state(db, mission.robot_id, RobotState.RESUMING.value)
+        robot = crud.robots.set_state(db, mission.robot_id, RobotState.RESUMING.value)
         get_bridge().publish_command(mission.robot_id, "RESUME", {"mission_id": mission_id})
     db.commit()
     await manager.publish_async(
         WsMessageType.MISSION_STATUS.value, crud.robots.mission_to_dict(db, mission)
     )
+    if robot is not None:
+        await manager.publish_async(WsMessageType.ROBOT_STATUS.value, crud.robots.to_dict(robot))
     return ok({"mission_id": mission_id, "status": mission.status, "resumed_node_id": resumed_node})
 
 

@@ -1,4 +1,4 @@
-import { ZONE_AMR, ZONES } from "../constants/dashboard";
+import { dockPixelPosition, ZONE_AMR, ZONES } from "../constants/dashboard";
 import type {
   AppEvent,
   Command,
@@ -36,13 +36,14 @@ const COMMAND_STATE_MAP: Record<Command, RobotState> = {
   estop: "EMERGENCY_STOP",
   reset: "IDLE",
   dock: "DOCKING",
+  stop_and_dock: "DOCKING",
   start: "PATROLLING",
   ack: "REPORTING",
 };
 
 const DOCK_POSE: Record<string, { x: number; y: number }> = {
-  "AMR-01": { x: 402, y: 60 },
-  "AMR-02": { x: 402, y: 400 },
+  "AMR-01": dockPixelPosition("AMR-01", 113, 66),
+  "AMR-02": dockPixelPosition("AMR-02", 113, 66),
 };
 
 export interface DemoHandle {
@@ -69,11 +70,11 @@ export function startDemoSimulator(deps: DemoDeps): DemoHandle {
   const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
 
   /** 내부 robots 갱신 + 컨텍스트로 push (이벤트는 항상 함께 보내 최신 목록 반영) */
-  function emit(patch: Robot[]) {
+  function emit(patch: Robot[], detectedCctvEvent?: AppEvent) {
     patch.forEach((r) => {
       robots[r.id] = r;
     });
-    applyMessage({ robots: patch, events: events.map((e) => ({ ...e })) });
+    applyMessage({ robots: patch, events: events.map((e) => ({ ...e })), detectedCctvEvent });
   }
 
   const one = (amr: string, extra: Partial<Robot>): Robot =>
@@ -226,8 +227,7 @@ export function startDemoSimulator(deps: DemoDeps): DemoHandle {
       }
     });
     dispatch[best] = P;
-    events = [
-      {
+    const cctvEvent: AppEvent = {
         id: `CCTV-${Date.now() % 100000}`,
         kind: "CCTV",
         severity: "DANGER",
@@ -236,10 +236,12 @@ export function startDemoSimulator(deps: DemoDeps): DemoHandle {
         zone,
         text: `CCTV ${zone} 이상 감지 → ${best} 급파`,
         ts: Date.now(),
-      } as AppEvent,
-      ...events,
-    ].slice(0, 100);
-    emit([one(best, { mission_type: "ANOMALY", state: "DISPATCHING", task: `CCTV 감지지점 이동 (${zone})` })]);
+      };
+    events = [cctvEvent, ...events].slice(0, 100);
+    emit(
+      [one(best, { mission_type: "ANOMALY", state: "DISPATCHING", task: `CCTV 감지지점 이동 (${zone})` })],
+      cctvEvent,
+    );
   }
 
   /* 기능4: 급파 AMR 도착 → CCTV 팝업 (오작동 확인·작업 재개) */
@@ -354,6 +356,13 @@ export function startDemoSimulator(deps: DemoDeps): DemoHandle {
           }
           extra.task = "긴급정지 — 조작 대기";
           paused.add(id);
+        }
+        if (cmd === "stop_and_dock") {
+          paused.delete(id);
+          delete prog[id];
+          delete dispatch[id];
+          extra.task = "정지 완료 · 도킹 스테이션 복귀 중";
+          extra.pose = DOCK_POSE[id] ?? robots[id]?.pose;
         }
         if (cmd === "dock") extra.task = "도킹 스테이션 복귀 중";
         if (cmd === "pause") paused.add(id);

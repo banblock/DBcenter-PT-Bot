@@ -52,29 +52,53 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Protocol
 
+from app.config import settings
 from app.crud import ids
 from app.logging_config import get_logger
 
 log = get_logger("bridge")
 
-# ── §10 토픽 이름 (네임스페이스 = robot_id) ─────────────────────────────────
+# ── §10 토픽 이름 (네임스페이스 = ROS-safe robot ns) ────────────────────────
 # [통신 규칙] 백엔드가 "발행(publish)"하는 토픽은 이름 앞에 /backend 를 붙인다.
 #   (patrol_interfaces 규약 — 보내는 쪽 prefix. 백엔드가 로봇/비전으로 보내는 것 = /backend)
 #   → COMMAND_TOPIC 은 백엔드→로봇 발행이라 /backend 를 붙인다.
 #   ↔ ACK_TOPIC(command_ack) 및 아래 INBOUND_TOPICS 는 "로봇이 발행 → 백엔드가 구독"하는
 #     것이라 백엔드가 보내는 게 아니다 → /backend 를 붙이지 않는다(로봇 네임스페이스 그대로).
-COMMAND_TOPIC = "/backend/{robot_id}/command"  # 백엔드 → 로봇 (발행)
-ACK_TOPIC = "/{robot_id}/command_ack"  # 로봇 → 백엔드 (구독)
+#
+# [네임스페이스] 논리 robot_id(예: AMR-01)에는 ROS2 토픽에 못 쓰는 하이픈이 있다. 그래서
+#   토픽을 만들 때는 robot_id 를 그대로 쓰지 않고 settings.topic_prefix_map 으로 매핑한
+#   ROS-safe 네임스페이스(예: /amr_1)를 쓴다. DB/WS/프론트는 여전히 AMR-01 을 쓴다.
+#   실 로봇·fake_robot_node·비전 노드도 반드시 같은 /amr_1·/amr_2 네임스페이스로 발행/구독해야 한다.
 
-#: §10-1 구독 토픽 → 타입. 실제 rclpy 구독 생성과 문서화에 함께 쓴다.
+
+def robot_ns(robot_id: str) -> str:
+    """논리 robot_id → ROS-safe 네임스페이스(선행 슬래시 포함). 예: AMR-01 → /amr_1.
+
+    topic_prefix_map 에 없으면 언더스코어 id(amr_1 등)처럼 이미 ROS-safe 인 경우이므로
+    ``/{robot_id}`` 를 그대로 쓴다.
+    """
+    ns = settings.topic_prefix_map.get(robot_id) or f"/{robot_id}"
+    return ns if ns.startswith("/") else f"/{ns}"
+
+
+def command_topic(robot_id: str) -> str:
+    """§10-2 백엔드→로봇 명령 토픽. 예: AMR-01 → /backend/amr_1/command."""
+    return f"/backend{robot_ns(robot_id)}/command"
+
+
+# 아래 `{robot_id}` 자리표시는 문서용이다. 실제 토픽은 robot_ns()/command_topic() 이 만든다.
+COMMAND_TOPIC = "/backend/{robot_ns}/command"  # 백엔드 → 로봇 (발행)
+ACK_TOPIC = "/{robot_ns}/command_ack"  # 로봇 → 백엔드 (구독)
+
+#: §10-1 구독 토픽 → 타입. 문서화용(실제 구독 생성은 robot_ns() 로 네임스페이스를 만든다).
 INBOUND_TOPICS: dict[str, str] = {
-    "/{robot_id}/robot_state": "std_msgs/String",
-    "/{robot_id}/amcl_pose": "geometry_msgs/PoseWithCovarianceStamped",
-    "/{robot_id}/battery_state": "sensor_msgs/BatteryState",
-    "/{robot_id}/detection": "std_msgs/String",
-    "/{robot_id}/aruco_correction": "std_msgs/String",
-    "/{robot_id}/safety_event": "std_msgs/String",
-    "/{robot_id}/checkpoint": "std_msgs/String",
+    "/{robot_ns}/robot_state": "std_msgs/String",
+    "/{robot_ns}/amcl_pose": "geometry_msgs/PoseWithCovarianceStamped",
+    "/{robot_ns}/battery_state": "sensor_msgs/BatteryState",
+    "/{robot_ns}/detection": "std_msgs/String",
+    "/{robot_ns}/aruco_correction": "std_msgs/String",
+    "/{robot_ns}/safety_event": "std_msgs/String",
+    "/{robot_ns}/checkpoint": "std_msgs/String",
 }
 
 #: §10-2 command_type 고정값. 여기 없는 타입으로 하달하면 거부한다(오타·규격 이탈 차단).
@@ -348,7 +372,7 @@ class RobotBridge:
         return len(s.inflight) if s else 0
 
     def _emit(self, robot_id: str, envelope: dict) -> bool:
-        topic = COMMAND_TOPIC.format(robot_id=robot_id)
+        topic = command_topic(robot_id)
         try:
             self._pub(topic, json.dumps(envelope, ensure_ascii=False, default=str))
             return True
@@ -417,11 +441,11 @@ class Ros2Bridge:
                 super().__init__("robot_bridge")
                 self._produce = produce
                 self._cmd_pubs = {
-                    rid: self.create_publisher(String, COMMAND_TOPIC.format(robot_id=rid), 10)
+                    rid: self.create_publisher(String, command_topic(rid), 10)
                     for rid in robot_ids
                 }
                 for rid in robot_ids:
-                    ns = f"/{rid}"
+                    ns = robot_ns(rid)
                     self.create_subscription(String, f"{ns}/command_ack",
                                              lambda m, r=rid: produce("on_command_ack", r, m.data), 10)
                     self.create_subscription(String, f"{ns}/robot_state",
@@ -448,7 +472,7 @@ class Ros2Bridge:
 
             def publish(self, topic: str, payload: str) -> None:
                 for rid, pub in self._cmd_pubs.items():
-                    if topic == COMMAND_TOPIC.format(robot_id=rid):
+                    if topic == command_topic(rid):
                         pub.publish(String(data=payload))
                         return
 

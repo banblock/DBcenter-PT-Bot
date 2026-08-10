@@ -1,22 +1,30 @@
-import { Map, RotateCcw, Trash2 } from "lucide-react";
-import { useRef, useState, type MouseEvent } from "react";
-import { WP_PER_ZONE, ZONES, ZONE_AMR } from "../../constants/dashboard";
+import { Map, RotateCcw, Square, Trash2 } from "lucide-react";
+import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { dockPixelPosition, WP_PER_ZONE, ZONE_AMR, ZONE_META, ZONES } from "../../constants/dashboard";
 import { useDashboard } from "../../hooks/useDashboard";
+import { worldToPixel } from "../../lib/backendClient";
+import type { ZoneRect } from "../../types";
 import "./MapPanel.css";
+import { heldWaypoint, includesUnknownCell } from "./mapRules";
 
-const VB_W = 900;
-const VB_H = 460;
-const ZONE_COLOR: Record<string, string> = { "존-1": "#2f6bff", "존-2": "#d6409f" };
-// 각 존 사각형 경계(viewBox 900×460) — waypoint는 해당 존 영역 안에만 지정 가능
-const ZONE_BOUNDS: Record<string, { x: number; y: number; w: number; h: number }> = {
-  "존-1": { x: 70, y: 70, w: 290, h: 150 },
-  "존-2": { x: 500, y: 210, w: 290, h: 170 },
-};
+type Mode = "zone" | "waypoint";
+const MIN_ZONE_PX = 6; // 이보다 작게 드래그하면 클릭으로 간주하고 무시
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
+}
 
 export function MapPanel() {
   const {
     robots,
     isZone2Hot,
+    maps,
+    activeMap,
+    mapGrid,
+    selectMap,
+    zoneRects,
+    setZoneRect,
+    commitZoneRect,
     waypoints,
     waypointTotal,
     patrolStarted,
@@ -24,47 +32,149 @@ export function MapPanel() {
     undoWaypoint,
     clearWaypoints,
   } = useDashboard();
+
   const svgRef = useRef<SVGSVGElement>(null);
+  const [mode, setMode] = useState<Mode>("zone");
   const [zone, setZone] = useState<string>(ZONES[0]);
   const [notice, setNotice] = useState("");
+  const dragStart = useRef<{ px: number; py: number } | null>(null);
+  const [draft, setDraft] = useState<ZoneRect | null>(null);
+
+  // 맵 픽셀 좌표계 = SVG viewBox. 맵이 없으면 기본값으로 그린다.
+  const W = activeMap?.width ?? 113;
+  const H = activeMap?.height ?? 66;
+  const U = W / 100; // 마커/글자 크기 스케일 (뷰박스가 작아서 상대 크기로 그린다)
   const need = ZONES.length * WP_PER_ZONE;
+  const locked = patrolStarted;
+
+  // 규칙2: AMR 마커는 도달한 waypoint 에만 스냅해 고정한다(실시간 위치 표기 안 함).
+  const heldMarkerRef = useRef<Record<string, { x: number; y: number }>>({});
 
   function flash(msg: string) {
     setNotice(msg);
-    window.setTimeout(() => setNotice(""), 1600);
+    window.setTimeout(() => setNotice(""), 1800);
   }
 
-  function handleMapClick(event: MouseEvent<SVGSVGElement>) {
-    if (patrolStarted) return;
+  function evtToPixel(event: ReactPointerEvent<SVGSVGElement>): { px: number; py: number } | null {
     const svg = svgRef.current;
-    if (!svg) return;
+    if (!svg) return null;
     const rect = svg.getBoundingClientRect();
-    const x = Math.round(((event.clientX - rect.left) / rect.width) * VB_W);
-    const y = Math.round(((event.clientY - rect.top) / rect.height) * VB_H);
-    // 클릭 지점이 속한 존 — 각 존 영역 안에만 지정 가능
-    const z = ZONES.find((zz) => {
-      const b = ZONE_BOUNDS[zz];
-      return x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
+    if (!rect.width || !rect.height) return null;
+    return {
+      px: clamp(((event.clientX - rect.left) / rect.width) * W, 0, W),
+      py: clamp(((event.clientY - rect.top) / rect.height) * H, 0, H),
+    };
+  }
+
+  function zoneAt(px: number, py: number): string | undefined {
+    return ZONES.find((z) => {
+      const r = zoneRects[z];
+      return r && px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
     });
+  }
+
+  // 존 사각형을 이미지 경계[0,W]×[0,H] 안으로 강제.
+  function clampRect(r: ZoneRect): ZoneRect {
+    const x = clamp(r.x, 0, W);
+    const y = clamp(r.y, 0, H);
+    return { x, y, w: clamp(r.w, 0, W - x), h: clamp(r.h, 0, H - y) };
+  }
+
+  // 규칙2: 두 사각형이 겹치는지.
+  function rectsOverlap(a: ZoneRect, b: ZoneRect): boolean {
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  }
+
+  // 규칙3: 해당 픽셀이 자유공간(백색)인가 = 로봇 이동 가능. 그리드 없으면 제약 없음.
+  function isNavigable(px: number, py: number): boolean {
+    if (!mapGrid || !mapGrid.available || !mapGrid.data) return true;
+    const gx = Math.floor(px);
+    const gy = Math.floor(py);
+    if (gx < 0 || gy < 0 || gx >= mapGrid.width || gy >= mapGrid.height) return false;
+    return mapGrid.data[gy * mapGrid.width + gx] >= mapGrid.freeMin;
+  }
+
+  function handlePointerDown(event: ReactPointerEvent<SVGSVGElement>) {
+    if (locked || mode !== "zone") return;
+    const p = evtToPixel(event);
+    if (!p) return;
+    (event.target as Element).setPointerCapture?.(event.pointerId);
+    dragStart.current = p;
+    setDraft({ x: p.px, y: p.py, w: 0, h: 0 });
+  }
+
+  function handlePointerMove(event: ReactPointerEvent<SVGSVGElement>) {
+    if (locked || mode !== "zone" || !dragStart.current) return;
+    const p = evtToPixel(event);
+    if (!p) return;
+    const s = dragStart.current;
+    setDraft({
+      x: Math.min(s.px, p.px),
+      y: Math.min(s.py, p.py),
+      w: Math.abs(p.px - s.px),
+      h: Math.abs(p.py - s.py),
+    });
+  }
+
+  function handlePointerUp() {
+    if (mode !== "zone" || !dragStart.current) return;
+    const raw = draft;
+    dragStart.current = null;
+    setDraft(null);
+    if (!raw || raw.w < MIN_ZONE_PX || raw.h < MIN_ZONE_PX) return;
+    // 이미지 경계로 클램프
+    const rect = clampRect(raw);
+    if (rect.w < MIN_ZONE_PX || rect.h < MIN_ZONE_PX) {
+      flash("존은 맵 내부에만 설정할 수 있습니다");
+      return;
+    }
+    // 규칙1: 실제 맵(검정 박스) 밖(회색 미탐색)에는 존을 설정할 수 없다
+    if (includesUnknownCell(mapGrid, rect)) {
+      flash("실제 맵(검정 박스) 밖에는 존을 설정할 수 없습니다");
+      return;
+    }
+    // 규칙2: 다른 존과 겹치면 거부
+    const other = ZONES.find((z) => z !== zone);
+    if (other && zoneRects[other] && rectsOverlap(rect, zoneRects[other])) {
+      flash(`${zone} 이(가) ${other} 과(와) 겹칩니다 — 겹치지 않게 그려주세요`);
+      return;
+    }
+    setZoneRect(zone, rect); // 즉시 반영
+    commitZoneRect(zone, rect); // 백엔드 저장
+    flash(`${zone} 영역 설정됨 · 이제 waypoint 를 지정하세요`);
+  }
+
+  function handleClickWaypoint(event: ReactPointerEvent<SVGSVGElement>) {
+    if (locked || mode !== "waypoint") return;
+    const p = evtToPixel(event);
+    if (!p) return;
+    const z = zoneAt(p.px, p.py);
     if (!z) {
-      flash("waypoint는 존-1 / 존-2 영역 안에만 지정할 수 있습니다");
+      flash("waypoint 는 존 영역 안에만 지정할 수 있습니다");
       return;
     }
     if ((waypoints[z]?.length ?? 0) >= WP_PER_ZONE) {
-      flash(`${z}은 이미 waypoint ${WP_PER_ZONE}개가 지정되었습니다`);
+      flash(`${z} 은 이미 waypoint ${WP_PER_ZONE}개가 지정되었습니다`);
       return;
     }
-    setZone(z); // 클릭한 존으로 자동 전환·귀속
-    addWaypoint(z, x, y);
+    // 규칙3: 자유공간(백색=로봇 이동 가능) 위에만 지정 가능
+    if (!isNavigable(p.px, p.py)) {
+      flash("로봇 이동 불가 영역입니다 — 백색(이동 가능) 구역을 클릭하세요");
+      return;
+    }
+    setZone(z);
+    addWaypoint(z, Math.round(p.px), Math.round(p.py));
   }
 
   const hint = notice
     ? notice
-    : patrolStarted
-      ? "순찰 진행 중 — waypoint 잠금"
-      : waypointTotal >= need
-        ? "지정 완료! ▶ 통합 순찰 시작을 누르세요"
-        : `${zone}에 waypoint ${waypoints[zone]?.length ?? 0}/${WP_PER_ZONE} 지정됨 · ${zone} 영역 안을 클릭하세요`;
+    : locked
+      ? "순찰 진행 중 — 맵·존·waypoint 잠금"
+      : mode === "zone"
+        ? `존 설정 모드 · ${zone} 을(를) 선택하고 지도 위에 네모박스를 드래그하세요`
+        : waypointTotal >= need
+          ? "지정 완료! ▶ 통합 순찰 시작을 누르세요"
+          : `${zone} waypoint ${waypoints[zone]?.length ?? 0}/${WP_PER_ZONE} · ${zone} 영역 안을 클릭하세요`;
 
   return (
     <section className="panel map-panel">
@@ -72,66 +182,70 @@ export function MapPanel() {
         <h2>
           <Map size={16} /> 시설 맵 / 실시간 모니터링
         </h2>
-        <span className="panel-header__hint">순찰 waypoint 지정</span>
+        <div className="map-panel__mapselect">
+          <label htmlFor="map-select">맵</label>
+          <select
+            id="map-select"
+            value={activeMap?.map_id ?? ""}
+            onChange={(e) => selectMap(e.target.value)}
+            disabled={locked || maps.length === 0}
+          >
+            {maps.length === 0 && <option value="">맵 없음</option>}
+            {maps.map((m) => (
+              <option key={m.map_id} value={m.map_id}>
+                {m.name} ({m.width}×{m.height})
+              </option>
+            ))}
+          </select>
+        </div>
       </header>
 
-      <div className="map-panel__legend">
-        <span>
-          <i className="sw sw--area" style={{ background: "#eaf0ff", borderColor: "#2f6bff" }} /> 존-1 · AMR-01
-        </span>
-        <span>
-          <i className="sw sw--area" style={{ background: "#fbe6f4", borderColor: "#d6409f" }} /> 존-2 · AMR-02
-        </span>
-        <span>
-          <i className="sw sw--area sw--danger" /> 이상 구역
-        </span>
-        <span>
-          <i className="sw sw--area sw--dock" /> 도킹 스테이션
-        </span>
-      </div>
+      {/* 모드 전환 + 존/waypoint 컨트롤 바 */}
+      <div className="map-panel__toolbar">
+        <div className="map-panel__modes">
+          <button
+            type="button"
+            className={`map-panel__mode ${mode === "zone" ? "is-active" : ""}`}
+            onClick={() => !locked && setMode("zone")}
+            disabled={locked}
+          >
+            <Square size={12} /> 존 설정
+          </button>
+          <button
+            type="button"
+            className={`map-panel__mode ${mode === "waypoint" ? "is-active" : ""}`}
+            onClick={() => !locked && setMode("waypoint")}
+            disabled={locked}
+          >
+            🎯 waypoint 지정
+          </button>
+        </div>
 
-      {/* 기능1: waypoint 지정 바 */}
-      <div
-        className="map-panel__wpbar"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          padding: "10px 14px",
-          flexWrap: "wrap",
-          borderBottom: "1px solid var(--line-2, #eef0f4)",
-          background: waypointTotal >= need && !patrolStarted ? "var(--green-soft, #e7f6ee)" : "var(--blue-soft, #eaf0ff)",
-        }}
-      >
-        <span style={{ fontSize: 12.5, fontWeight: 800, color: "#1f4fd0" }}>🎯 순찰 waypoint 지정</span>
         {ZONES.map((z) => (
           <button
             key={z}
             type="button"
-            onClick={() => !patrolStarted && setZone(z)}
+            className="map-panel__zonebtn"
+            onClick={() => !locked && setZone(z)}
             style={{
-              border: `1px solid ${zone === z ? ZONE_COLOR[z] : "#d8dce6"}`,
-              boxShadow: zone === z ? `0 0 0 2px ${ZONE_COLOR[z]}22` : "none",
-              background: "#fff",
-              color: zone === z ? ZONE_COLOR[z] : "#5b6270",
-              borderRadius: 8,
-              padding: "6px 10px",
-              fontSize: 11.5,
-              fontWeight: 700,
-              cursor: patrolStarted ? "default" : "pointer",
+              borderColor: zone === z ? ZONE_META[z].color : "#d8dce6",
+              boxShadow: zone === z ? `0 0 0 2px ${ZONE_META[z].color}22` : "none",
+              color: zone === z ? ZONE_META[z].color : "#5b6270",
             }}
+            disabled={locked}
           >
             {z} · {ZONE_AMR[z]}
           </button>
         ))}
-        <span style={{ fontSize: 12, fontWeight: 800, color: "#1f4fd0", fontVariantNumeric: "tabular-nums" }}>
+
+        <span className="map-panel__count">
           {waypointTotal} / {need}
         </span>
         <button
           type="button"
           className="button button--ghost button--xs"
           onClick={() => undoWaypoint(zone)}
-          disabled={patrolStarted}
+          disabled={locked || mode !== "waypoint"}
         >
           <RotateCcw size={12} /> 취소
         </button>
@@ -139,64 +253,192 @@ export function MapPanel() {
           type="button"
           className="button button--ghost button--xs"
           onClick={clearWaypoints}
-          disabled={patrolStarted}
+          disabled={locked || mode !== "waypoint"}
         >
           <Trash2 size={12} /> 전체 지우기
         </button>
-        <span style={{ fontSize: 11, color: "#5b6270", flex: 1, minWidth: 160 }}>{hint}</span>
+        <span className="map-panel__hint">{hint}</span>
       </div>
 
       <div className="map-panel__canvas">
         <svg
           ref={svgRef}
-          viewBox={`0 0 ${VB_W} ${VB_H}`}
+          viewBox={`0 0 ${W} ${H}`}
           role="img"
-          aria-label="AMR 시설 맵 — 클릭하여 waypoint 지정"
-          onClick={handleMapClick}
+          aria-label="AMR 시설 맵"
           className="map-panel__svg"
-          style={{ cursor: patrolStarted ? "default" : "crosshair" }}
+          style={{
+            cursor: locked ? "default" : mode === "zone" ? "crosshair" : "pointer",
+            aspectRatio: `${W} / ${H}`,
+            touchAction: "none",
+          }}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+          onClick={handleClickWaypoint}
         >
-          <rect x="0" y="0" width="900" height="460" fill="#eef0f4" />
-          <rect x="20" y="20" width="860" height="420" rx="10" fill="#ffffff" stroke="#dfe3ea" />
+          {/* 맵 이미지(SLAM 점유격자) 또는 배경 */}
+          <rect x="0" y="0" width={W} height={H} fill="#e9edf3" />
+          {activeMap?.image_url && (
+            <image
+              href={activeMap.image_url}
+              x="0"
+              y="0"
+              width={W}
+              height={H}
+              preserveAspectRatio="none"
+              style={{ imageRendering: "pixelated" }}
+            />
+          )}
 
-          <rect x="70" y="70" width="290" height="150" rx="14" fill="#eaf0ff" stroke="#2f6bff" strokeWidth="1.5" />
-          <text x="215" y="150" textAnchor="middle" fill="#1f4fd0" fontSize="15" fontFamily="sans-serif" fontWeight="700">존-1</text>
+          {/* 고정 도킹 스테이션: 명칭은 박스 내부에만 간결하게 표시 */}
+          {Object.values(ZONE_META).map((meta, index) => {
+            const dock = dockPixelPosition(meta.amr, W, H);
+            const color = meta.color;
+            return (
+              <g key={`dock-${meta.amr}`} transform={`translate(${dock.x},${dock.y})`}>
+                <rect
+                  x={-4.5 * U}
+                  y={-2.7 * U}
+                  width={9 * U}
+                  height={5.4 * U}
+                  rx={1.2 * U}
+                  fill="#fff"
+                  fillOpacity={0.94}
+                  stroke={color}
+                  strokeWidth={1.6}
+                  vectorEffect="non-scaling-stroke"
+                />
+                <text
+                  y={0.9 * U}
+                  textAnchor="middle"
+                  fontSize={2.6 * U}
+                  fontWeight={800}
+                  fill={color}
+                  fontFamily="sans-serif"
+                >
+                  도킹{index + 1}
+                </text>
+              </g>
+            );
+          })}
 
-          <rect
-            x="500" y="210" width="290" height="170" rx="14"
-            fill={isZone2Hot ? "#fdecec" : "#fbe6f4"}
-            stroke={isZone2Hot ? "#e5484d" : "#d6409f"}
-            strokeWidth="1.5"
-          />
-          <text x="645" y="240" textAnchor="middle" fill={isZone2Hot ? "#c8393e" : "#b3348a"} fontSize="15" fontFamily="sans-serif" fontWeight="700">존-2</text>
-          <text x="645" y="272" textAnchor="middle" fontSize="20" opacity={isZone2Hot ? 1 : 0}>⚠</text>
+          {/* 존 사각형 (저장/그리는 중) */}
+          {ZONES.map((z) => {
+            const r = zoneRects[z];
+            if (!r) return null;
+            const hot = z === "존-2" && isZone2Hot;
+            const color = hot ? "#e5484d" : ZONE_META[z].color;
+            return (
+              <g key={z}>
+                <rect
+                  x={r.x}
+                  y={r.y}
+                  width={r.w}
+                  height={r.h}
+                  rx={1.2 * U}
+                  fill={color}
+                  fillOpacity={hot ? 0.16 : 0.1}
+                  stroke={color}
+                  strokeWidth={zone === z && mode === "zone" ? 2 : 1.4}
+                  strokeDasharray={zone === z && mode === "zone" ? "3 2" : undefined}
+                  vectorEffect="non-scaling-stroke"
+                />
+                <text
+                  x={r.x + 1.5 * U}
+                  y={r.y + 3.5 * U}
+                  fill={color}
+                  fontSize={3 * U}
+                  fontWeight={700}
+                  fontFamily="sans-serif"
+                  style={{ paintOrder: "stroke", stroke: "#fff", strokeWidth: 0.6 * U }}
+                >
+                  {z} {hot ? "⚠" : ""}
+                </text>
+              </g>
+            );
+          })}
 
-          <rect x="370" y="26" width="64" height="34" rx="7" fill="#efeaff" stroke="#7b5cff" />
-          <text x="402" y="48" textAnchor="middle" fill="#5b3fe0" fontSize="12" fontFamily="sans-serif" fontWeight="700">D1</text>
-          <rect x="370" y="400" width="64" height="34" rx="7" fill="#efeaff" stroke="#7b5cff" />
-          <text x="402" y="422" textAnchor="middle" fill="#5b3fe0" fontSize="12" fontFamily="sans-serif" fontWeight="700">D2</text>
+          {/* 드래그 중인 존 미리보기 */}
+          {draft && (
+            <rect
+              x={draft.x}
+              y={draft.y}
+              width={draft.w}
+              height={draft.h}
+              fill={ZONE_META[zone].color}
+              fillOpacity={0.14}
+              stroke={ZONE_META[zone].color}
+              strokeWidth={2}
+              strokeDasharray="3 2"
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
 
-          {/* 기능1: 사용자가 지정한 waypoint 마커 */}
+          {/* 지정한 waypoint 마커 */}
           {ZONES.map((z) =>
             (waypoints[z] ?? []).map((w, idx) => (
               <g key={`${z}-${idx}`} transform={`translate(${w.x},${w.y})`}>
-                <circle r="10" fill={ZONE_COLOR[z]} fillOpacity="0.16" stroke={ZONE_COLOR[z]} strokeWidth="2" />
-                <text y="4" textAnchor="middle" fontSize="11" fontWeight="700" fill={ZONE_COLOR[z]}>
+                <circle
+                  r={2.2 * U}
+                  fill={ZONE_META[z].color}
+                  fillOpacity={0.18}
+                  stroke={ZONE_META[z].color}
+                  strokeWidth={1.6}
+                  vectorEffect="non-scaling-stroke"
+                />
+                <text
+                  y={0.9 * U}
+                  textAnchor="middle"
+                  fontSize={2.4 * U}
+                  fontWeight={700}
+                  fill={ZONE_META[z].color}
+                >
                   {idx + 1}
                 </text>
               </g>
             )),
           )}
 
-          {/* AMR 마커 (waypoint 도달 시점에 갱신) */}
+          {/* 규칙2: AMR 마커는 도달한 waypoint 에 스냅해 고정 — 실시간 위치는 표기하지 않는다. */}
           {robots.map((r) => {
-            const pose = r.pose ?? { x: 402, y: 230 };
+            // 실제(월드) 포즈를 픽셀로 환산
+            let live = { x: W / 2, y: H / 2 };
+            if (r.pose && activeMap) {
+              const c = worldToPixel(activeMap, r.pose.x, r.pose.y);
+              live = { x: clamp(c.px, 0, W), y: clamp(c.py, 0, H) };
+            } else if (r.pose) {
+              live = { x: clamp(r.pose.x, 0, W), y: clamp(r.pose.y, 0, H) };
+            }
+            // 각 AMR은 담당 존 waypoint만 판정한다. 다른 AMR 경로 근처를 지나도 잘못
+            // 스냅되지 않으며, 첫 waypoint 도달 전에는 마커 자체를 표시하지 않는다.
+            const SNAP = Math.max(1.5, W * 0.02);
+            const assignedZone = ZONES.find((z) => ZONE_AMR[z] === r.id);
+            const robotWaypoints = assignedZone ? (waypoints[assignedZone] ?? []) : [];
+            const atDock = ["IDLE", "DOCKING", "CHARGING"].includes(r.state);
+            const held = atDock
+              ? dockPixelPosition(r.id, W, H)
+              : heldWaypoint(live, robotWaypoints, heldMarkerRef.current[r.id] ?? null, SNAP);
+            if (held) heldMarkerRef.current[r.id] = held;
+            else delete heldMarkerRef.current[r.id];
+            if (!held) return null;
+            const px = held.x;
+            const py = held.y;
             const danger = r.mission_type === "ANOMALY";
+            const fill = danger ? "#e5484d" : "#1f4fd0";
             return (
-              <g key={r.id} transform={`translate(${pose.x},${pose.y})`}>
-                <circle r="12" fill={danger ? "#e5484d" : "#2f6bff"} stroke="#fff" strokeWidth="2.5" />
-                <rect x="-36" y="16" width="72" height="18" rx="9" fill="#fff" stroke={danger ? "#f6bcbd" : "#c6d5ff"} />
-                <text x="0" y="29" textAnchor="middle" fontSize="10.5" fontFamily="sans-serif" fontWeight="700" fill={danger ? "#e5484d" : "#2f6bff"}>
+              <g key={r.id} transform={`translate(${px},${py})`}>
+                <circle r={2.8 * U} fill={fill} stroke="#fff" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+                <text
+                  y={-3.6 * U}
+                  textAnchor="middle"
+                  fontSize={2.6 * U}
+                  fontWeight={700}
+                  fill={fill}
+                  fontFamily="sans-serif"
+                  style={{ paintOrder: "stroke", stroke: "#fff", strokeWidth: 0.9 * U }}
+                >
                   {r.id}
                 </text>
               </g>
@@ -209,6 +451,24 @@ export function MapPanel() {
           <button type="button" title="축소">−</button>
           <button type="button" title="현재 위치">◎</button>
           <button type="button" title="레이어">▤</button>
+        </div>
+
+        {/* ROS map 프레임의 실제 좌표 — 위치 텔레메트리가 올 때마다 실시간 갱신 */}
+        <div className="map-panel__coordinates" aria-label="AMR 실제 좌표" aria-live="polite">
+          <strong>실제 좌표 · map frame</strong>
+          {robots.map((robot) => (
+            <div key={`coordinate-${robot.id}`} className="map-panel__coordinate-row">
+              <span>{robot.id}</span>
+              {robot.pose ? (
+                <code>
+                  X {robot.pose.x.toFixed(3)}m · Y {robot.pose.y.toFixed(3)}m
+                  {typeof robot.pose.theta === "number" ? ` · θ ${robot.pose.theta.toFixed(2)}rad` : ""}
+                </code>
+              ) : (
+                <code>좌표 수신 대기</code>
+              )}
+            </div>
+          ))}
         </div>
       </div>
     </section>

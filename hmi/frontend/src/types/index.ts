@@ -39,7 +39,7 @@ export interface Track {
   steps: TrackStep[];
 }
 
-export type Command = "start" | "pause" | "resume" | "dock" | "estop" | "reset" | "ack";
+export type Command = "start" | "pause" | "resume" | "dock" | "estop" | "stop_and_dock" | "reset" | "ack";
 
 export type ZoneState = "NORMAL" | "MISMATCH" | "RECHECK" | "SCANNING" | "STALE" | "UNREADABLE";
 
@@ -51,6 +51,7 @@ export interface ZoneChip {
 export interface RobotPose {
   x: number;
   y: number;
+  theta?: number;
 }
 
 /** 기능1: 사용자가 구역별로 지정하는 순찰 waypoint */
@@ -61,6 +62,39 @@ export interface Waypoint {
 }
 
 export type WaypointMap = Record<string, Waypoint[]>;
+
+/** 맵 선택: 백엔드 MapOut 을 화면에서 쓰는 모양 (image_url 은 절대 URL 로 변환됨) */
+export interface MapInfo {
+  map_id: string;
+  name: string;
+  /** 렌더에 바로 쓰는 절대 URL (API_BASE + image_url). 없으면 이미지 없음 */
+  image_url: string | null;
+  resolution: number; // m/pixel
+  origin: [number, number, number]; // [x, y, theta] (m, rad)
+  width: number; // px
+  height: number; // px
+  is_active: boolean;
+}
+
+/** 맵 픽셀 좌표계의 사각형 존 영역 (viewBox = 0 0 width height 와 동일) */
+export interface ZoneRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export type ZoneRectMap = Record<string, ZoneRect>;
+
+/** 점유격자 — waypoint 를 자유공간(백색)에만 찍기 위한 데이터.
+ *  data 는 row-major(위→아래·좌→우) 그레이스케일(0~255). freeMin 이상이면 자유공간. */
+export interface MapGrid {
+  available: boolean;
+  width: number;
+  height: number;
+  freeMin: number;
+  data: Uint8Array | null;
+}
 
 /** 기능3·4: 카메라/CCTV 확인 팝업 */
 export interface PopupAction {
@@ -120,6 +154,7 @@ export interface AppEvent {
   assignee?: string;
   /** 기능4·6: 이벤트 출처 구분 (차단기 / AMR / CCTV) */
   kind?: "GATE" | "AMR" | "CCTV";
+  cameraId?: string;
   ts: number;
 }
 
@@ -150,6 +185,8 @@ export interface InboundMessage {
   events?: Array<Omit<AppEvent, "ts"> & { ts: string | number }>;
   stats?: Partial<Stats>;
   log?: { tag: LogTag; msg: string; hot?: boolean };
+  /** 새 CCTV 이벤트가 최초 수신된 순간에만 채운다(상태 갱신 재팝업 방지). */
+  detectedCctvEvent?: Omit<AppEvent, "ts"> & { ts: string | number };
 }
 
 export type LinkMode = "connecting" | "live" | "demo" | "down";

@@ -41,8 +41,8 @@ _STATE_TO_TYPE: dict[int, str] = {
 VISION_CAMERA_MAP: dict[int, dict[str, Any]] = {
     0: {"source": "cctv", "camera_id": "cctv1", "zone_id": "Z01"},   # cctv1
     1: {"source": "cctv", "camera_id": "cctv2", "zone_id": "Z02"},   # cctv2
-    2: {"source": "amr", "robot_id": "amr_1", "zone_id": None},       # robot3 cam
-    3: {"source": "amr", "robot_id": "amr_2", "zone_id": None},       # robot8 cam
+    2: {"source": "amr", "robot_id": "AMR-01", "zone_id": None},      # robot3 cam
+    3: {"source": "amr", "robot_id": "AMR-02", "zone_id": None},      # robot8 cam
 }
 DEFAULT_CONFIDENCE = 0.9  # CamState.confidence 가 0(미설정)일 때 쓰는 기본값
 INBOUND_QUEUE_SIZE = 500
@@ -73,19 +73,19 @@ def detection_to_map_xy(camera_id: str | None, bbox: Bbox | None) -> tuple[float
 
 # ── 차단기 검사 서비스 (Phase 2-2) ──────────────────────────────────────────
 GATE_CHECK_SERVICE = "/backend/check_gate"  # 서버=detect_main_node, 백엔드=클라이언트
-# 백엔드 robot_id(amr_1) → CheckGate.robot_id(정수, 로봇 캠 번호 /robot3·/robot8 기준).
-# ★조정 필요(§8): robot3/robot8 ↔ amr_1/amr_2 매핑을 팀과 확정.
-ROBOT_NUM: dict[str, int] = {"amr_1": 3, "amr_2": 8}
+# 백엔드 robot_id(AMR-01) → CheckGate.robot_id(정수, 로봇 캠 번호 /robot3·/robot8 기준).
+# UI/DB 로봇 ID 를 AMR-01/AMR-02 로 통일(2026-08-10 UI 통합). robot3/robot8 캠 번호는 유지.
+ROBOT_NUM: dict[str, int] = {"AMR-01": 3, "AMR-02": 8}
 
 # ── 카메라 이미지 피드 (Phase 2) ────────────────────────────────────────────
 # camera_id(웹에서 /api/cameras/{id}/stream) → 비전이 발행하는 CompressedImage 토픽.
 # 전부 JPEG(CompressedImage)라 백엔드는 디코딩 없이 msg.data(bytes)를 그대로 흘린다.
-# ★조정 필요(§8): robot3/robot8 ↔ amr_1/amr_2, AMR 캠은 이상 감지 중에만 프레임이 온다.
+# robot3/robot8 캠 = AMR-01/AMR-02(2026-08-10 UI 통합). AMR 캠은 이상 감지 중에만 프레임이 온다.
 VISION_IMAGE_TOPICS: dict[str, str] = {
     "cctv1": "/detection/cctv1/detection_image",
     "cctv2": "/detection/cctv2/detection_image",
-    "amr_1": "/detection/robot3_cam/detection_image",
-    "amr_2": "/detection/robot8_cam/detection_image",
+    "AMR-01": "/detection/robot3_cam/detection_image",
+    "AMR-02": "/detection/robot8_cam/detection_image",
 }
 
 

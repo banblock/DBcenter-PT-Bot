@@ -7,8 +7,8 @@
 #   seed             로봇을 online/IDLE 로 (loopback 데모용; ros2 는 로봇노드가 자동 온라인)
 #   backend          백엔드 기동 (ROS2 연동 모드)  ← 실 3계층 데모
 #   backend-loopback 백엔드 기동 (loopback: ROS 없이 §10 로그만)
-#   robot [ids...]   테스트 로봇 ROS2 노드 (기본 amr_1 amr_2)
-#   echo [robot]     ros2 topic echo /backend/<robot>/command (기본 amr_1) — 원시 DDS 확인
+#   robot [ids...]   테스트 로봇 ROS2 노드 (기본 AMR-01 AMR-02)
+#   echo [ns]        ros2 topic echo /backend/<ns>/command (기본 amr_1) — 원시 DDS 확인
 #   db               DB Browser(GUI) 로 amr.db 열기
 #   db-cli [SQL]     터미널로 DB 보기 (요약 / tables / 임의 SQL)
 set -eo pipefail

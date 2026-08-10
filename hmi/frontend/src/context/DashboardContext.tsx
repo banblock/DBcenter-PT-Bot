@@ -36,18 +36,25 @@ import {
   STATE_META,
   TRACKS,
   WP_PER_ZONE,
+  ZONE_META,
   ZONES,
 } from "../constants/dashboard";
 import {
   MOCK,
   WS_MONITOR_URL,
+  activateMap,
   backendCommand,
   backendDock,
   backendEstopAll,
   backendGoto,
-  backendStartAll,
+  startPatrolFromWaypoints,
+  fetchMapGrid,
+  fetchMaps,
   fetchStatsOverview,
+  fetchZones,
+  polygonToRect,
   resetCaches,
+  saveZoneRect,
   translateFrame,
 } from "../lib/backendClient";
 import { startDemoSimulator, type DemoHandle } from "../lib/demoSimulator";
@@ -58,10 +65,14 @@ import type {
   LinkMode,
   LogEntry,
   LogTag,
+  MapGrid,
+  MapInfo,
   PopupData,
   Robot,
   Stats,
   WaypointMap,
+  ZoneRect,
+  ZoneRectMap,
 } from "../types";
 
 const WS_TIMEOUT_MS = 1500;
@@ -95,6 +106,16 @@ interface DashboardContextValue {
   isZone2Hot: boolean;
   breakerMismatch: number;
   dismissedAlertId: string | null;
+  latestCctvDetection: AppEvent | null;
+  // 맵 선택
+  maps: MapInfo[];
+  activeMap: MapInfo | null;
+  mapGrid: MapGrid | null;
+  selectMap: (mapId: string) => void;
+  // 존(사각형) 사전 설정 — waypoint 지정 전에 드래그로 그린다
+  zoneRects: ZoneRectMap;
+  setZoneRect: (zone: string, rect: ZoneRect) => void;
+  commitZoneRect: (zone: string, rect: ZoneRect) => void;
   // 기능1: waypoint 지정
   waypoints: WaypointMap;
   waypointTotal: number;
@@ -110,6 +131,7 @@ interface DashboardContextValue {
   dockAll: () => void;
   // 기능3·4: 팝업
   popup: PopupData | null;
+  openPopup: (p: PopupData) => void;
   closePopup: () => void;
   // 공통
   addLog: (tag: LogTag, msg: string, hot?: boolean) => void;
@@ -130,6 +152,33 @@ function emptyWaypoints(): WaypointMap {
   return ZONES.reduce((acc, z) => ({ ...acc, [z]: [] }), {} as WaypointMap);
 }
 
+/** 맵 크기에 맞춘 기본 존 사각형 — 저장된 존이 없을 때 초기값(픽셀 좌표). */
+function defaultZoneRects(map: MapInfo | null): ZoneRectMap {
+  const w = map?.width ?? 113;
+  const h = map?.height ?? 66;
+  return {
+    "존-1": { x: w * 0.08, y: h * 0.15, w: w * 0.34, h: h * 0.5 },
+    "존-2": { x: w * 0.56, y: h * 0.35, w: w * 0.34, h: h * 0.5 },
+  };
+}
+
+/** 저장된 존 폴리곤(월드 m) → 맵 픽셀 사각형. 없는 존은 기본값으로 채운다. */
+function zoneRectsFromBackend(
+  map: MapInfo | null,
+  raw: Array<{ zone_id: string; polygon: number[][] }>,
+): ZoneRectMap {
+  const defaults = defaultZoneRects(map);
+  if (!map) return defaults;
+  const out: ZoneRectMap = { ...defaults };
+  for (const zone of ZONES) {
+    const meta = ZONE_META[zone];
+    const found = raw.find((z) => z.zone_id === meta.zoneId);
+    const rect = found ? polygonToRect(map, found.polygon) : null;
+    if (rect && rect.w > 0.5 && rect.h > 0.5) out[zone] = rect;
+  }
+  return out;
+}
+
 export function DashboardProvider({ children }: { children: ReactNode }) {
   const { ref: stateRef, bump } = useLiveState();
   const [pending, setPending] = useState<Record<string, Command>>({});
@@ -137,6 +186,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [linkMode, setLinkMode] = useState<LinkMode>("connecting");
   const [linkText, setLinkText] = useState("연결 중…");
   const [dismissedAlertId, setDismissedAlertId] = useState<string | null>(null);
+  const [latestCctvDetection, setLatestCctvDetection] = useState<AppEvent | null>(null);
   const [now, setNow] = useState(() => Date.now());
   /** 차단기 불일치 수 — /api/stats/overview 집계값 (WS 로 오지 않아 주기 조회) */
   const [breaker, setBreaker] = useState(0);
@@ -146,6 +196,14 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [patrolStarted, setPatrolStarted] = useState(false);
   const [estopped, setEstopped] = useState(false);
   const [popup, setPopup] = useState<PopupData | null>(null);
+
+  // 맵 선택 · 존(사각형) 상태
+  const [maps, setMaps] = useState<MapInfo[]>([]);
+  const [activeMap, setActiveMap] = useState<MapInfo | null>(null);
+  const [mapGrid, setMapGrid] = useState<MapGrid | null>(null);
+  const [zoneRects, setZoneRects] = useState<ZoneRectMap>(() => defaultZoneRects(null));
+  /** 백엔드에서 받은 존 원본(월드 폴리곤) — 맵 전환 시 픽셀 사각형을 다시 계산한다. */
+  const zonesRawRef = useRef<Array<{ zone_id: string; polygon: number[][] }>>([]);
 
   const logSeq = useRef(0);
   const linkModeRef = useRef<LinkMode>("connecting");
@@ -207,6 +265,12 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       if (msg.stats) {
         state.stats = { ...state.stats, ...msg.stats };
       }
+      if (msg.detectedCctvEvent) {
+        setLatestCctvDetection({
+          ...msg.detectedCctvEvent,
+          ts: toEpoch(msg.detectedCctvEvent.ts),
+        });
+      }
       bump();
 
       if (msg.log) addLog(msg.log.tag, msg.log.msg, msg.log.hot);
@@ -249,6 +313,34 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       window.clearInterval(id);
     };
   }, [applyMessage]);
+
+  /* 맵 목록 + 활성 맵 + 저장된 존을 초기 1회 로드. 데모 모드에선 건너뛴다. */
+  useEffect(() => {
+    if (MOCK) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [list, rawZones] = await Promise.all([fetchMaps(), fetchZones().catch(() => [])]);
+        if (cancelled) return;
+        const active = list.find((m) => m.is_active) ?? list[0] ?? null;
+        zonesRawRef.current = rawZones;
+        setMaps(list);
+        setActiveMap(active);
+        setZoneRects(zoneRectsFromBackend(active, rawZones));
+        if (active) {
+          addLog("PC1", `맵 로드 · ${active.name} (${active.width}×${active.height}px)`);
+          fetchMapGrid(active.map_id)
+            .then((g) => !cancelled && setMapGrid(g))
+            .catch(() => setMapGrid(null));
+        }
+      } catch {
+        /* 백엔드 미연결 — 맵 없이도 화면은 계속 동작한다 */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [addLog]);
 
   // ★③ 연결 상태머신. 상단 pill 색이 여기서 정해짐.
   //    connect() 시도 → 1.5초 안에 안 열리면 startDemo()로 폴백(백엔드 없어도 화면 돎).
@@ -404,6 +496,52 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     [addLog],
   );
 
+  /* 맵 선택 — 백엔드 활성 맵을 바꾸고, 저장된 존을 새 맵 좌표계로 다시 계산한다. */
+  const selectMap = useCallback(
+    (mapId: string) => {
+      if (patrolStartedRef.current) return; // 순찰 중엔 맵 잠금
+      (async () => {
+        try {
+          const updated = await activateMap(mapId);
+          setMaps((prev) => prev.map((m) => ({ ...m, is_active: m.map_id === mapId })));
+          setActiveMap(updated);
+          setZoneRects(zoneRectsFromBackend(updated, zonesRawRef.current));
+          setWaypoints(emptyWaypoints()); // 맵이 바뀌면 좌표 기준이 달라져 waypoint 초기화
+          setMapGrid(null);
+          fetchMapGrid(updated.map_id)
+            .then(setMapGrid)
+            .catch(() => setMapGrid(null));
+          addLog("PC1", `맵 전환 · ${updated.name}`);
+        } catch (e) {
+          addLog("PC1", `맵 전환 실패 · ${(e as Error).message}`, true);
+        }
+      })();
+    },
+    [addLog],
+  );
+
+  /* 존 사각형 — 드래그 중엔 setZoneRect(로컬 즉시 반영), 드래그 끝에 commitZoneRect(백엔드 저장). */
+  const setZoneRect = useCallback((zone: string, rect: ZoneRect) => {
+    if (patrolStartedRef.current) return;
+    setZoneRects((prev) => ({ ...prev, [zone]: rect }));
+  }, []);
+
+  const commitZoneRect = useCallback(
+    (zone: string, rect: ZoneRect) => {
+      if (patrolStartedRef.current) return;
+      setZoneRects((prev) => ({ ...prev, [zone]: rect }));
+      // 존이 바뀌면 그 존의 waypoint 는 영역 밖일 수 있으니 비운다.
+      setWaypoints((prev) => ({ ...prev, [zone]: [] }));
+      const map = activeMap;
+      const meta = ZONE_META[zone];
+      if (!map || !meta) return;
+      saveZoneRect(map, meta.zoneId, zone, rect, meta.risk)
+        .then(() => addLog("PC1", `${zone} 영역 저장 · ${meta.amr} 담당`))
+        .catch((e) => addLog("PC1", `${zone} 영역 저장 실패 · ${(e as Error).message}`, true));
+    },
+    [activeMap, addLog],
+  );
+
   /* 기능1: waypoint 지정 (구역별 최대 WP_PER_ZONE개) */
   const addWaypoint = useCallback((zone: string, x: number, y: number) => {
     if (patrolStartedRef.current) return;
@@ -433,22 +571,31 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     setPatrolStarted(true);
     addLog("PC1", `통합 순찰 시작 · waypoint ${total}개 지정`);
     if (linkModeRef.current === "live") {
-      // 실제 접속된 로봇(백엔드 robot_id: amr_1/amr_2)을 대상으로 순찰을 건다.
-      // ZONE_AMR(존→AMR-01 표시명)은 백엔드 robot_id 와 형식이 달라 대상 선정에 쓰지 않는다.
-      const targets = Object.keys(stateRef.current.robots);
-      if (targets.length === 0) {
+      const map = activeMap;
+      if (!map) {
         setPatrolStarted(false);
-        addLog("PC1", "순찰 시작 실패 · 접속된 로봇이 없습니다", true);
+        addLog("PC1", "순찰 시작 실패 · 활성 맵이 없습니다", true);
         return;
       }
-      backendStartAll(targets).catch((e) => {
-        setPatrolStarted(false);
-        addLog("PC1", `순찰 시작 실패 · ${(e as Error).message}`, true);
-      });
+      // 사용자가 그린 waypoint 로 존별 경로를 만들어 담당 AMR 에 순찰을 건다.
+      const plans = ZONES.map((z) => ({
+        amr: ZONE_META[z].amr,
+        zoneId: ZONE_META[z].zoneId,
+        zoneName: z,
+        rect: zoneRects[z] ?? null,
+        risk: ZONE_META[z].risk,
+        waypointsPixel: (wp[z] ?? []).map((w) => ({ x: w.x, y: w.y })),
+      }));
+      startPatrolFromWaypoints(map, plans)
+        .then(() => addLog("PC1", "순찰 경로 생성·시작 완료 · 로봇 주행 시작"))
+        .catch((e) => {
+          setPatrolStarted(false);
+          addLog("PC1", `순찰 시작 실패 · ${(e as Error).message}`, true);
+        });
     } else {
       demoRef.current?.startPatrol();
     }
-  }, [addLog, stateRef]);
+  }, [addLog, stateRef, activeMap, zoneRects]);
 
   /* 기능5: 긴급정지 → 복귀/재개 */
   const estopAll = useCallback(() => {
@@ -529,6 +676,14 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     isZone2Hot,
     breakerMismatch,
     dismissedAlertId,
+    latestCctvDetection,
+    maps,
+    activeMap,
+    mapGrid,
+    selectMap,
+    zoneRects,
+    setZoneRect,
+    commitZoneRect,
     waypoints,
     waypointTotal,
     patrolStarted,
@@ -541,6 +696,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     resumeAll,
     dockAll,
     popup,
+    openPopup,
     closePopup,
     addLog,
     sendCommand,

@@ -2,17 +2,18 @@
 """테스트 로봇 ROS2 노드 — 실장비 대역 (코드 리뷰 데모용).
 
 실제 AMR 없이, 백엔드(robot_bridge, AMR_BRIDGE_BACKEND=ros2)와 진짜 ROS2 토픽으로
-주고받는다. 명세서 §10 의 로봇 쪽 절반을 구현한다:
+주고받는다. 명세서 §10 의 로봇 쪽 절반을 구현한다. 네임스페이스는 백엔드와 동일하게
+논리 robot_id(AMR-01)를 ROS-safe 값(/amr_1)으로 매핑한다(ROS2 토픽엔 하이픈 불가):
 
-  구독  /backend/{robot_id}/command  (std_msgs/String)  ← 백엔드 명령 수신 → 화면에 출력
-  발행  /{robot_id}/command_ack      (std_msgs/String)  → §10-3 ACK 되돌림
-  발행  /{robot_id}/robot_state   (std_msgs/String)  → "STATE:msg" 1Hz
-  발행  /{robot_id}/amcl_pose     (PoseWithCovarianceStamped)
-  발행  /{robot_id}/battery_state (sensor_msgs/BatteryState)
+  구독  /backend/{ns}/command     (std_msgs/String)  ← 백엔드 명령 수신 → 화면에 출력
+  발행  /{ns}/command_ack         (std_msgs/String)  → §10-3 ACK 되돌림
+  발행  /{ns}/robot_state         (std_msgs/String)  → "STATE:msg" 1Hz
+  발행  /{ns}/amcl_pose           (PoseWithCovarianceStamped)
+  발행  /{ns}/battery_state       (sensor_msgs/BatteryState)
 
 실행 (ROS2 Humble 이 source 된 셸에서):
     source /opt/ros/humble/setup.bash
-    python3 hmi/backend/scripts/fake_robot_node.py amr_1 amr_2
+    python3 hmi/backend/scripts/fake_robot_node.py AMR-01 AMR-02
 
 확인:
     ros2 topic echo /backend/amr_1/command   # 백엔드가 실제로 발행하는지 원시 메시지로 확인
@@ -22,6 +23,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import sys
 
 import rclpy
@@ -29,6 +31,19 @@ from geometry_msgs.msg import PoseWithCovarianceStamped
 from rclpy.node import Node
 from sensor_msgs.msg import BatteryState
 from std_msgs.msg import String
+
+# 논리 robot_id → ROS-safe 네임스페이스. 백엔드 config.py 의 topic_prefix_map 과 반드시 동일.
+# (이 노드는 ROS 시스템 python 으로 돌아 app.config 를 import 할 수 없어 값을 복제한다.)
+NS_MAP = {"AMR-01": "/amr_1", "AMR-02": "/amr_2"}
+
+
+def robot_ns(robot_id: str) -> str:
+    """AMR-01 → /amr_1. 맵에 없으면 하이픈 등 불가 문자를 제거해 ROS-safe 하게 만든다."""
+    ns = NS_MAP.get(robot_id)
+    if ns:
+        return ns
+    return "/" + re.sub(r"[^0-9a-zA-Z_]", "", robot_id).lower()
+
 
 # command_type → 로봇이 전이하는 상태(데모용 단순 매핑).
 CMD_TO_STATE = {
@@ -56,13 +71,13 @@ class FakeRobot:
         self.battery = 0.9
         self.x, self.y, self.theta = 0.0, 0.0, 0.0
 
-        ns = f"/{robot_id}"
+        ns = robot_ns(robot_id)  # 예: AMR-01 → /amr_1 (백엔드와 동일 네임스페이스)
         self.ack_pub = node.create_publisher(String, f"{ns}/command_ack", 10)
         self.state_pub = node.create_publisher(String, f"{ns}/robot_state", 10)
         self.pose_pub = node.create_publisher(PoseWithCovarianceStamped, f"{ns}/amcl_pose", 10)
         self.batt_pub = node.create_publisher(BatteryState, f"{ns}/battery_state", 10)
-        # 백엔드가 /backend/{id}/command 로 발행하므로(로봇은 그걸 구독) 여기 토픽명을 맞춘다.
-        node.create_subscription(String, f"/backend/{robot_id}/command", self.on_command, 10)
+        # 백엔드는 명령을 /backend/{ns}/command 로 발행한다(보내는 쪽 /backend prefix 규약).
+        node.create_subscription(String, f"/backend{ns}/command", self.on_command, 10)
 
     # 백엔드 → 로봇: 명령 수신 (§10-2)
     def on_command(self, msg: String) -> None:
@@ -128,7 +143,7 @@ def main() -> None:
         sys.stdout.reconfigure(line_buffering=True)
     except AttributeError:
         pass
-    robot_ids = sys.argv[1:] or ["amr_1", "amr_2"]
+    robot_ids = sys.argv[1:] or ["AMR-01", "AMR-02"]
     rclpy.init()
     node = FakeRobotNode(robot_ids)
     try:

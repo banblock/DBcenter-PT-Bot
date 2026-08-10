@@ -1,6 +1,7 @@
-import { Camera } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Camera, Flame } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useDashboard } from "../../hooks/useDashboard";
+import type { AppEvent, RobotState } from "../../types";
 import { fmt } from "../../utils/robot";
 import "./CameraGrid.css";
 
@@ -11,13 +12,15 @@ interface CamSpec {
   id: string;        // 리액트 key
   streamId: string;  // 백엔드 카메라 id (/api/cameras/{streamId}/stream)
   name: string;
+  zone: string;      // 존 매칭(이상 이벤트 → 카메라 매핑)
   hot: boolean;
 }
 
 /** 카메라 한 대 = MJPEG <img> 실피드 + 헤더/푸터. 스트림 실패 시 '신호 없음'으로 폴백하고
  *  5초마다 자동 재연결(비전이 나중에 붙어도 새로고침 없이 복구). 실피드엔 비전이 그린
- *  YOLO 박스가 이미 포함돼 있어 가짜 bbox 오버레이는 두지 않는다. */
-function CamTile({ cam, ts }: { cam: CamSpec; ts: string }) {
+ *  YOLO 박스가 이미 포함돼 있어 가짜 bbox 오버레이는 두지 않는다.
+ *  우상단 감지 버튼(기능6)은 실피드 위에서도 화재 대응 흐름을 수동으로 확인할 수 있게 한다. */
+function CamTile({ cam, ts, onDetect }: { cam: CamSpec; ts: string; onDetect: (cam: CamSpec) => void }) {
   const [live, setLive] = useState(true);
   const [nonce, setNonce] = useState(0); // 재연결 시 캐시 무효화
   const src = `${API_BASE}/api/cameras/${cam.streamId}/stream?t=${nonce}`;
@@ -43,6 +46,14 @@ function CamTile({ cam, ts }: { cam: CamSpec; ts: string }) {
         <span className="cam2__name">{cam.name}</span>
         <span className="cam2__status">{cam.hot ? "이상감지" : "정상"}</span>
       </div>
+      <button
+        type="button"
+        className="cam2__detect"
+        title="화재/이상 감지 시뮬레이션"
+        onClick={() => onDetect(cam)}
+      >
+        <Flame size={12} /> 감지
+      </button>
       <div className="cam2__foot">
         <span>{ts}</span>
         <span className="cam2__live">
@@ -54,28 +65,84 @@ function CamTile({ cam, ts }: { cam: CamSpec; ts: string }) {
 }
 
 export function CameraGrid() {
-  const { now, isZone2Hot } = useDashboard();
+  const { now, robots, isZone2Hot, latestCctvDetection, openPopup, sendCommand, dockAll, addLog } = useDashboard();
+  const shownDetectionIds = useRef(new Set<string>());
   const ts = fmt(now);
 
   const cams: CamSpec[] = [
-    { id: "cctv-01", streamId: "cctv1", name: "CCTV-01 (존-1)", hot: false },
-    { id: "cctv-02", streamId: "cctv2", name: "CCTV-02 (존-2)", hot: isZone2Hot },
+    { id: "cctv-01", streamId: "cctv1", name: "CCTV-01 (존-1)", zone: "존-1", hot: false },
+    { id: "cctv-02", streamId: "cctv2", name: "CCTV-02 (존-2)", zone: "존-2", hot: isZone2Hot },
     // AMR 카메라는 상시 표시하지 않고, 이벤트 발생 시 Modal 팝업으로만 띄운다.
   ];
+
+  /** 기능6/규칙3: CCTV 화재/이상 감지 → 전체 일시정지 → 오탐 재개 or 전체 복귀 */
+  function triggerDetection(cam: CamSpec, event?: AppEvent) {
+    const pauseableStates = new Set<RobotState>(["PATROLLING", "INSPECTING", "RESUMING", "DISPATCHING"]);
+    const pausedRobotIds = robots.filter((robot) => pauseableStates.has(robot.state)).map((robot) => robot.id);
+    pausedRobotIds.forEach((robotId) => sendCommand(robotId, "pause"));
+    if (pausedRobotIds.length) {
+      addLog("PC1", `${cam.name} 이상 감지 → 전체 AMR 일시정지 (${pausedRobotIds.join(" · ")})`, true);
+    }
+
+    openPopup({
+      title: `🔥 CCTV 화재/이상 감지 — ${cam.name}`,
+      camLabel: cam.name,
+      camHot: true,
+      evtHtml:
+        `<b>${cam.name}</b> 에서 화재/이상 징후가 감지되었습니다.` +
+        `${event ? `<br/><b>감지 내용:</b> ${event.text}` : ""}<br/>` +
+        `${pausedRobotIds.length ? `<b>${pausedRobotIds.join(" · ")}</b> 순찰을 일시정지했습니다.<br/>` : ""}` +
+        `오탐이면 <b>오탐 확인 및 전체 재개</b>, 실제 상황이면 <b>전체 AMR 복귀 요청</b>을 선택하세요.`,
+      actions: [
+        {
+          label: "✓ 오탐 확인 및 전체 재개",
+          cls: "ghost",
+          onClick: () => {
+            addLog("PC2", `${cam.name} 감지 · 오탐 처리 → 전체 AMR 재개`);
+            pausedRobotIds.forEach((robotId) => sendCommand(robotId, "resume"));
+          },
+        },
+        {
+          label: "🔌 전체 AMR 복귀 요청",
+          cls: "start",
+          onClick: () => {
+            addLog("PC1", `${cam.name} 화재 감지 → 전체 AMR 복귀 신호 전송`, true);
+            dockAll();
+          },
+        },
+      ],
+    });
+  }
+
+  /** 새 CCTV 이상 이벤트를 최초 수신한 순간 자동으로 감지 팝업을 띄운다. */
+  useEffect(() => {
+    const event = latestCctvDetection;
+    if (!event || shownDetectionIds.current.has(event.id)) return;
+    shownDetectionIds.current.add(event.id);
+    const cameraNumber = event.cameraId?.match(/(\d+)$/)?.[1];
+    const cam =
+      cams.find((item) => item.zone === event.zone) ??
+      cams.find((item) => item.id.match(/(\d+)$/)?.[1] === cameraNumber) ??
+      cams[0];
+    triggerDetection(cam, event);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestCctvDetection]);
 
   return (
     <section className="panel camera-panel">
       <header className="panel-header">
         <h2>
-          <Camera size={16} /> 실시간 카메라 피드
+          <Camera size={16} /> CCTV
         </h2>
       </header>
       <div className="camera-grid">
         {cams.map((cam) => (
-          <CamTile key={cam.id} cam={cam} ts={ts} />
+          <CamTile key={cam.id} cam={cam} ts={ts} onDetect={triggerDetection} />
         ))}
       </div>
-      <p className="camera-panel__note">※ AMR 카메라는 이벤트 발생 시 팝업으로 표시됩니다.</p>
+      <p className="camera-panel__note">
+        ※ CCTV 이상 이벤트 발생 시 팝업이 자동 표시됩니다. · <b>감지</b> 버튼으로도 화재 대응 흐름을 확인할 수 있습니다.
+      </p>
     </section>
   );
 }

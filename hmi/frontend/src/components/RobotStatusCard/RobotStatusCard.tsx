@@ -101,7 +101,7 @@ export function RobotStatusCard({ robot }: { robot: Robot }) {
             <button
               key={cmd}
               type="button"
-              className="button button--ghost button--xs"
+              className={`button ${cmd === "stop_and_dock" ? "button--stop" : "button--ghost"} button--xs`}
               disabled={Boolean(pendingCmd)}
               onClick={() => sendCommand(robot.id, cmd)}
             >

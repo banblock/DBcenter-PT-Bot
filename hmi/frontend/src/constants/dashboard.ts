@@ -7,6 +7,30 @@ export const ZONES = ["존-1", "존-2"] as const;
 export const ZONE_AMR: Record<string, string> = { "존-1": "AMR-01", "존-2": "AMR-02" };
 export const WP_PER_ZONE = 3;
 
+/** 존 이름 → 백엔드 zone_id · 담당 AMR · 색 · 기본 위험도.
+ *  드래그로 그린 사각형을 백엔드에 저장할 때 이 zone_id 로 upsert 한다. */
+export interface ZoneMeta {
+  zoneId: string;
+  amr: string;
+  color: string;
+  risk: number;
+}
+export const ZONE_META: Record<string, ZoneMeta> = {
+  "존-1": { zoneId: "Z-P1", amr: "AMR-01", color: "#2f6bff", risk: 3 },
+  "존-2": { zoneId: "Z-P2", amr: "AMR-02", color: "#d6409f", risk: 4 },
+};
+
+/** 맵 크기에 대한 도킹 스테이션 위치 비율 — 좌상단 D1 / 우하단 D2. */
+export const DOCK_POSITION_RATIO: Record<string, { x: number; y: number }> = {
+  "AMR-01": { x: 0.15, y: 0.22 },
+  "AMR-02": { x: 0.9, y: 0.82 },
+};
+
+export function dockPixelPosition(robotId: string, width: number, height: number): { x: number; y: number } {
+  const ratio = DOCK_POSITION_RATIO[robotId] ?? { x: 0.5, y: 0.5 };
+  return { x: width * ratio.x, y: height * ratio.y };
+}
+
 /** 상태별 한글 라벨 + 뱃지 톤 */
 export const STATE_META: Record<RobotState, StateMetaEntry> = {
   OFFLINE: { ko: "연결 끊김", tone: "off" },
@@ -56,21 +80,21 @@ export const TRACKS: Record<MissionType, Track> = {
 /** 상태별 허용 명령 — 불가능한 버튼은 카드에 렌더되지 않는다 */
 export const ALLOWED: Record<RobotState, Command[]> = {
   OFFLINE: [],
-  MAPPING: ["estop"],
-  IDLE: ["start", "dock"],
-  UNDOCKING: ["estop"],
-  PATROLLING: ["pause", "estop", "dock"],
-  PATROL_PAUSED: ["resume", "estop", "dock"],
-  INSPECTING: ["pause", "estop"],
-  DISPATCHING: ["estop"],
-  ALERTING: ["ack", "estop"],
-  REPORTING: ["estop"],
-  RESUMING: ["pause", "estop"],
-  DOCKING: ["estop"],
+  MAPPING: ["stop_and_dock"],
+  IDLE: ["start", "stop_and_dock"],
+  UNDOCKING: ["stop_and_dock"],
+  PATROLLING: ["pause", "stop_and_dock"],
+  PATROL_PAUSED: ["resume", "stop_and_dock"],
+  INSPECTING: ["pause", "stop_and_dock"],
+  DISPATCHING: ["stop_and_dock"],
+  ALERTING: ["ack", "stop_and_dock"],
+  REPORTING: ["stop_and_dock"],
+  RESUMING: ["pause", "stop_and_dock"],
+  DOCKING: ["stop_and_dock"],
   CHARGING: ["start"],
   EMERGENCY_STOP: ["reset"],
   ERROR: ["reset"],
-  ASSIGNED: ["estop"],
+  ASSIGNED: ["stop_and_dock"],
 };
 
 export const CMD_LABEL: Record<Command, string> = {
@@ -79,6 +103,7 @@ export const CMD_LABEL: Record<Command, string> = {
   resume: "▶ 재개",
   dock: "🔌 복귀",
   estop: "⨯ 정지",
+  stop_and_dock: "⏹ 정지 및 복귀",
   reset: "↺ 리셋",
   ack: "✓ 경보 확인",
 };

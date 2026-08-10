@@ -16,6 +16,7 @@ from app.logging_config import get_logger
 log = get_logger("db")
 
 DEMO_MAP_ID = "MAP-DEMO-1F"
+DC_MAP_ID = "MAP-DC-V4"
 
 #: 설비 기준값 — '정상은 무엇인가'의 원천. 실제 현장 값으로 교체해야 한다.
 EQUIPMENT_SEED: list[dict] = [
@@ -123,6 +124,25 @@ def seed_all(db: Session, *, with_demo_map: bool = True) -> dict[str, int]:
             height=768,
             is_active=True,
         )
+        counts["maps"] += 1
+
+    # 실측 SLAM 맵(datacenter_map_v4) — media/maps 에 pgm/png/yaml 이 준비돼 있어야 한다.
+    # 등록되면 이 맵을 현재 활성 맵으로 올린다(활성 맵은 항상 1장 — set_active 가 나머지를 내린다).
+    if db.get(models.Map, DC_MAP_ID) is None:
+        crud.maps.create(
+            db,
+            map_id=DC_MAP_ID,
+            name="datacenter_map_v4",
+            image_path="/media/maps/datacenter_map_v4.png",
+            yaml_path="/media/maps/datacenter_map_v4.yaml",
+            resolution=0.05,
+            origin_x=-5.15,
+            origin_y=-0.659,
+            origin_theta=0.0,
+            width=113,
+            height=66,
+        )
+        crud.maps.set_active(db, DC_MAP_ID)
         counts["maps"] += 1
 
     for zone in ZONE_SEED:

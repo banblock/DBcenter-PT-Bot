@@ -1,69 +1,52 @@
-# 설비 안전 AMR 순찰·이상감지 관제 — React 전환본
+# 설비 안전 AMR 순찰·이상감지 관제 프론트엔드
 
-`index_1.html` 단일 파일 대시보드(상태머신 기반 STATE 단일 진실 원천 + WS/데모 폴백)를 **Vite + React + TypeScript** 구조로 전환한 프로젝트입니다.
+React 18 + TypeScript + Vite 기반 HMI입니다. 기본 개발 포트는 `5175`, 백엔드는 `8000`, 관제 WebSocket은 `/ws/monitor`입니다.
 
-## 권장 배치 경로
+## 새 PC에서 실행
 
-```text
-C:\Users\user\Desktop\취준생\두산ROCKY부트캠프\대면프로젝트 4차\frontend_amr_react
+```bash
+cd hmi/frontend
+cp .env.example .env
+npm ci
+npm run dev -- --host 0.0.0.0 --port 5175
 ```
 
-## 실행
+브라우저는 `http://localhost:5175` 또는 `http://<서버-IP>:5175`로 접속합니다. 다른 PC에서 접속할 때는 백엔드 `AMR_CORS_ORIGINS`에도 그 브라우저 오리진을 추가해야 합니다.
 
-PowerShell에서 다음 명령을 실행합니다.
-
-```powershell
-cd "C:\Users\user\Desktop\취준생\두산ROCKY부트캠프\대면프로젝트 4차\frontend_amr_react"
-npm install
-npm run dev
-```
-
-기본 개발 서버 포트는 `5175`입니다.
-
-## 빌드
-
-```powershell
-npm run build
-npm run preview
-```
-
-## 백엔드 연동
-
-`VITE_MOCK=true`(기본값)면 WS 연결을 시도하지 않고 곧바로 내장 데모 시뮬레이터로 화면을 구동합니다.
-`VITE_MOCK=false`면 실제 WS 서버에 연결을 시도하고, 1.5초 안에 열리지 않거나 끊기면 데모 시뮬레이터로 자동 폴백합니다(재연결도 2초 간격으로 재시도).
+## 환경변수
 
 ```env
-VITE_MOCK=true
-VITE_API_BASE=http://localhost:8001
-VITE_WS_URL=ws://localhost:8001/ws/amr/status
+VITE_API_BASE=http://localhost:8000
+VITE_WS_URL=ws://localhost:8000/ws/monitor
+VITE_MOCK=false
 ```
 
-실제 API를 연결할 때 `.env`의 `VITE_MOCK=false`로 변경하면 됩니다. WS 인바운드 프레임 형식(`{robots?, events?, stats?, log?}`)과 로봇 상태 Enum은 `src/types/index.ts` · `src/constants/dashboard.ts`(STATE_META/TRACKS/ALLOWED)를 참고하세요.
-**이 값들은 `docs/fe-be-연동규격.md`의 API v1.0(로봇ID carter1/carter2, 6단계 progress_step)과 다릅니다** — 백엔드 연동 전 규격 재조율이 필요합니다.
+- `VITE_MOCK=false`: FastAPI 백엔드와 연결합니다. ROS 없는 데모도 이 값을 사용하고 백엔드를 `AMR_DEMO_SIM=1`로 실행합니다.
+- `VITE_MOCK=true`: 백엔드 없이 `src/lib/demoSimulator.ts`만 사용하는 프론트 단독 mock입니다.
+- 페이지를 LAN IP로 열었는데 API/WS 값이 `localhost`이면 `backendClient.ts`가 페이지 호스트로 자동 치환합니다.
+- Vite 환경변수는 빌드 시 반영되므로 `.env`를 바꾼 뒤 개발 서버 또는 빌드를 다시 시작해야 합니다.
+
+실제 `.env`는 비밀값 및 PC별 주소가 들어갈 수 있으므로 전달·덮어쓰기하지 않습니다. `.env.example`을 복사한 뒤 대상 PC 설정에 맞춰 병합하십시오.
+
+## 검증
+
+```bash
+npm test -- --run
+npm run build
+```
 
 ## 주요 구조
 
 ```text
 src/
-├─ components/       # 화면 단위 React 컴포넌트 (Top/Alert/RobotCard/Map/Camera/Stats/Queue/Log)
-├─ constants/        # STATE_META · TRACKS(미션별 5스텝) · ALLOWED(상태별 허용 명령) · CMD_LABEL
-├─ context/          # 단일 진실 원천 STATE + WS 연결/데모 폴백 + 명령 전송
-├─ hooks/            # Context 접근 훅
-├─ lib/              # API 클라이언트, 데모 시뮬레이터(백엔드 미연결 시 폴백)
-├─ styles/           # 디자인 토큰과 전역 스타일
-├─ types/            # TypeScript 타입
-├─ utils/            # stepIndex/fmt/ageSec 등 순수 함수
-├─ App.tsx
-└─ main.tsx
+├─ components/MapPanel/       맵·존·waypoint·도킹·실좌표 표시
+├─ components/CameraGrid/     CCTV 감지 팝업과 전체 정지/재개/복귀
+├─ components/RobotStatusCard 개별 AMR 제어
+├─ constants/dashboard.ts     상태/명령/도킹 위치/존 담당 로봇
+├─ context/DashboardContext.tsx 상태 단일 진실 원천과 WS 연결
+├─ lib/backendClient.ts       REST/WS 변환과 픽셀↔map 좌표 변환
+├─ lib/demoSimulator.ts       프론트 단독 mock
+└─ types/index.ts             공용 타입
 ```
 
-## 구현된 상호작용
-
-- 통합 순찰 시작 · 도킹 스테이션 복귀 · 긴급정지 (허용된 로봇에만 일괄 전송, `ALLOWED` 상태표 기준)
-- 로봇 카드별 미션 트랙(PATROL/ANOMALY) 5단계 스텝 렌더 + 존별 차단기 점검 이력(zonestrip)
-- 상태별로 허용된 명령 버튼만 노출, 전송 후 서버 응답 전까지 "요청 중…" pending 표시(낙관적 업데이트 금지)
-- WS 연결 시도 → 타임아웃/끊김 시 데모 시뮬레이터 자동 폴백, 상단 연결 상태 pill로 표시
-- 이상 감지 현황(화재/연기·냉각수 누수·차단기 불일치) · 이벤트 큐 · 활동 로그(PC1/PC2/Fleet 태그) 실시간 갱신
-- 존-2 위험 이벤트 발생 시 지도·카메라 피드가 함께 "이상감지" 상태로 전환
-- **지도 클릭 → 이동 목표 전송**: 클릭 지점의 맵 좌표(x, y)와 로봇 선택 카드가 뜨고, "전송"을 누르면 `sendGoto(robotId, x, y)`가 실행되어 `POST /api/robots/{id}/goto {waypoints:[{x,y}], preempt:true}`를 호출(데모 모드에서는 시뮬레이터가 해당 로봇의 pose를 즉시 그 좌표로 옮김)
-- 반응형 3열/2열/1열 대시보드
+전체 기능, ROS2 데이터 흐름, 다른 파트와의 병합 순서는 함께 전달되는 `AI-인수인계서.md`를 우선 참조하십시오.

@@ -24,3 +24,10 @@
 .camera-panel__note { margin: 0; padding: 0 14px 12px; font-size: 11px; color: var(--ink-muted); }
 
 @media (max-width: 900px) { .camera-grid { grid-template-columns: 1fr; } }
+
+/* 기능6: CCTV 화재/이상 감지 시뮬레이션 버튼 */
+.cam2__detect { position: absolute; top: 8px; right: 8px; z-index: 3; display: inline-flex; align-items: center; gap: 4px;
+  border: 1px solid rgba(255,120,80,.6); background: rgba(229,72,77,.85); color: #fff; border-radius: 7px;
+  padding: 3px 8px; font-size: 10.5px; font-weight: 700; cursor: pointer; }
+.cam2__detect:hover { background: #e5484d; }
+.cam2 .cam2__head { right: 66px; }

@@ -57,6 +57,45 @@ def get_map(map_id: str, db: DbDep):
     return ok(MapOut.from_model(crud.maps.get(db, map_id)).model_dump())
 
 
+@router.post(
+    "/{map_id}/activate",
+    summary="맵 활성화(현재 로드 맵 지정)",
+    dependencies=[Depends(require(Permission.MASTER_EDIT))],
+)
+def activate_map(map_id: str, db: DbDep):
+    """UI 에서 맵을 선택하면 그 맵을 현재 활성 맵으로 올린다(활성 맵은 항상 1장)."""
+    m = crud.maps.set_active(db, map_id)
+    db.commit()
+    return ok(MapOut.from_model(m).model_dump())
+
+
+@router.get("/{map_id}/grid", summary="점유격자(이동 가능 영역) 조회")
+def get_occupancy_grid(map_id: str, db: DbDep):
+    """맵의 PGM 점유격자를 base64 그레이스케일로 돌려준다.
+
+    프론트는 이 값으로 'waypoint 를 백색(자유공간) 위에만 찍기'를 검증한다.
+    - data_b64: row-major(위→아래·좌→우) 그레이스케일 바이트를 base64 로 인코딩
+    - free_min: 이 값 이상이면 자유공간(백색). ROS 관례상 254(자유)/205(미탐색)/0(점유).
+    PGM 이 없으면(데모 맵 등) available=false 로 응답한다(프론트는 제약 없이 동작).
+    """
+    m = crud.maps.get(db, map_id)
+    occ = crud.maps.load_occupancy(m)
+    if occ is None:
+        return ok({"available": False, "width": m.width, "height": m.height})
+    import base64
+
+    width, height, data = occ
+    return ok(
+        {
+            "available": True,
+            "width": width,
+            "height": height,
+            "free_min": 250,  # 254(백색=자유)만 통과. 205(미탐색)/0(벽)은 제외.
+            "data_b64": base64.b64encode(data).decode("ascii"),
+        }
+    )
+
+
 @router.get("/{map_id}/aruco", summary="ArUco 마커 목록")
 def list_aruco(map_id: str, db: DbDep):
     markers = crud.maps.list_markers(db, map_id)
