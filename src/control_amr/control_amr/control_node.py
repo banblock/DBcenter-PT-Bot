@@ -158,24 +158,26 @@ class ControlNode:
         self.emergency_stopped = stop
         if stop:
             self.navigator.info(
-                f'[{self.namespace}] EMERGENCY STOP received - '
-                'canceling current task')
-            # 콜백 안에서 바로 취소한다 - _move_to()의 폴링 루프가 다음
-            # 반복까지 기다리지 않고 즉시 정지 명령이 나가야 한다.
+                f'[{self.namespace}] EMERGENCY STOP received')
+            # 여기서 직접 cancelTask()를 부르지 않는다 - 이 콜백 자체가
+            # nav2_simple_commander의 isTaskComplete()(즉 _move_to()의
+            # while 루프) 안에서 spin_until_future_complete()가 콜백을
+            # 처리하는 도중에 실행되는 경우가 있는데, cancelTask()도
+            # 내부에서 spin_until_future_complete()를 쓰고 이 함수는
+            # get_global_executor()로 프로세스 전역 SingleThreadedExecutor
+            # 하나를 공유한다. 즉 콜백 안에서 cancelTask()를 부르면 "이미
+            # 스핀 중인 전역 executor를 재진입해서 다시 스핀"하게 되는데
+            # SingleThreadedExecutor는 이런 재진입을 지원하지 않아 그대로
+            # 멈춰버린다(하드웨어 테스트 중 실제로 관찰됨 - 이동 중이던
+            # 로봇이 긴급정지를 받자마자 "Canceling current task." 이후
+            # 완전히 응답 없음).
             #
-            # 다만 result_future가 진짜 "아직 안 끝난 작업"일 때만
-            # cancelTask()를 부른다 - BasicNavigator는 작업이 끝나도
-            # result_future/goal_handle을 None으로 리셋하지 않아서, 로봇이
-            # (예: 크로싱 grant를 기다리느라) 놀고 있을 때 긴급정지가 오면
-            # cancelTask()가 이미 SUCCEEDED로 끝난 이전 목표를 다시
-            # 취소하려 든다. 그 취소 요청엔 액션 서버가 응답을 안 줄 수
-            # 있어서 cancelTask() 내부의 spin_until_future_complete()가
-            # 영원히 블로킹되고, 그러면 이 노드는 spin이 아예 안 돌아
-            # 긴급정지 해제 신호조차 못 받는 채로 멈춰버린다(하드웨어
-            # 테스트 중 실제로 관찰된 문제).
-            result_future = self.navigator.result_future
-            if result_future is not None and not result_future.done():
-                self.navigator.cancelTask()
+            # 대신 emergency_stopped 플래그만 세운다 - _move_to()의 while
+            # 루프가 매 반복(약 0.1초 간격)마다 이 플래그를 확인해서,
+            # 콜백 스택 밖의 안전한 위치에서 _cancel_navigation_task()를
+            # 부른다. "즉시 정지"라는 의도는 이 정도 지연으로 충분히
+            # 유지되고, 그 사이 로봇이 이동 중이 아니었다면(예: 크로싱
+            # grant를 기다리던 중) 애초에 취소할 작업도 없다.
         else:
             self.navigator.info(
                 f'[{self.namespace}] emergency stop released')

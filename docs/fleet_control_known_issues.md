@@ -307,38 +307,54 @@ Active 전환이 안 돼 `amcl_pose`를 못 받는 문제가 있었다(DDS/시�
 바로 덮어써지는 자리표시자일 뿐이니, **로봇 시작 위치나 맵이 바뀌면 이
 값도 같이 갱신해야 한다.**
 
-### 13. ~~유휴 상태에서 긴급정지가 오면 `cancelTask()`가 이미 끝난 이전 목표를 다시 취소하려다 무한 대기(hang)~~ — **해결됨**
+### 13. ~~긴급정지 콜백이 `cancelTask()`를 직접 불러서 rclpy 전역 executor를 재진입(reentrant) hang~~ — **해결됨**
 
 **대상**: `src/control_amr/control_amr/control_node.py:148-168` (`_on_emergency_stop`)
 
-`nav2_simple_commander`의 `BasicNavigator`는 작업이 끝나도
-`result_future`/`goal_handle`을 `None`으로 리셋하지 않는다(`cancelTask()`/
-`isTaskComplete()` 어디에도 그런 정리 코드가 없음, `/opt/ros/humble/.../
-nav2_simple_commander/robot_navigator.py` 확인). `_on_emergency_stop()`은
-긴급정지 신호가 오면 상황과 무관하게 무조건 `self.navigator.cancelTask()`를
-호출하는데, `cancelTask()`는 `self.result_future`가 (완료된 것이어도)
-truthy면 그대로 `self.goal_handle.cancel_goal_async()` +
-`rclpy.spin_until_future_complete(self, future)`로 들어간다.
+처음엔 "유휴 상태에서 이미 끝난 이전 목표를 다시 취소하려다 멈추는"
+문제로 보고 `self.navigator.result_future.done()`이 아닐 때만
+`cancelTask()`를 부르는 가드를 추가했었는데, 재테스트에서 **진짜로
+이동 중이던 로봇(robot3)도 똑같이 멈추는 게 확인돼서** 더 근본적인
+원인을 다시 찾았다.
 
-**실패 시나리오 (실제 재현됨)**: robot8이 이전 웨이포인트 이동을 이미
-끝내고 크로싱 grant를 기다리는(`_request_crossing()`) 중이라 실제로는
-취소할 작업이 없는데, 이때 긴급정지가 오니 `cancelTask()`가 이미
-SUCCEEDED로 끝난 이전 목표를 다시 취소하려 들었다. 그 취소 요청에
-액션 서버가 응답을 안 줘서 `spin_until_future_complete()`가 콜백 안에서
-영원히 블로킹 → 노드가 spin을 아예 못 하게 되어 이후의 긴급정지
-**해제** 신호조차 못 받는 상태로 완전히 멈췄다(Fleet 로그로는 해제가
-정상 발행됐는데, control_node 쪽만 응답이 없는 것처럼 보였음).
+`nav2_simple_commander`의 `isTaskComplete()`와 `cancelTask()`는 둘 다
+내부에서 `rclpy.spin_until_future_complete()`/`spin_once()`를 쓰는데,
+이 함수들은 `rclpy.get_global_executor()`가 반환하는 **프로세스 전체가
+공유하는 단일 `SingleThreadedExecutor` 인스턴스**를 스핀한다. `_move_to()`의
+`while not self.navigator.isTaskComplete():` 루프가 이 전역 executor를
+스핀하는 도중 콜백(`_on_emergency_stop`)이 실행되는 경우가 있는데, 이
+콜백이 곧바로 `cancelTask()`를 부르면 **이미 스핀 중인 같은 executor를
+또 스핀**하게 된다 - `SingleThreadedExecutor`는 이런 재진입을 지원하지
+않아 그대로 멈춘다. `result_future.done()` 가드는 "유휴 상태 + 재요청"
+케이스만 우회했을 뿐, "이동 중 + 콜백에서 직접 취소" 자체가 재진입이라는
+근본 원인은 그대로 남아 있었다.
 
-**수정**: `_on_emergency_stop()`에서 `self.navigator.result_future`가
-존재하고 아직 `.done()`이 아닐 때(진짜로 진행 중인 작업일 때)만
-`cancelTask()`를 호출하도록 가드 추가. 로봇이 실제로 이동 중일 때의
-"즉시 정지" 동작은 그대로 유지되고, 유휴 상태에서의 불필요한(그리고
-위험한) 취소 시도만 건너뛴다.
+**실패 시나리오 (실제 재현됨, 두 로봇 모두)**:
+- robot8: 크로싱 grant를 기다리며 유휴 상태일 때 긴급정지 → 이미 끝난
+  이전 목표를 다시 취소하려다 hang (1차 수정으로 해결됨).
+- robot3: `goToPose()`로 실제 이동 중일 때 긴급정지 →
+  `isTaskComplete()`가 전역 executor를 스핀하는 도중 콜백이 실행되고,
+  그 안에서 `cancelTask()`가 같은 executor를 재진입 → hang (2차 수정
+  대상, 위 원인 설명 참고).
 
-**남은 과제 (아직 미수정)**: `_request_crossing()`의 대기 루프는 여전히
-`self.emergency_stopped`를 안 본다. hang은 더 이상 안 나지만, 긴급정지
-중에도 크로싱 grant를 계속 요청하다가 15초 뒤 그냥 abort → 미션 재시도
-루프를 탈 수 있다 — 기능적으로 멈추진 않지만 낭비고 로그도 지저분해짐.
+**수정**: `_on_emergency_stop()`에서 `cancelTask()`를 아예 직접 호출하지
+않도록 변경 - `emergency_stopped` 플래그만 세운다. `_move_to()`의 폴링
+루프가 매 반복(~0.1초 간격)마다 이 플래그를 콜백 스택 밖의 안전한
+위치에서 확인해 `_cancel_navigation_task()`를 부르므로, "즉시 정지"
+의도는 그대로 유지되면서 재진입 경로 자체가 사라진다.
+
+**남은 과제 (아직 미수정)**:
+- `_request_crossing()`의 대기 루프는 여전히 `self.emergency_stopped`를
+  안 본다. hang은 안 나지만, 긴급정지 중에도 크로싱 grant를 계속
+  요청하다가 15초 뒤 그냥 abort → 미션 재시도 루프를 탈 수 있다 -
+  기능적으로 멈추진 않지만 낭비고 로그도 지저분해짐.
+- `_handle_anomaly()`/`_handle_dock()`이 쓰는
+  `navigation_flow.wait_until_pose_reached()`는 애초에
+  `emergency_stopped`를 전혀 체크하지 않는다 - 이상신호/도킹 이동
+  중에 긴급정지를 걸면 지금 이 수정 이후로는 로봇이 안 멈출 수 있다
+  (수정 전에도 콜백의 직접 `cancelTask()`가 같은 재진입 위험을 안고
+  있어서 원래부터 불안정했음). 체크리스트 시나리오 6이 정확히 이
+  케이스를 검증하니, 테스트 후 문제 있으면 별도로 고칠 것.
 
 ---
 
