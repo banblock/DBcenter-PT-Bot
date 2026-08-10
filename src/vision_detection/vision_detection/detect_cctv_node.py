@@ -54,7 +54,7 @@ class DetectCctvNode(Node):
     STATUS_STATES = {"fire": 0, "smoke": 1, "coolant": 2,}
     # 진입(켜짐)은 연속 이 프레임 수만큼 검출돼야 확정 - 1프레임짜리 순간 노이즈 필터링.
     # 30fps 기준 0.1초라 실제 감지 반응속도엔 거의 영향 없음.
-    HIT_THRESHOLD = 3
+    HIT_THRESHOLD = 5
     # 해제(꺼짐)는 연속 이 프레임 수만큼 미검출이어야 확정. conf=0.13에서 CCTV
     # recall=0.750(놓침률 25%) 기준 순수 놓침 노이즈만으로 7연속 미검출이 나올
     # 확률은 0.25^7(약 0.006%)이고, 30fps에서 0.23초라 CCTV는 고정 카메라라
