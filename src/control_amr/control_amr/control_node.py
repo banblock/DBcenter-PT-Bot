@@ -332,7 +332,7 @@ class ControlNode:
             [float(loc['x']), float(loc['y'])], float(loc['yaw']))
         self.navigator.startToPose(pose)
         # Stub for the real anomaly inspection (camera/vision node).
-        if not self._wait_for_anomaly_arrival():
+        if not self._wait_for_anomaly_arrival(pose):
             self._report_failure('anomaly_arrival_failed', loc)
             self._publish_anomaly_done(loc, confirmed=None, failed=True)
             return
@@ -467,8 +467,9 @@ class ControlNode:
     def _handle_navigation_result(self, result):
         return self.navigation_flow.handle_navigation_result(result)
 
-    def _wait_for_anomaly_arrival(self):
-        return self.navigation_flow.wait_until_pose_reached()
+    def _wait_for_anomaly_arrival(self, pose):
+        return self.navigation_flow.wait_until_pose_reached(
+            lambda: self.emergency_stopped, pose)
 
     def _handle_navigation_interrupt(self, waypoint):
         if self.navigation_interrupt_reason == 'emergency_stop':
@@ -517,13 +518,28 @@ class ControlNode:
             self._publish_state('patrol_waiting', {
                 'delay_sec': self.mission_flow.get_next_patrol_delay_sec()})
             self.mission_flow.wait_until_next_patrol(
-                should_interrupt=lambda: self.dock_pending)
-            if self.dock_pending:
-                # 10분 순찰 대기 도중 도킹 복귀가 왔다 - 알려진 이슈 #3
-                # (인터럽트가 _move_to() 폴링 중에만 처리됨)의 한 갈래.
-                # _handle_dock()은 self.dock_route만 보고 동작하므로
-                # 웨이포인트 컨텍스트 없이 여기서 바로 불러도 된다.
-                self._handle_dock()
+                should_interrupt=lambda: (
+                    self.dock_pending or self.anomaly_pending))
+            # 도킹/이상신호 둘 다 이 10분 대기 도중에도 즉시 반응해야
+            # 하는 인터럽트다(알려진 이슈 #3) - _handle_dock()/
+            # _handle_anomaly() 모두 self.dock_route/self.anomaly_location
+            # 만 보고 동작하므로 웨이포인트 컨텍스트 없이 여기서 바로
+            # 불러도 된다.
+            if self.dock_pending or self.anomaly_pending:
+                if self.dock_pending:
+                    self._handle_dock()
+                else:
+                    self._handle_anomaly()
+                # 인터럽트 처리가 끝나기 전(도킹이면 self.docked가 아직
+                # False, 이상신호는 원래부터 아무 가드도 없음)에도 Fleet은
+                # 같은 순찰 미션을 계속 재발행하고 _on_mission()이 그걸
+                # 그대로 받아버려서, self.mission이 옛 순찰 미션으로 몰래
+                # 다시 채워질 수 있다. 그 상태로 그냥 _wait_for_mission()을
+                # 부르면 self.mission이 이미 non-None이라 대기를 건너뛰고
+                # (도킹이면 undock도 없이) 바로 그 미션을 재개해버린다
+                # (하드웨어 테스트 중 실제로 관찰됨). 명시적으로 비워서
+                # 항상 새 미션만 받아들이게 한다.
+                self.mission = None
                 self._wait_for_mission()
                 continue
             self.mission_flow.request_next_mission()

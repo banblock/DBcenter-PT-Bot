@@ -76,25 +76,30 @@
 
 </details>
 
-### 3. 도킹/이상신호 인터럽트가 `_move_to()` 폴링 중에만 처리됨 — 이동 중이 아니면 무시됨
+### 3. 도킹/이상신호 인터럽트가 `_move_to()` 폴링 중에만 처리됨 — 이동 중이 아니면 무시됨 — **부분 해결됨**
 
-**대상**: `src/control_amr/control_amr/control_node.py:261-299` (`_move_to`)
+**대상**: `src/control_amr/control_amr/control_node.py` (`_move_to`, `run`),
+`src/control_amr/control_amr/mission_flow.py` (`wait_until_next_patrol`)
 
-인터럽트 체크(`dock_pending`, `anomaly_pending`, `collision_risk`)가 전부
-`_move_to()`의 이동 폴링 루프 안에만 있다. 로봇이 `patrol_waiting`
-(순찰 사이 10분 대기, `mission_flow.py:123` `wait_until_next_patrol`),
-`waiting_mission`, 교차 grant 대기, gate 점검 중일 때는 이 인터럽트들이
-전혀 서비스되지 않는다.
+원본 문제: 인터럽트 체크(`dock_pending`, `anomaly_pending`, `collision_risk`)가
+전부 `_move_to()`의 이동 폴링 루프 안에만 있어서, 로봇이 `patrol_waiting`
+(순찰 사이 10분 대기), `waiting_mission`, 교차 grant 대기, gate 점검
+중일 때는 이 인터럽트들이 전혀 서비스되지 않았다.
 
-**실패 시나리오**: 운영자가 "도킹 복귀"를 눌렀는데 로봇이 순찰 사이
-10분 대기 중이면, 명령이 최대 10분 뒤 다음 미션이 시작돼 첫 웨이포인트로
-**움직이기 시작한 뒤에야** 도킹 인터럽트가 걸린다. 긴급정지만 콜백에서
-즉시 `cancelTask()`를 호출해서 절반쯤 해결돼 있고(`_on_emergency_stop`,
-`control_node.py:148`), dock/anomaly는 이 갭에 그대로 노출돼 있다.
+**해결된 부분**: `wait_until_next_patrol()`에 `should_interrupt` 콜백을
+추가하고 `run()`에서 `dock_pending`/`anomaly_pending` 둘 다 넘겨서, 10분
+순찰 대기 중에도 즉시 반응하도록 고쳤다(하드웨어 테스트 중 도킹으로
+먼저 재현/수정, 이상신호도 같은 패턴으로 동일 적용). 이 과정에서
+`_handle_dock()`/`_handle_anomaly()`가 끝나기 전에 Fleet이 재발행한
+옛 순찰 미션이 `self.mission`에 몰래 채워지는 부수 버그도 같이
+발견해서 고쳤다(인터럽트 처리 직후 `self.mission = None`으로 명시
+클리어) — 안 그러면 도킹 완료 후 undock 없이 바로 옛 미션을 재개해버리는
+안전 문제가 있었다(실제 재현됨).
 
-**제안**: `wait_until_next_patrol()`/`_wait_for_mission()`처럼 `spin_once`로
-대기하는 모든 자리에서 `dock_pending`/`anomaly_pending`도 같이 체크하도록
-통일할 것.
+**여전히 남은 부분**: `_request_crossing()`(크로싱 grant 대기, 최대
+15초)과 `_wait_for_mission()`은 여전히 `dock_pending`/`anomaly_pending`을
+안 본다 — 이 구간에서 인터럽트가 오면 최대 15초까지는 반응이 늦을 수
+있다(hang은 아니고 지연 정도). 우선순위가 낮아 보류.
 
 ### 4. ~~같은 통로에 연속 웨이포인트가 생기면 점유를 중간에 놓아버리는 레이스~~ — **해결됨**
 
@@ -355,13 +360,15 @@ Active 전환이 안 돼 `amcl_pose`를 못 받는 문제가 있었다(DDS/시�
   안 본다. hang은 안 나지만, 긴급정지 중에도 크로싱 grant를 계속
   요청하다가 15초 뒤 그냥 abort → 미션 재시도 루프를 탈 수 있다 -
   기능적으로 멈추진 않지만 낭비고 로그도 지저분해짐.
-- `_handle_anomaly()`가 쓰는 `navigation_flow.wait_until_pose_reached()`는
-  애초에 `emergency_stopped`를 전혀 체크하지 않는다 - 이상신호 이동
-  중에 긴급정지를 걸면 지금 이 수정 이후로는 로봇이 안 멈출 수 있다
-  (수정 전에도 콜백의 직접 `cancelTask()`가 같은 재진입 위험을 안고
-  있어서 원래부터 불안정했음). 체크리스트 시나리오 6이 정확히 이
-  케이스를 검증하니, 테스트 후 문제 있으면 별도로 고칠 것. (`_handle_dock()`은
-  이슈 14번에서 `_move_to()` 기반으로 재작성돼 이 문제가 없다.)
+- ~~`_handle_anomaly()`가 쓰는 `navigation_flow.wait_until_pose_reached()`는
+  애초에 `emergency_stopped`를 전혀 체크하지 않는다~~ — **해결됨**.
+  `wait_until_pose_reached(is_emergency_stopped, pose=None)`로 시그니처를
+  바꿔서 긴급정지도 감시하도록 했다: collision_risk와 달리 긴급정지는
+  취소 후 그냥 실패 처리하지 않고, 해제될 때까지 제자리에서 기다린
+  뒤 같은 `pose`로 이동을 재시도한다(`_move_to()`의 긴급정지 처리와
+  같은 패턴). `_handle_anomaly()`가 `_wait_for_anomaly_arrival(pose)`로
+  pose를 넘겨준다. (`_handle_dock()`은 이슈 14번에서 `_move_to()`
+  기반으로 재작성돼 애초에 이 문제가 없었다.)
 
 ### 14. ~~도킹 이동이 통로 그래프/occupancy 없이 좌표 하나로 직행~~ — **해결됨**
 
