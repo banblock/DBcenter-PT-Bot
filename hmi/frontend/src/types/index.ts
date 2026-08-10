@@ -107,6 +107,9 @@ export interface PopupData {
   title: string;
   camLabel: string;
   camHot: boolean;
+  /** 있으면 팝업에 실제 MJPEG 카메라 스트림(<img>)을 띄운다(팝업 열려 있을 때만 마운트).
+   *  없으면 기존 스타일 박스로 렌더. AMR 화재 팝업이 AMR 캠 실피드를 보여줄 때 사용. */
+  camStreamUrl?: string;
   evtHtml: string;
   actions: PopupAction[];
 }
@@ -155,6 +158,8 @@ export interface AppEvent {
   /** 기능4·6: 이벤트 출처 구분 (차단기 / AMR / CCTV) */
   kind?: "GATE" | "AMR" | "CCTV";
   cameraId?: string;
+  /** source=amr 일 때 감지한 로봇 id (AMR-01 등). AMR 카메라 스트림 id 로도 쓴다. */
+  robotId?: string;
   ts: number;
 }
 
@@ -187,6 +192,8 @@ export interface InboundMessage {
   log?: { tag: LogTag; msg: string; hot?: boolean };
   /** 새 CCTV 이벤트가 최초 수신된 순간에만 채운다(상태 갱신 재팝업 방지). */
   detectedCctvEvent?: Omit<AppEvent, "ts"> & { ts: string | number };
+  /** 새 AMR 카메라 이벤트가 최초 수신된 순간에만 채운다(사람 출동 팝업 트리거). */
+  detectedAmrEvent?: Omit<AppEvent, "ts"> & { ts: string | number };
 }
 
 export type LinkMode = "connecting" | "live" | "demo" | "down";

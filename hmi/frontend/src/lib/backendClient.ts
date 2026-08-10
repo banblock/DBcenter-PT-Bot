@@ -110,6 +110,7 @@ interface BackendEvent {
   status: string;
   zone_id?: string | null;
   confidence?: number;
+  robot_id?: string | null;         // source=amr 감지 로봇 (AMR 캠 스트림 id)
   assigned_robot_id?: string | null;
   detected_at?: string;
 }
@@ -213,6 +214,7 @@ function eventToOut(e: BackendEvent): OutboundEvent {
     assignee: e.assigned_robot_id ?? undefined,
     kind: e.source === "cctv" ? "CCTV" : e.source === "amr" ? "AMR" : undefined,
     cameraId: e.camera_id ?? undefined,
+    robotId: e.robot_id ?? undefined,
     ts: e.detected_at ?? Date.now(),
   };
 }
@@ -299,13 +301,16 @@ export function translateFrame(raw: string): InboundMessage | null {
     case "EVENT": {
       if (typeof p.event_id !== "string") return null;
       const ev = p as unknown as BackendEvent;
-      const isNewCctvDetection = ev.source === "cctv" && !eventsById.has(ev.event_id);
+      const isNew = !eventsById.has(ev.event_id);
+      const isNewCctvDetection = ev.source === "cctv" && isNew;
+      const isNewAmrDetection = ev.source === "amr" && isNew;
       eventsById.set(ev.event_id, ev);
       const out = eventToOut(ev);
       return {
         events: emitEvents(),
         log: { tag: "PC2", msg: `이벤트 ${out.text}`, hot: out.severity === "DANGER" },
         detectedCctvEvent: isNewCctvDetection ? out : undefined,
+        detectedAmrEvent: isNewAmrDetection ? out : undefined,
       };
     }
 
@@ -443,6 +448,12 @@ export async function backendCommand(robotId: string, cmd: Command): Promise<voi
     default:
       return;
   }
+}
+
+/** 이벤트 알림 확인(ack) — event_id 직접 지정. AMR 카메라 화재 팝업의 '사람 출동' 확인용
+ *  (assigned_robot_id 가 없는 AMR 감지 이벤트라 backendCommand("ack") 경로를 못 쓴다). */
+export async function ackEvent(eventId: string, operator = "operator"): Promise<void> {
+  await req("POST", `/api/events/${eventId}/ack`, { operator });
 }
 
 /** 지도 클릭 이동 (F-goto). */

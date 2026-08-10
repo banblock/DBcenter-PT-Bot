@@ -33,6 +33,14 @@
   background: radial-gradient(120% 90% at 50% 120%, rgba(229, 72, 77, 0.28), transparent 60%),
     linear-gradient(180deg, #2a2620, #1c1a17);
 }
+.modal__feed {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 .modal__chd {
   position: absolute;
   top: 10px;

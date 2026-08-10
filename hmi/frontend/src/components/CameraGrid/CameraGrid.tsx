@@ -65,8 +65,9 @@ function CamTile({ cam, ts, onDetect }: { cam: CamSpec; ts: string; onDetect: (c
 }
 
 export function CameraGrid() {
-  const { now, robots, isZone2Hot, latestCctvDetection, openPopup, sendCommand, dockAll, addLog } = useDashboard();
+  const { now, robots, isZone2Hot, latestCctvDetection, latestAmrDetection, openPopup, sendCommand, dockAll, addLog, ackEvent } = useDashboard();
   const shownDetectionIds = useRef(new Set<string>());
+  const shownAmrIds = useRef(new Set<string>());
   const ts = fmt(now);
 
   const cams: CamSpec[] = [
@@ -127,6 +128,37 @@ export function CameraGrid() {
     triggerDetection(cam, event);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latestCctvDetection]);
+
+  /** AMR 카메라 화재/이상 감지 → 상시 표출 대신 팝업으로만. 긴급 알림 + AMR 캠 실피드 +
+   *  '확인 — 사람 출동' 버튼. CCTV 와 달리 로봇을 세우거나 급파하지 않는다(사람이 출동). */
+  useEffect(() => {
+    const event = latestAmrDetection;
+    if (!event || shownAmrIds.current.has(event.id)) return;
+    shownAmrIds.current.add(event.id);
+    const robotId = event.robotId ?? "AMR-01";
+    addLog("PC2", `${robotId} 카메라 이상 감지 → 사람 출동 대기 (${event.text})`, true);
+    openPopup({
+      title: `🚨 AMR 카메라 화재/이상 감지 — ${robotId}`,
+      camLabel: `${robotId} 순찰 카메라`,
+      camHot: true,
+      camStreamUrl: `${API_BASE}/api/cameras/${robotId}/stream`,
+      evtHtml:
+        `<b>${robotId}</b> 순찰 카메라에서 화재/이상 징후가 감지되었습니다.<br/>` +
+        `<b>감지 내용:</b> ${event.text}<br/>` +
+        `현장 확인이 필요합니다. <b>확인 — 사람 출동</b>을 누르면 담당자 출동으로 처리됩니다.`,
+      actions: [
+        {
+          label: "✓ 확인 — 사람 출동",
+          cls: "start",
+          onClick: () => {
+            addLog("PC1", `${robotId} 카메라 화재 감지 확인 → 사람 출동 (현장 확인)`, true);
+            ackEvent(event.id);
+          },
+        },
+      ],
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestAmrDetection]);
 
   return (
     <section className="panel camera-panel">

@@ -43,6 +43,7 @@ import {
   MOCK,
   WS_MONITOR_URL,
   activateMap,
+  ackEvent as backendAckEvent,
   backendCommand,
   backendDock,
   backendEstopAll,
@@ -107,6 +108,7 @@ interface DashboardContextValue {
   breakerMismatch: number;
   dismissedAlertId: string | null;
   latestCctvDetection: AppEvent | null;
+  latestAmrDetection: AppEvent | null;
   // 맵 선택
   maps: MapInfo[];
   activeMap: MapInfo | null;
@@ -135,6 +137,7 @@ interface DashboardContextValue {
   closePopup: () => void;
   // 공통
   addLog: (tag: LogTag, msg: string, hot?: boolean) => void;
+  ackEvent: (eventId: string) => void;
   sendCommand: (robotId: string, cmd: Command) => void;
   sendGoto: (robotId: string, x: number, y: number) => void;
   dismissAlert: (id: string) => void;
@@ -187,6 +190,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [linkText, setLinkText] = useState("연결 중…");
   const [dismissedAlertId, setDismissedAlertId] = useState<string | null>(null);
   const [latestCctvDetection, setLatestCctvDetection] = useState<AppEvent | null>(null);
+  const [latestAmrDetection, setLatestAmrDetection] = useState<AppEvent | null>(null);
   const [now, setNow] = useState(() => Date.now());
   /** 차단기 불일치 수 — /api/stats/overview 집계값 (WS 로 오지 않아 주기 조회) */
   const [breaker, setBreaker] = useState(0);
@@ -271,6 +275,12 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
           ts: toEpoch(msg.detectedCctvEvent.ts),
         });
       }
+      if (msg.detectedAmrEvent) {
+        setLatestAmrDetection({
+          ...msg.detectedAmrEvent,
+          ts: toEpoch(msg.detectedAmrEvent.ts),
+        });
+      }
       bump();
 
       if (msg.log) addLog(msg.log.tag, msg.log.msg, msg.log.hot);
@@ -280,6 +290,18 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
   const openPopup = useCallback((p: PopupData) => setPopup(p), []);
   const closePopup = useCallback(() => setPopup(null), []);
+
+  /** 이벤트 알림 확인(ack). AMR 화재 팝업 '사람 출동' 확인에 쓴다. live 모드에서만 백엔드 호출. */
+  const ackEvent = useCallback(
+    (eventId: string) => {
+      if (linkModeRef.current === "live") {
+        backendAckEvent(eventId).catch((e) =>
+          addLog("PC1", `이벤트 확인 실패 · ${(e as Error).message}`, true),
+        );
+      }
+    },
+    [addLog],
+  );
   const setLink = useCallback((mode: LinkMode, text: string) => {
     setLinkMode(mode);
     setLinkText(text);
@@ -677,6 +699,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     breakerMismatch,
     dismissedAlertId,
     latestCctvDetection,
+    latestAmrDetection,
     maps,
     activeMap,
     mapGrid,
@@ -699,6 +722,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     openPopup,
     closePopup,
     addLog,
+    ackEvent,
     sendCommand,
     sendGoto,
     dismissAlert,
