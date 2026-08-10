@@ -162,7 +162,20 @@ class ControlNode:
                 'canceling current task')
             # 콜백 안에서 바로 취소한다 - _move_to()의 폴링 루프가 다음
             # 반복까지 기다리지 않고 즉시 정지 명령이 나가야 한다.
-            self.navigator.cancelTask()
+            #
+            # 다만 result_future가 진짜 "아직 안 끝난 작업"일 때만
+            # cancelTask()를 부른다 - BasicNavigator는 작업이 끝나도
+            # result_future/goal_handle을 None으로 리셋하지 않아서, 로봇이
+            # (예: 크로싱 grant를 기다리느라) 놀고 있을 때 긴급정지가 오면
+            # cancelTask()가 이미 SUCCEEDED로 끝난 이전 목표를 다시
+            # 취소하려 든다. 그 취소 요청엔 액션 서버가 응답을 안 줄 수
+            # 있어서 cancelTask() 내부의 spin_until_future_complete()가
+            # 영원히 블로킹되고, 그러면 이 노드는 spin이 아예 안 돌아
+            # 긴급정지 해제 신호조차 못 받는 채로 멈춰버린다(하드웨어
+            # 테스트 중 실제로 관찰된 문제).
+            result_future = self.navigator.result_future
+            if result_future is not None and not result_future.done():
+                self.navigator.cancelTask()
         else:
             self.navigator.info(
                 f'[{self.namespace}] emergency stop released')

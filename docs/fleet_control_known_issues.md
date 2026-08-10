@@ -265,6 +265,83 @@ TypeError)`를 잡아 경고 로그 후 return, `_on_anomaly_done`은
 
 ---
 
+## 2026-08-10 하드웨어 테스트에서 새로 발견된 문제 (robot3/robot8)
+
+### 12. ~~0번 순찰 지점이 그래프 라우팅 없이 직행 이동 — 점유 조정 대상에서 빠짐~~ — **해결됨**
+
+**대상**: `src/fleet/fleet/zone_router.py` (`_route_zone`, `_emit_hop`, `build_missions`),
+`src/fleet/fleet/fleet_node.py` (`_apply_zones`, `DEFAULT_ROBOT_START`)
+
+`build_missions()`가 만드는 미션은 순찰 지점 1번부터는 전부 고정 통로
+그래프(`route_graph.py`) 위에서 다익스트라로 홉을 쪼개 점유 조정 대상
+(`point_id`)을 태깅하는데, **0번(첫) 순찰 지점만은 예외**였다 —
+`_route_zone()`이 로봇이 지금 어디서 출발하는지 몰라서 "현재 위치 →
+0번 지점" 구간에 대해 경로를 계산할 방법이 없었고, 그냥 0번 지점
+좌표를 그대로 웨이포인트로 박아 넣었다(`point_id=None`). Control Node는
+이 웨이포인트로 Nav2 자체 플래너(`goToPose`)로 직행하므로, 이 구간은
+통로 그래프도 occupancy 프로토콜도 완전히 건너뛴다.
+
+**실패 시나리오 (실제 재현됨)**: robot3의 0번 순찰 지점이 하필 공유
+통로(V_BC) 한가운데였다. robot3가 그 지점으로 무보호 직행해 통로에
+정차한 사이, robot8이 정상적으로 grant받은 크로싱 구간을 지나가려다
+robot3와 물리적으로 계속 부딪혀 이동 실패를 반복했다(`collision_risk`
+→ 미구현 `route_update_request` 10초 타임아웃 → abort → 재시도 →
+재충돌 반복).
+
+**수정**: `zone_router._route_zone()`이 `start_pos`(로봇 현재 위치)를
+받으면 0번 지점도 "시작 위치 → 0번 지점" 홉으로 취급해 `_emit_hop()`으로
+그래프 경로를 계산하고, 지나가는 통로/교차로가 공유 자원이면 다른
+홉과 동일하게 `point_id`를 태깅하도록 변경. `build_missions()`가
+`robot_positions: {robot: (x, y)}`를 받아 각 로봇에 넘겨준다.
+`fleet_node.py`는 `self._robot_pose`(amcl_pose 구독분)를 넘기되,
+`_apply_zones()`에서 `build_missions()`보다 먼저 `_ensure_robot_pubs()`를
+호출해 pose 구독이 최대한 일찍 걸리도록 순서를 바꿨다. 로봇 위치를
+아직 모르면(막 켜진 직후 등) 예전처럼 0번 지점 직행 폴백으로 안전하게
+떨어진다.
+
+**참고**: 테스트 중 robot8의 AMCL이 lifecycle 서비스 응답 타임아웃으로
+Active 전환이 안 돼 `amcl_pose`를 못 받는 문제가 있었다(DDS/시스템 부하
+계열로 추정, 코드 문제 아님). 그 상황에 대비해 `fleet_node.py`에
+`DEFAULT_ROBOT_START`(robot3: `(-4.6, 1.72)`, robot8: `(-0.15, 0.157)`)를
+`self._robot_pose`의 초기값으로 시드해뒀다 — 실제 `amcl_pose`가 들어오면
+바로 덮어써지는 자리표시자일 뿐이니, **로봇 시작 위치나 맵이 바뀌면 이
+값도 같이 갱신해야 한다.**
+
+### 13. ~~유휴 상태에서 긴급정지가 오면 `cancelTask()`가 이미 끝난 이전 목표를 다시 취소하려다 무한 대기(hang)~~ — **해결됨**
+
+**대상**: `src/control_amr/control_amr/control_node.py:148-168` (`_on_emergency_stop`)
+
+`nav2_simple_commander`의 `BasicNavigator`는 작업이 끝나도
+`result_future`/`goal_handle`을 `None`으로 리셋하지 않는다(`cancelTask()`/
+`isTaskComplete()` 어디에도 그런 정리 코드가 없음, `/opt/ros/humble/.../
+nav2_simple_commander/robot_navigator.py` 확인). `_on_emergency_stop()`은
+긴급정지 신호가 오면 상황과 무관하게 무조건 `self.navigator.cancelTask()`를
+호출하는데, `cancelTask()`는 `self.result_future`가 (완료된 것이어도)
+truthy면 그대로 `self.goal_handle.cancel_goal_async()` +
+`rclpy.spin_until_future_complete(self, future)`로 들어간다.
+
+**실패 시나리오 (실제 재현됨)**: robot8이 이전 웨이포인트 이동을 이미
+끝내고 크로싱 grant를 기다리는(`_request_crossing()`) 중이라 실제로는
+취소할 작업이 없는데, 이때 긴급정지가 오니 `cancelTask()`가 이미
+SUCCEEDED로 끝난 이전 목표를 다시 취소하려 들었다. 그 취소 요청에
+액션 서버가 응답을 안 줘서 `spin_until_future_complete()`가 콜백 안에서
+영원히 블로킹 → 노드가 spin을 아예 못 하게 되어 이후의 긴급정지
+**해제** 신호조차 못 받는 상태로 완전히 멈췄다(Fleet 로그로는 해제가
+정상 발행됐는데, control_node 쪽만 응답이 없는 것처럼 보였음).
+
+**수정**: `_on_emergency_stop()`에서 `self.navigator.result_future`가
+존재하고 아직 `.done()`이 아닐 때(진짜로 진행 중인 작업일 때)만
+`cancelTask()`를 호출하도록 가드 추가. 로봇이 실제로 이동 중일 때의
+"즉시 정지" 동작은 그대로 유지되고, 유휴 상태에서의 불필요한(그리고
+위험한) 취소 시도만 건너뛴다.
+
+**남은 과제 (아직 미수정)**: `_request_crossing()`의 대기 루프는 여전히
+`self.emergency_stopped`를 안 본다. hang은 더 이상 안 나지만, 긴급정지
+중에도 크로싱 grant를 계속 요청하다가 15초 뒤 그냥 abort → 미션 재시도
+루프를 탈 수 있다 — 기능적으로 멈추진 않지만 낭비고 로그도 지저분해짐.
+
+---
+
 ## 요약 — 지금 이대로 하드웨어 테스트 시나리오를 돌리면
 
 - ~~**시나리오 4·5(이상신호)**: 문제 1번 때문에 최소 한 번은 로봇이 영구
@@ -276,5 +353,10 @@ TypeError)`를 잡아 경고 로그 후 return, `_on_anomaly_done`은
 - 문제 4·5·8은 지금 구역 데이터(gate 없음, 1홉 교차)에서는 잠복 상태지만
   구역/gate 데이터가 바뀌는 순간 조건 없이 재현되는 유형이라, 그 전에
   고쳐두는 게 안전함.
+- ~~**robot3/robot8 실기 테스트에서 실제로 재현된 두 문제(12·13)**: 0번
+  지점 무보호 직행으로 인한 통로 충돌, 긴급정지 중 cancelTask() hang.~~
+  둘 다 해결됨 — 자세한 내용은 위 "2026-08-10 하드웨어 테스트에서 새로
+  발견된 문제" 참고.
 
-우선순위 제안: ~~1, 2 → 9~~ (죽는 문제부터, 전부 해결됨) → 3, 4 → 5, 6, 7, 8 → 10, 11.
+우선순위 제안: ~~1, 2 → 9~~ (죽는 문제부터, 전부 해결됨) → ~~12, 13~~ (실기
+테스트 중 발견, 전부 해결됨) → 3, 4 → 5, 6, 7, 8 → 10, 11.

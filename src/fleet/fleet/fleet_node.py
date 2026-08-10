@@ -77,6 +77,18 @@ MISSION_QOS = QoSProfile(
 # 실제 비전 노드가 감지한 좌표 대신 쓰는 자리표시자.
 DEFAULT_ANOMALY = {'x': -2.33, 'y': 0.0313, 'yaw': 0.0}
 
+# 각 로봇의 실측 순찰 시작 위치 - self._robot_pose의 초기값으로 미리
+# 채워둔다. 0번 순찰 지점까지도 그래프 경로로 계산하려면(zone_router의
+# start_pos) _apply_zones() 시점에 로봇 위치를 알아야 하는데, amcl_pose가
+# 하드웨어 사정(AMCL lifecycle 지연, DDS 디스커버리 등)으로 그 전까지
+# 안 들어오면 예전처럼 0번 지점 직행 폴백으로 조용히 떨어져버린다. 이
+# 값은 어디까지나 자리표시자로, 실제 /<ns>/amcl_pose가 한 번이라도
+# 들어오면 _on_robot_pose()가 즉시 덮어쓴다.
+DEFAULT_ROBOT_START = {
+    'robot3': (-4.6, 1.72),
+    'robot8': (-0.15, 0.157),
+}
+
 
 
 def _default_graph_path():
@@ -110,7 +122,7 @@ class FleetNode(Node):
         # 이상신호 로봇 선정용 로봇별 최신 위치. amcl_pose 구독도
         # _ensure_robot_pubs()에서 로봇이 처음 등장할 때 지연 생성한다.
         self._pose_subs = {}
-        self._robot_pose = {}  # ns -> (x, y)
+        self._robot_pose = dict(DEFAULT_ROBOT_START)  # ns -> (x, y)
         # 로봇 상태 퍼블리시 (robot_status.py). _status_pubs도 다른
         # 로봇별 퍼블리셔와 마찬가지로 _ensure_robot_pubs()에서 지연
         # 생성하고, _robot_status는 detect_changes()가 in-place로
@@ -247,7 +259,15 @@ class FleetNode(Node):
         """zone_router로 구역/지점 데이터를 실제 로봇별 미션으로 라우팅하고,
         어떤 교차 지점이 발견됐는지 로그로 남긴 뒤 필요한 퍼블리셔를
         준비한다."""
-        missions, crossing_log = zone_router.build_missions(self.graph, zones)
+        # build_missions()보다 먼저 퍼블리셔/구독을 만들어야 amcl_pose
+        # 구독이 미리 걸려 있다 - 로봇의 0번 순찰 지점까지도 점유
+        # 조정 대상으로 잡으려면(zone_router._route_zone()의 start_pos)
+        # 이 시점에 self._robot_pose에 그 로봇 위치가 이미 있어야 하는데,
+        # build_missions() 이후에 구독을 만들면 첫 적용 때는 항상 늦는다.
+        for zone in zones:
+            self._ensure_robot_pubs(zone['robot'])
+        missions, crossing_log = zone_router.build_missions(
+            self.graph, zones, robot_positions=self._robot_pose)
         for key, robots, point_id in crossing_log:
             # point_id 접두사로 판정 단위를 구분한다 - 'J_'면 교차로
             # 노드(zone_router의 is_junction 분기), 'X_'면 통로 엣지.
