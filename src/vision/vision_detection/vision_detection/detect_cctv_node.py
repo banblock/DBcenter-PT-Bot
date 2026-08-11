@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import glob
+import os
 import re
 import threading
 from dataclasses import dataclass, field
@@ -57,20 +58,9 @@ class DetectCctvNode(Node):
     검출, 해제는 연속 미검출 카운트로 확정한다(순간적인 오검출/흔들림 방지).
     """
 
-<<<<<<< Updated upstream
-    # smoke 오탐이 잦아 CCTV 이상감지 대상에서 제외 (fire/coolant만 판정·발행)
     STATUS_STATES = {name: value for name, value in STATE_BY_CLASS.items() if name != 'smoke'}
-=======
-    # 차단기를 smoke로 오감지하는 문제로 smoke는 추적에서 제외(2026-08-11).
-    # STATE_BY_CLASS(프로토콜 상수, smoke=1)는 그대로 두고 여기서만 필터한다.
-    # 되살리려면 아래 컴프리헨션을 STATUS_STATES = STATE_BY_CLASS 로 되돌리면 된다.
     STATUS_STATES = {name: state for name, state in STATE_BY_CLASS.items() if name != "smoke"}
->>>>>>> Stashed changes
-    # 진입(켜짐)은 연속 이 프레임 수만큼 검출돼야 확정 - 1프레임짜리 순간 노이즈 필터링.
-    # 30fps 기준 0.1초라 실제 감지 반응속도엔 거의 영향 없음.
     HIT_THRESHOLD = 5
-    # 해제(꺼짐)는 연속 이 프레임 수만큼 미검출이어야 확정. CCTV는 고정 카메라라
-    # ambient처럼 "다른 위치 사건을 씹는" 위험이 없어서, 노이즈 방어를 더 여유 있게 잡았다.
     OFF_MISS_THRESHOLD = 7
 
     def __init__(self) -> None:
@@ -81,6 +71,14 @@ class DetectCctvNode(Node):
 
         camera_ids = self.get_parameter("camera_ids").value
         self.min_camera_index = self.get_parameter("min_camera_index").value
+        # 내장(노트북) 카메라처럼 잡히면 안 되는 장치를 V4L2 카드 이름(부분 문자열,
+        # 대소문자 무시)으로 배제한다. /dev/videoN 번호는 재부팅/재연결마다 바뀌므로
+        # 인덱스가 아니라 카메라 정체로 걸러야 안정적이다.
+        self.exclude_camera_names = [
+            str(pattern).strip().lower()
+            for pattern in (self.get_parameter("exclude_camera_names").value or [])
+            if str(pattern).strip()
+        ]
 
         # 문자열 배열로 통일하면 카메라 인덱스("0")와 /dev 경로를 모두 사용할 수 있다.
         # 비워두면(기본값) 연결된 웹캠을 자동 탐지한다.
@@ -154,9 +152,12 @@ class DetectCctvNode(Node):
             raise ValueError("camera_ids는 서로 달라야 합니다.")
 
     def _discover_camera_devices(self, needed_count: int) -> List[str]:
-        """/dev/video*를 뒤져서 실제로 프레임을 읽을 수 있는 장치를 needed_count개 찾는다.
+        """/dev/video*를 뒤져서 실제로 프레임을 읽을 수 있는 웹캠을 needed_count개 찾는다.
 
-        내장 카메라는 보통 낮은 인덱스를 차지하므로 min_camera_index 미만은 후보에서 제외한다.
+        내장 카메라 등 원치 않는 장치는 exclude_camera_names(카드 이름 부분 문자열)로
+        배제한다. /dev/videoN 번호는 재부팅/재연결마다 바뀌므로 인덱스가 아니라 카메라
+        정체로 걸러야 안정적이다. min_camera_index는 이름으로 못 거르는 경우를 위한
+        보조 필터로만 남겨둔다(기본 0 = 사용 안 함).
         """
         candidates = sorted(
             glob.glob("/dev/video*"),
@@ -168,20 +169,51 @@ class DetectCctvNode(Node):
         ]
 
         discovered: List[str] = []
+        skipped_excluded: List[str] = []
         for path in candidates:
+            if self._is_excluded_camera(path):
+                skipped_excluded.append(f"{path}({self._camera_name(path)})")
+                continue
             if self._camera_can_capture(path):
                 discovered.append(path)
             if len(discovered) >= needed_count:
                 break
 
+        if discovered:
+            self.get_logger().info(
+                f"웹캠 자동 탐지: {discovered}"
+                + (f", 이름 배제: {skipped_excluded}" if skipped_excluded else "")
+            )
+
         if len(discovered) < needed_count:
             raise RuntimeError(
                 f"연결된 웹캠을 {needed_count}대 찾지 못했습니다 "
-                f"(발견: {discovered}, 탐지 후보: {candidates}). "
-                "camera_devices 파라미터로 직접 지정하거나 min_camera_index를 조정하세요."
+                f"(발견: {discovered}, 탐지 후보: {candidates}, "
+                f"이름 배제: {skipped_excluded}). "
+                "camera_devices로 직접 지정하거나 exclude_camera_names를 조정하세요."
             )
 
         return discovered
+
+    def _is_excluded_camera(self, device_path: str) -> bool:
+        """exclude_camera_names 중 하나라도 카드 이름에 포함되면 배제 대상으로 본다."""
+        name = self._camera_name(device_path).lower()
+        if not name:
+            return False
+        return any(pattern in name for pattern in self.exclude_camera_names)
+
+    @staticmethod
+    def _camera_name(device_path: str) -> str:
+        """/dev/videoN(또는 그 심볼릭 링크)의 V4L2 카드 이름을 sysfs에서 읽어온다.
+
+        실패하면 빈 문자열을 반환한다(이름을 못 읽는 장치는 배제하지 않고 캡처
+        가능 여부로만 판단하도록).
+        """
+        try:
+            node = os.path.basename(os.path.realpath(device_path))
+            return (Path("/sys/class/video4linux") / node / "name").read_text().strip()
+        except OSError:
+            return ""
 
     @staticmethod
     def _camera_can_capture(device_path: str) -> bool:

@@ -12120,3 +12120,432 @@ rclpy.executors.ExternalShutdownException
 2026-08-11 15:48:23 | INFO    | amr.vision       | -        | [vision_bridge] 종료
 2026-08-11 15:48:23 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 브리지 종료
 2026-08-11 15:48:23 | INFO    | amr.main         | -        | 서버 종료
+2026-08-11 16:55:16 | WARNING | amr.db           | -        | 기존 테이블을 전부 삭제합니다 (drop=True)
+2026-08-11 16:55:16 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-11 16:55:16 | INFO    | amr.db           | -        | 시드 완료 — {'maps': 2, 'zones': 3, 'nodes': 8, 'routes': 1, 'equipment': 5, 'rules': 3, 'robots': 2}
+2026-08-11 16:55:18 | INFO    | amr.main         | -        | ======================================================================
+2026-08-11 16:55:18 | INFO    | amr.main         | -        | AMR 순찰·이상감지 관제 API v1.0.0 기동
+2026-08-11 16:55:18 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-11 16:55:18 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 브리지 기동 — 발행 2개, 구독 8토픽/로봇, 상행 큐 컨슈머 1
+2026-08-11 16:55:18 | INFO    | amr.bridge       | -        | 브리지 교체 → RobotBridge
+2026-08-11 16:55:18 | INFO    | amr.vision       | -        | [vision_bridge] 기동 — 구독 /detection/cam_state, 발행 /ui/start
+2026-08-11 16:55:18 | INFO    | amr.main         | -        | 데모 시뮬레이터 활성화 (AMR_DEMO_SIM=1)
+2026-08-11 16:55:18 | INFO    | amr.main         | -        | REST 15개 라우터 · WS /ws/monitor 준비 완료
+2026-08-11 16:55:18 | INFO    | amr.main         | -        | ======================================================================
+2026-08-11 16:55:18 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 시작
+2026-08-11 16:55:18 | INFO    | amr.demo_sim     | -        | 데모 시뮬레이터 시작 (TICK=0.6s, STEP=0.35m)
+2026-08-11 16:55:39 | ERROR   | amr.bridge       | -        | [robot_bridge] rclpy spin 종료
+Traceback (most recent call last):
+  File "/home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/app/robot_bridge.py", line 570, in _spin
+    executor.spin_once(timeout_sec=0.5)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 808, in spin_once
+    self._spin_once_impl(timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 805, in _spin_once_impl
+    raise handler.exception()
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 272, in _execute_coroutine_step
+    result = coro.send(None)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 488, in handler
+    await call_coroutine(entity, arg)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 407, in _execute_subscription
+    await await_or_execute(sub.callback, msg)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 110, in await_or_execute
+    return callback(*args)
+  File "/home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/app/robot_bridge.py", line 477, in <lambda>
+    lambda m, r=rid: produce(
+TypeError: Ros2Bridge._produce() takes 4 positional arguments but 5 were given
+2026-08-11 16:55:53 | INFO    | amr.request      | 0fb17a1c | GET /api/cameras/cctv1/stream → 200 (83.6ms) role=-
+2026-08-11 16:55:53 | INFO    | amr.request      | 68ba484d | GET /api/cameras/cctv2/stream → 200 (2.8ms) role=-
+2026-08-11 16:55:53 | INFO    | amr.ws           | -        | WS 접속 — 현재 1개 연결
+2026-08-11 16:55:53 | INFO    | amr.request      | 075d9851 | GET /api/stats/overview → 200 (21.8ms) role=-
+2026-08-11 16:55:53 | INFO    | amr.request      | 0b3952ad | GET /api/zones → 200 (19.3ms) role=-
+2026-08-11 16:55:53 | INFO    | amr.request      | e7343383 | GET /api/map → 200 (20.5ms) role=-
+2026-08-11 16:55:53 | INFO    | amr.request      | 58cca24a | GET /api/map → 200 (2.8ms) role=-
+2026-08-11 16:55:53 | INFO    | amr.request      | 6636ee28 | GET /api/stats/overview → 200 (4.8ms) role=-
+2026-08-11 16:55:53 | INFO    | amr.request      | c4ceb36c | GET /api/zones → 200 (5.0ms) role=-
+2026-08-11 16:55:53 | INFO    | amr.request      | ba9fd205 | GET /api/map/MAP-DC-V4/grid → 200 (3.4ms) role=-
+2026-08-11 16:56:23 | INFO    | amr.request      | 0071be38 | GET /api/stats/overview → 200 (4.3ms) role=-
+2026-08-11 16:56:53 | INFO    | amr.request      | 6f6ea8fa | GET /api/stats/overview → 200 (4.5ms) role=-
+2026-08-11 16:57:23 | INFO    | amr.request      | 34beec4e | GET /api/stats/overview → 200 (4.8ms) role=-
+2026-08-11 16:57:53 | INFO    | amr.request      | 8fcfc94a | GET /api/stats/overview → 200 (3.0ms) role=-
+2026-08-11 16:58:23 | INFO    | amr.request      | 6ec737e2 | GET /api/stats/overview → 200 (4.1ms) role=-
+2026-08-11 16:58:53 | INFO    | amr.request      | d30bc39f | GET /api/stats/overview → 200 (3.6ms) role=-
+2026-08-11 16:59:23 | INFO    | amr.request      | c0c7b143 | GET /api/stats/overview → 200 (6.4ms) role=-
+2026-08-11 16:59:53 | INFO    | amr.request      | 5a88da4b | GET /api/stats/overview → 200 (3.3ms) role=-
+2026-08-11 17:00:06 | INFO    | amr.request      | 9dc8d0fb | OPTIONS /api/zones/Z-P1 → 200 (0.1ms) role=-
+2026-08-11 17:00:06 | WARNING | amr.request      | f2af933c | PUT /api/zones/Z-P1 → 404 (3.3ms) role=ADMIN
+2026-08-11 17:00:06 | INFO    | amr.request      | 1ea7c97b | OPTIONS /api/zones → 200 (0.2ms) role=-
+2026-08-11 17:00:06 | INFO    | amr.request      | 40cfc821 | POST /api/zones → 201 (4.3ms) role=ADMIN
+2026-08-11 17:00:06 | INFO    | amr.request      | 2bf9ba98 | GET /api/patrol/missions → 200 (2.9ms) role=-
+2026-08-11 17:00:06 | INFO    | amr.request      | 00046d54 | OPTIONS /api/nodes → 200 (0.1ms) role=-
+2026-08-11 17:00:06 | INFO    | amr.request      | 8f3e0678 | POST /api/nodes → 201 (6.1ms) role=ADMIN
+2026-08-11 17:00:06 | INFO    | amr.request      | a94633fd | POST /api/nodes → 201 (3.5ms) role=ADMIN
+2026-08-11 17:00:06 | INFO    | amr.request      | 04322c60 | POST /api/nodes → 201 (3.5ms) role=ADMIN
+2026-08-11 17:00:06 | INFO    | amr.request      | ac43ae95 | OPTIONS /api/routes → 200 (0.1ms) role=-
+2026-08-11 17:00:06 | INFO    | amr.request      | 2bc5ac17 | POST /api/routes → 201 (5.6ms) role=ADMIN
+2026-08-11 17:00:06 | INFO    | amr.request      | a3a2ff5e | OPTIONS /api/patrol/start → 200 (0.1ms) role=-
+2026-08-11 17:00:06 | INFO    | amr.bridge       | 4242dfbb | [robot_bridge] AMR-01 ← START_PATROL CMD-20260811-cb47
+2026-08-11 17:00:06 | INFO    | amr.vision       | 4242dfbb | [vision_bridge] /ui/start=True 발행
+2026-08-11 17:00:06 | INFO    | amr.request      | 4242dfbb | POST /api/patrol/start → 200 (10.4ms) role=-
+2026-08-11 17:00:06 | INFO    | amr.vision       | -        | [vision_bridge] cam=0 state=0 bbox=False → 이벤트 EV-20260811-0001 (NEW) map=(None,None)
+2026-08-11 17:00:06 | INFO    | amr.vision       | -        | [vision_bridge] cam=0 state=2 bbox=False → 이벤트 EV-20260811-0002 (NEW) map=(None,None)
+2026-08-11 17:00:06 | INFO    | amr.vision       | -        | [vision_bridge] cam=1 state=0 bbox=False → 이벤트 EV-20260811-0003 (NEW) map=(None,None)
+2026-08-11 17:00:06 | INFO    | amr.vision       | -        | [vision_bridge] cam=1 state=2 bbox=False → 이벤트 EV-20260811-0004 (NEW) map=(None,None)
+2026-08-11 17:00:06 | INFO    | amr.request      | a0bfb2ef | OPTIONS /api/zones/Z-P2 → 200 (10.7ms) role=-
+2026-08-11 17:00:06 | WARNING | amr.request      | 46338442 | PUT /api/zones/Z-P2 → 404 (2.4ms) role=ADMIN
+2026-08-11 17:00:06 | INFO    | amr.request      | 56deee01 | POST /api/zones → 201 (3.4ms) role=ADMIN
+2026-08-11 17:00:06 | INFO    | amr.request      | 4370ed27 | GET /api/patrol/missions → 200 (1.7ms) role=-
+2026-08-11 17:00:06 | INFO    | amr.request      | 6827f855 | POST /api/nodes → 201 (3.6ms) role=ADMIN
+2026-08-11 17:00:06 | INFO    | amr.request      | 7be56d22 | POST /api/nodes → 201 (4.4ms) role=ADMIN
+2026-08-11 17:00:06 | INFO    | amr.request      | 36262fba | POST /api/nodes → 201 (4.5ms) role=ADMIN
+2026-08-11 17:00:06 | INFO    | amr.request      | 2cc4d62b | POST /api/routes → 201 (2.8ms) role=ADMIN
+2026-08-11 17:00:06 | INFO    | amr.bridge       | 51f9b889 | [robot_bridge] AMR-02 ← START_PATROL CMD-20260811-1d7c
+2026-08-11 17:00:06 | INFO    | amr.vision       | 51f9b889 | [vision_bridge] /ui/start=True 발행
+2026-08-11 17:00:06 | INFO    | amr.request      | 51f9b889 | POST /api/patrol/start → 200 (5.3ms) role=-
+2026-08-11 17:00:23 | INFO    | amr.request      | c450fdce | GET /api/stats/overview → 200 (2.3ms) role=-
+2026-08-11 17:00:28 | INFO    | amr.request      | 3d01b15b | POST /api/align/check-gate → 200 (398.4ms) role=-
+2026-08-11 17:00:32 | INFO    | amr.vision       | -        | [vision_bridge] cam=3 state=0 bbox=False → 이벤트 EV-20260811-0006 (NEW) map=(None,None)
+2026-08-11 17:00:32 | INFO    | amr.request      | 383980d4 | GET /api/cameras/AMR-02/stream → 200 (0.8ms) role=-
+2026-08-11 17:00:42 | INFO    | amr.request      | c98840b7 | POST /api/align/check-gate → 200 (348.8ms) role=-
+2026-08-11 17:00:43 | INFO    | amr.homography   | -        | [homography] cctv1 캘리브레이션 로드 (/home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/data/calibration/cctv1.yaml)
+2026-08-11 17:00:43 | INFO    | amr.homography   | -        | [homography] cctv2 캘리브레이션 로드 (/home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/data/calibration/cctv2.yaml)
+2026-08-11 17:00:43 | INFO    | amr.vision       | -        | [vision_bridge] cam=0 state=2 bbox=True → 이벤트 EV-20260811-0007 (NEW) map=(-3.720164010184252,0.730977127406633)
+2026-08-11 17:00:43 | INFO    | amr.request      | e759070f | OPTIONS /api/patrol/MSN-20260811-876f/pause → 200 (0.4ms) role=-
+2026-08-11 17:00:43 | INFO    | amr.request      | 0e009104 | OPTIONS /api/patrol/MSN-20260811-01ac/pause → 200 (0.6ms) role=-
+2026-08-11 17:00:43 | INFO    | amr.bridge       | 64486229 | [robot_bridge] AMR-01 ← PAUSE CMD-20260811-8d6b
+2026-08-11 17:00:43 | INFO    | amr.request      | 64486229 | POST /api/patrol/MSN-20260811-876f/pause → 200 (6.2ms) role=-
+2026-08-11 17:00:43 | INFO    | amr.bridge       | 9e6328d9 | [robot_bridge] AMR-02 ← PAUSE CMD-20260811-5ec0
+2026-08-11 17:00:43 | INFO    | amr.request      | 9e6328d9 | POST /api/patrol/MSN-20260811-01ac/pause → 200 (11.6ms) role=-
+2026-08-11 17:00:53 | INFO    | amr.request      | 4112d23f | GET /api/stats/overview → 200 (2.7ms) role=-
+2026-08-11 17:00:57 | INFO    | amr.vision       | -        | [vision_bridge] cam=0 state=2 bbox=False → 이벤트 EV-20260811-0008 (NEW) map=(None,None)
+2026-08-11 17:00:58 | INFO    | amr.vision       | -        | [vision_bridge] cam=0 state=2 bbox=True → 이벤트 EV-20260811-0008 (MERGED) map=(-4.075325474745372,0.5897965846402113)
+2026-08-11 17:01:23 | INFO    | amr.request      | 1decd907 | GET /api/stats/overview → 200 (2.5ms) role=-
+2026-08-11 17:01:53 | INFO    | amr.request      | 36a94d56 | GET /api/stats/overview → 200 (2.6ms) role=-
+2026-08-11 17:02:06 | INFO    | amr.bridge       | 8717174b | [robot_bridge] AMR-01 ← DOCK CMD-20260811-337b
+2026-08-11 17:02:06 | INFO    | amr.bridge       | 39f136c3 | [robot_bridge] AMR-02 ← DOCK CMD-20260811-7599
+2026-08-11 17:02:06 | INFO    | amr.request      | 8717174b | POST /api/robots/AMR-01/dock → 200 (8.1ms) role=-
+2026-08-11 17:02:06 | INFO    | amr.request      | 39f136c3 | POST /api/robots/AMR-02/dock → 200 (6.6ms) role=-
+2026-08-11 17:02:21 | INFO    | amr.bridge       | f94b298c | [robot_bridge] AMR-01 ← ESTOP CMD-20260811-1356
+2026-08-11 17:02:21 | INFO    | amr.bridge       | f94b298c | [robot_bridge] AMR-02 ← ESTOP CMD-20260811-df77
+2026-08-11 17:02:21 | INFO    | amr.request      | f94b298c | POST /api/robots/emergency-stop-all → 200 (5.1ms) role=-
+2026-08-11 17:02:23 | INFO    | amr.request      | 4cb68053 | GET /api/stats/overview → 200 (1.9ms) role=-
+2026-08-11 17:02:25 | INFO    | amr.bridge       | 3dd06990 | [robot_bridge] AMR-01 ← DOCK CMD-20260811-f767
+2026-08-11 17:02:25 | INFO    | amr.bridge       | 0cba7756 | [robot_bridge] AMR-02 ← DOCK CMD-20260811-d700
+2026-08-11 17:02:25 | INFO    | amr.request      | 0cba7756 | POST /api/robots/AMR-02/dock → 200 (5.4ms) role=-
+2026-08-11 17:02:25 | INFO    | amr.request      | 3dd06990 | POST /api/robots/AMR-01/dock → 200 (8.5ms) role=-
+2026-08-11 17:02:33 | INFO    | amr.request      | 192e1896 | PUT /api/zones/Z-P1 → 200 (3.7ms) role=ADMIN
+2026-08-11 17:02:33 | INFO    | amr.request      | 699ffdaa | GET /api/patrol/missions → 200 (2.1ms) role=-
+2026-08-11 17:02:33 | INFO    | amr.request      | 976e6e91 | OPTIONS /api/patrol/MSN-20260811-876f/cancel → 200 (0.2ms) role=-
+2026-08-11 17:02:33 | INFO    | amr.bridge       | f4f91fd8 | [robot_bridge] AMR-01 ← CANCEL CMD-20260811-0376
+2026-08-11 17:02:33 | INFO    | amr.request      | f4f91fd8 | POST /api/patrol/MSN-20260811-876f/cancel → 200 (5.9ms) role=-
+2026-08-11 17:02:33 | INFO    | amr.request      | addf452f | POST /api/nodes → 201 (4.4ms) role=ADMIN
+2026-08-11 17:02:33 | INFO    | amr.request      | e99ef69d | POST /api/nodes → 201 (3.9ms) role=ADMIN
+2026-08-11 17:02:33 | INFO    | amr.request      | df1cf507 | POST /api/nodes → 201 (4.2ms) role=ADMIN
+2026-08-11 17:02:33 | INFO    | amr.request      | b80f67e2 | POST /api/routes → 201 (2.8ms) role=ADMIN
+2026-08-11 17:02:33 | INFO    | amr.bridge       | 06564143 | [robot_bridge] AMR-01 ← START_PATROL CMD-20260811-e25f
+2026-08-11 17:02:33 | INFO    | amr.vision       | 06564143 | [vision_bridge] /ui/start=True 발행
+2026-08-11 17:02:33 | INFO    | amr.request      | 06564143 | POST /api/patrol/start → 200 (5.2ms) role=-
+2026-08-11 17:02:33 | INFO    | amr.request      | cbd0d8a0 | PUT /api/zones/Z-P2 → 200 (4.2ms) role=ADMIN
+2026-08-11 17:02:33 | INFO    | amr.request      | e590908e | GET /api/patrol/missions → 200 (1.6ms) role=-
+2026-08-11 17:02:33 | INFO    | amr.request      | 3b76b634 | OPTIONS /api/patrol/MSN-20260811-01ac/cancel → 200 (0.1ms) role=-
+2026-08-11 17:02:33 | INFO    | amr.bridge       | a7b188f8 | [robot_bridge] AMR-02 ← CANCEL CMD-20260811-b74c
+2026-08-11 17:02:33 | INFO    | amr.request      | a7b188f8 | POST /api/patrol/MSN-20260811-01ac/cancel → 200 (3.4ms) role=-
+2026-08-11 17:02:33 | INFO    | amr.request      | be33c3d2 | POST /api/nodes → 201 (6.5ms) role=ADMIN
+2026-08-11 17:02:33 | INFO    | amr.request      | 6b152e20 | POST /api/nodes → 201 (3.5ms) role=ADMIN
+2026-08-11 17:02:33 | INFO    | amr.request      | 05a93213 | POST /api/nodes → 201 (4.5ms) role=ADMIN
+2026-08-11 17:02:33 | INFO    | amr.request      | 9a577a3a | POST /api/routes → 201 (3.4ms) role=ADMIN
+2026-08-11 17:02:33 | INFO    | amr.bridge       | 19e7a276 | [robot_bridge] AMR-02 ← START_PATROL CMD-20260811-5654
+2026-08-11 17:02:33 | INFO    | amr.vision       | 19e7a276 | [vision_bridge] /ui/start=True 발행
+2026-08-11 17:02:33 | INFO    | amr.request      | 19e7a276 | POST /api/patrol/start → 200 (6.6ms) role=-
+2026-08-11 17:02:35 | INFO    | amr.vision       | -        | [vision_bridge] cam=0 state=2 bbox=False → 이벤트 EV-20260811-0009 (NEW) map=(None,None)
+2026-08-11 17:02:35 | INFO    | amr.request      | a5141e3f | OPTIONS /api/patrol/MSN-20260811-e3db/pause → 200 (0.4ms) role=-
+2026-08-11 17:02:35 | INFO    | amr.request      | 96c5ea6a | OPTIONS /api/patrol/MSN-20260811-3f2a/pause → 200 (0.5ms) role=-
+2026-08-11 17:02:35 | INFO    | amr.bridge       | 0c2fb9c2 | [robot_bridge] AMR-01 ← PAUSE CMD-20260811-9287
+2026-08-11 17:02:35 | INFO    | amr.request      | 0c2fb9c2 | POST /api/patrol/MSN-20260811-e3db/pause → 200 (7.1ms) role=-
+2026-08-11 17:02:35 | INFO    | amr.bridge       | 9489b373 | [robot_bridge] AMR-02 ← PAUSE CMD-20260811-c963
+2026-08-11 17:02:35 | INFO    | amr.request      | 9489b373 | POST /api/patrol/MSN-20260811-3f2a/pause → 200 (12.6ms) role=-
+2026-08-11 17:02:37 | INFO    | amr.bridge       | b692c906 | [robot_bridge] AMR-01 ← RESUME CMD-20260811-c893
+2026-08-11 17:02:37 | INFO    | amr.bridge       | eaeef701 | [robot_bridge] AMR-02 ← RESUME CMD-20260811-b159
+2026-08-11 17:02:37 | INFO    | amr.request      | b692c906 | POST /api/patrol/MSN-20260811-e3db/resume → 200 (7.9ms) role=-
+2026-08-11 17:02:37 | INFO    | amr.request      | eaeef701 | POST /api/patrol/MSN-20260811-3f2a/resume → 200 (7.1ms) role=-
+2026-08-11 17:02:42 | INFO    | amr.vision       | -        | [vision_bridge] cam=3 state=0 bbox=False → 이벤트 EV-20260811-0010 (NEW) map=(None,None)
+2026-08-11 17:02:53 | INFO    | amr.request      | a22533b2 | GET /api/stats/overview → 200 (2.4ms) role=-
+2026-08-11 17:03:08 | INFO    | amr.request      | 46215b7d | OPTIONS /api/events/EV-20260811-0010/ack → 200 (0.2ms) role=-
+2026-08-11 17:03:08 | INFO    | amr.request      | 46747ca3 | POST /api/events/EV-20260811-0010/ack → 200 (4.7ms) role=-
+2026-08-11 17:03:23 | INFO    | amr.request      | 43dccd38 | GET /api/stats/overview → 200 (2.5ms) role=-
+2026-08-11 17:03:53 | INFO    | amr.request      | 0f08d4be | GET /api/stats/overview → 200 (2.5ms) role=-
+2026-08-11 17:04:23 | INFO    | amr.request      | e6d13f90 | GET /api/stats/overview → 200 (2.3ms) role=-
+2026-08-11 17:04:46 | ERROR   | amr.vision       | -        | [vision_bridge] rclpy spin 종료
+Traceback (most recent call last):
+  File "/home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/app/vision_bridge.py", line 340, in _spin
+    executor.spin_once(timeout_sec=0.5)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 808, in spin_once
+    self._spin_once_impl(timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 797, in _spin_once_impl
+    handler, entity, node = self.wait_for_ready_callbacks(timeout_sec=timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 780, in wait_for_ready_callbacks
+    return next(self._cb_iter)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 681, in _wait_for_ready_callbacks
+    raise ExternalShutdownException()
+rclpy.executors.ExternalShutdownException
+2026-08-11 17:04:46 | INFO    | amr.ws           | -        | WS 해제 — 현재 0개 연결
+2026-08-11 17:11:42 | INFO    | amr.vision       | -        | [vision_bridge] 종료
+2026-08-11 17:11:42 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 브리지 종료
+2026-08-11 17:11:42 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 종료
+2026-08-11 17:11:42 | INFO    | amr.main         | -        | 서버 종료
+2026-08-11 17:14:29 | WARNING | amr.db           | -        | 기존 테이블을 전부 삭제합니다 (drop=True)
+2026-08-11 17:14:29 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-11 17:14:29 | INFO    | amr.db           | -        | 시드 완료 — {'maps': 2, 'zones': 3, 'nodes': 8, 'routes': 1, 'equipment': 5, 'rules': 3, 'robots': 2}
+2026-08-11 17:14:30 | INFO    | amr.main         | -        | ======================================================================
+2026-08-11 17:14:30 | INFO    | amr.main         | -        | AMR 순찰·이상감지 관제 API v1.0.0 기동
+2026-08-11 17:14:30 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-11 17:14:30 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 브리지 기동 — 발행 2개, 구독 8토픽/로봇, 상행 큐 컨슈머 1
+2026-08-11 17:14:30 | INFO    | amr.bridge       | -        | 브리지 교체 → RobotBridge
+2026-08-11 17:14:30 | INFO    | amr.vision       | -        | [vision_bridge] 기동 — 구독 /detection/cam_state, 발행 /ui/start
+2026-08-11 17:14:30 | INFO    | amr.main         | -        | 데모 시뮬레이터 활성화 (AMR_DEMO_SIM=1)
+2026-08-11 17:14:30 | INFO    | amr.main         | -        | REST 15개 라우터 · WS /ws/monitor 준비 완료
+2026-08-11 17:14:30 | INFO    | amr.main         | -        | ======================================================================
+2026-08-11 17:14:30 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 시작
+2026-08-11 17:14:30 | INFO    | amr.demo_sim     | -        | 데모 시뮬레이터 시작 (TICK=0.6s, STEP=0.35m)
+2026-08-11 17:16:07 | ERROR   | amr.bridge       | -        | [robot_bridge] rclpy spin 종료
+Traceback (most recent call last):
+  File "/home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/app/robot_bridge.py", line 570, in _spin
+    executor.spin_once(timeout_sec=0.5)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 808, in spin_once
+    self._spin_once_impl(timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 805, in _spin_once_impl
+    raise handler.exception()
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 272, in _execute_coroutine_step
+    result = coro.send(None)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 488, in handler
+    await call_coroutine(entity, arg)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 407, in _execute_subscription
+    await await_or_execute(sub.callback, msg)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 110, in await_or_execute
+    return callback(*args)
+  File "/home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/app/robot_bridge.py", line 477, in <lambda>
+    lambda m, r=rid: produce(
+TypeError: Ros2Bridge._produce() takes 4 positional arguments but 5 were given
+2026-08-11 17:16:09 | INFO    | amr.request      | a81e00ef | GET /api/cameras/cctv1/stream → 200 (86.6ms) role=-
+2026-08-11 17:16:09 | INFO    | amr.request      | cab086b5 | GET /api/cameras/cctv2/stream → 200 (2.6ms) role=-
+2026-08-11 17:16:09 | INFO    | amr.ws           | -        | WS 접속 — 현재 1개 연결
+2026-08-11 17:16:09 | INFO    | amr.request      | d2912269 | GET /api/stats/overview → 200 (18.9ms) role=-
+2026-08-11 17:16:09 | INFO    | amr.request      | e1703105 | GET /api/zones → 200 (17.8ms) role=-
+2026-08-11 17:16:09 | INFO    | amr.request      | c389d2a3 | GET /api/map → 200 (20.0ms) role=-
+2026-08-11 17:16:09 | INFO    | amr.request      | d13ae4b2 | GET /api/map → 200 (3.6ms) role=-
+2026-08-11 17:16:09 | INFO    | amr.request      | 536bc211 | GET /api/zones → 200 (4.0ms) role=-
+2026-08-11 17:16:09 | INFO    | amr.request      | e080c1fc | GET /api/stats/overview → 200 (6.1ms) role=-
+2026-08-11 17:16:09 | INFO    | amr.request      | d56d8c77 | GET /api/map/MAP-DC-V4/grid → 200 (3.6ms) role=-
+2026-08-11 17:16:09 | INFO    | amr.request      | a77e9c2d | GET /media/maps/datacenter_map_v4.png → 304 (4.1ms) role=-
+2026-08-11 17:16:39 | INFO    | amr.request      | 1f653c32 | GET /api/stats/overview → 200 (2.8ms) role=-
+2026-08-11 17:17:03 | INFO    | amr.request      | 1e727303 | OPTIONS /api/zones/Z-P1 → 200 (0.2ms) role=-
+2026-08-11 17:17:03 | WARNING | amr.request      | 62f2c642 | PUT /api/zones/Z-P1 → 404 (3.4ms) role=ADMIN
+2026-08-11 17:17:03 | INFO    | amr.request      | c0db9076 | OPTIONS /api/zones → 200 (0.1ms) role=-
+2026-08-11 17:17:03 | INFO    | amr.request      | cf940c5e | POST /api/zones → 201 (34.7ms) role=ADMIN
+2026-08-11 17:17:03 | INFO    | amr.request      | 2d72d1b7 | GET /api/patrol/missions → 200 (2.5ms) role=-
+2026-08-11 17:17:03 | INFO    | amr.request      | a4766bf7 | OPTIONS /api/nodes → 200 (0.1ms) role=-
+2026-08-11 17:17:03 | INFO    | amr.request      | 483856f0 | POST /api/nodes → 201 (6.1ms) role=ADMIN
+2026-08-11 17:17:03 | INFO    | amr.request      | 4990e231 | POST /api/nodes → 201 (4.1ms) role=ADMIN
+2026-08-11 17:17:03 | INFO    | amr.request      | cec99853 | POST /api/nodes → 201 (3.8ms) role=ADMIN
+2026-08-11 17:17:03 | INFO    | amr.request      | 1bcf76d0 | OPTIONS /api/routes → 200 (0.1ms) role=-
+2026-08-11 17:17:03 | INFO    | amr.request      | 4f075a16 | POST /api/routes → 201 (4.5ms) role=ADMIN
+2026-08-11 17:17:03 | INFO    | amr.request      | 38dcd9ea | OPTIONS /api/patrol/start → 200 (0.1ms) role=-
+2026-08-11 17:17:03 | INFO    | amr.bridge       | bd309499 | [robot_bridge] AMR-01 ← START_PATROL CMD-20260811-68cd
+2026-08-11 17:17:03 | INFO    | amr.vision       | bd309499 | [vision_bridge] /ui/start=True 발행
+2026-08-11 17:17:03 | INFO    | amr.vision       | -        | [vision_bridge] cam=0 state=0 bbox=False → 이벤트 EV-20260811-0001 (NEW) map=(None,None)
+2026-08-11 17:17:03 | INFO    | amr.vision       | -        | [vision_bridge] cam=0 state=2 bbox=False → 이벤트 EV-20260811-0002 (NEW) map=(None,None)
+2026-08-11 17:17:03 | INFO    | amr.vision       | -        | [vision_bridge] cam=1 state=0 bbox=False → 이벤트 EV-20260811-0003 (NEW) map=(None,None)
+2026-08-11 17:17:03 | INFO    | amr.vision       | -        | [vision_bridge] cam=1 state=2 bbox=False → 이벤트 EV-20260811-0004 (NEW) map=(None,None)
+2026-08-11 17:17:03 | INFO    | amr.request      | bd309499 | POST /api/patrol/start → 200 (22.9ms) role=-
+2026-08-11 17:17:03 | INFO    | amr.request      | ded42892 | OPTIONS /api/zones/Z-P2 → 200 (0.1ms) role=-
+2026-08-11 17:17:03 | WARNING | amr.request      | 3880e5b3 | PUT /api/zones/Z-P2 → 404 (1.8ms) role=ADMIN
+2026-08-11 17:17:03 | INFO    | amr.request      | d1f33a3d | POST /api/zones → 201 (3.3ms) role=ADMIN
+2026-08-11 17:17:03 | INFO    | amr.request      | 61631d5a | GET /api/patrol/missions → 200 (1.6ms) role=-
+2026-08-11 17:17:03 | INFO    | amr.request      | 87bfc13f | POST /api/nodes → 201 (4.5ms) role=ADMIN
+2026-08-11 17:17:03 | INFO    | amr.request      | 444e5492 | POST /api/nodes → 201 (3.6ms) role=ADMIN
+2026-08-11 17:17:03 | INFO    | amr.request      | 0186bd9b | POST /api/nodes → 201 (3.4ms) role=ADMIN
+2026-08-11 17:17:03 | INFO    | amr.request      | c2c693e3 | POST /api/routes → 201 (3.1ms) role=ADMIN
+2026-08-11 17:17:03 | INFO    | amr.bridge       | 1bb64ec2 | [robot_bridge] AMR-02 ← START_PATROL CMD-20260811-54c1
+2026-08-11 17:17:03 | INFO    | amr.vision       | 1bb64ec2 | [vision_bridge] /ui/start=True 발행
+2026-08-11 17:17:03 | INFO    | amr.request      | 1bb64ec2 | POST /api/patrol/start → 200 (6.3ms) role=-
+2026-08-11 17:17:09 | INFO    | amr.request      | c75da7f6 | GET /api/stats/overview → 200 (2.3ms) role=-
+2026-08-11 17:17:26 | INFO    | amr.request      | 1827c79e | POST /api/align/check-gate → 200 (396.6ms) role=-
+2026-08-11 17:17:32 | INFO    | amr.vision       | -        | [vision_bridge] cam=3 state=2 bbox=False → 이벤트 EV-20260811-0006 (NEW) map=(None,None)
+2026-08-11 17:17:32 | INFO    | amr.request      | 5e672d38 | GET /api/cameras/AMR-02/stream → 200 (0.9ms) role=-
+2026-08-11 17:17:34 | INFO    | amr.vision       | -        | [vision_bridge] cam=3 state=2 bbox=False → 이벤트 EV-20260811-0007 (NEW) map=(None,None)
+2026-08-11 17:17:35 | INFO    | amr.request      | 28baabbb | POST /api/align/check-gate → 200 (350.4ms) role=-
+2026-08-11 17:17:36 | INFO    | amr.homography   | -        | [homography] cctv1 캘리브레이션 로드 (/home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/data/calibration/cctv1.yaml)
+2026-08-11 17:17:36 | INFO    | amr.homography   | -        | [homography] cctv2 캘리브레이션 로드 (/home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/data/calibration/cctv2.yaml)
+2026-08-11 17:17:36 | INFO    | amr.vision       | -        | [vision_bridge] cam=0 state=0 bbox=True → 이벤트 EV-20260811-0009 (NEW) map=(-3.139494664230052,1.2191457285916607)
+2026-08-11 17:17:36 | INFO    | amr.bridge       | -        | [robot_bridge] AMR-01 ← GOTO CMD-20260811-f1ad
+2026-08-11 17:17:36 | INFO    | amr.vision       | -        | [vision_bridge] 화재 자동 급파 → AMR-01 GOTO(x=-3.139494664230052,y=1.2191457285916607) event=EV-20260811-0009 {'distance_m': 1.24, 'battery': 78, 'score': 0.58}
+2026-08-11 17:17:36 | INFO    | amr.request      | 4eb8482d | OPTIONS /api/patrol/MSN-20260811-1872/pause → 200 (0.7ms) role=-
+2026-08-11 17:17:36 | INFO    | amr.request      | a914fb59 | OPTIONS /api/patrol/MSN-20260811-654e/pause → 200 (0.6ms) role=-
+2026-08-11 17:17:36 | INFO    | amr.bridge       | aaac6559 | [robot_bridge] AMR-02 ← PAUSE CMD-20260811-dc8b
+2026-08-11 17:17:36 | WARNING | amr.request      | 825fa101 | POST /api/patrol/MSN-20260811-1872/pause → 409 (9.8ms) role=-
+2026-08-11 17:17:36 | INFO    | amr.request      | aaac6559 | POST /api/patrol/MSN-20260811-654e/pause → 200 (10.2ms) role=-
+2026-08-11 17:17:37 | INFO    | amr.vision       | -        | [vision_bridge] cam=3 state=2 bbox=False → 이벤트 EV-20260811-0010 (NEW) map=(None,None)
+2026-08-11 17:17:39 | INFO    | amr.request      | 2b609f21 | GET /api/stats/overview → 200 (2.8ms) role=-
+2026-08-11 17:17:41 | INFO    | amr.vision       | -        | [vision_bridge] cam=2 state=0 bbox=False → 이벤트 EV-20260811-0011 (NEW) map=(None,None)
+2026-08-11 17:17:41 | INFO    | amr.request      | e2efd6c3 | GET /api/cameras/AMR-01/stream → 200 (1.3ms) role=-
+2026-08-11 17:17:44 | INFO    | amr.vision       | -        | [vision_bridge] cam=0 state=0 bbox=False → 이벤트 EV-20260811-0009 (MERGED) map=(None,None)
+2026-08-11 17:17:51 | INFO    | amr.request      | 0113bb3d | OPTIONS /api/events/EV-20260811-0011/ack → 200 (0.1ms) role=-
+2026-08-11 17:17:51 | INFO    | amr.request      | 66d31c18 | POST /api/events/EV-20260811-0011/ack → 200 (5.5ms) role=-
+2026-08-11 17:18:07 | INFO    | amr.vision       | -        | [vision_bridge] cam=3 state=2 bbox=False → 이벤트 EV-20260811-0012 (NEW) map=(None,None)
+2026-08-11 17:18:07 | INFO    | amr.request      | 442706d9 | GET /api/cameras/AMR-02/stream → 200 (0.7ms) role=-
+2026-08-11 17:18:09 | INFO    | amr.request      | 78efe738 | GET /api/stats/overview → 200 (3.4ms) role=-
+2026-08-11 17:18:15 | INFO    | amr.vision       | -        | [vision_bridge] cam=3 state=2 bbox=False → 이벤트 EV-20260811-0013 (NEW) map=(None,None)
+2026-08-11 17:18:19 | INFO    | amr.vision       | -        | [vision_bridge] cam=3 state=2 bbox=False → 이벤트 EV-20260811-0014 (NEW) map=(None,None)
+2026-08-11 17:18:21 | INFO    | amr.vision       | -        | [vision_bridge] cam=3 state=2 bbox=False → 이벤트 EV-20260811-0015 (NEW) map=(None,None)
+2026-08-11 17:18:23 | INFO    | amr.vision       | -        | [vision_bridge] cam=3 state=2 bbox=False → 이벤트 EV-20260811-0016 (NEW) map=(None,None)
+2026-08-11 17:18:25 | INFO    | amr.vision       | -        | [vision_bridge] cam=3 state=2 bbox=False → 이벤트 EV-20260811-0017 (NEW) map=(None,None)
+2026-08-11 17:18:29 | INFO    | amr.vision       | -        | [vision_bridge] cam=3 state=2 bbox=False → 이벤트 EV-20260811-0018 (NEW) map=(None,None)
+2026-08-11 17:18:29 | INFO    | amr.request      | 21fe00ac | OPTIONS /api/events/EV-20260811-0018/ack → 200 (0.2ms) role=-
+2026-08-11 17:18:29 | INFO    | amr.request      | 0b4e507a | POST /api/events/EV-20260811-0018/ack → 200 (5.0ms) role=-
+2026-08-11 17:18:32 | INFO    | amr.vision       | -        | [vision_bridge] cam=3 state=2 bbox=False → 이벤트 EV-20260811-0019 (NEW) map=(None,None)
+2026-08-11 17:18:35 | INFO    | amr.vision       | -        | [vision_bridge] cam=3 state=2 bbox=False → 이벤트 EV-20260811-0020 (NEW) map=(None,None)
+2026-08-11 17:18:39 | INFO    | amr.request      | ce641a26 | GET /api/stats/overview → 200 (3.0ms) role=-
+2026-08-11 17:19:07 | INFO    | amr.request      | e22e764a | OPTIONS /api/events/EV-20260811-0020/ack → 200 (0.1ms) role=-
+2026-08-11 17:19:07 | INFO    | amr.request      | c395258f | POST /api/events/EV-20260811-0020/ack → 200 (4.0ms) role=-
+2026-08-11 17:19:09 | INFO    | amr.request      | f54b9436 | GET /api/stats/overview → 200 (2.9ms) role=-
+2026-08-11 17:19:39 | INFO    | amr.request      | a1bb87ba | GET /api/stats/overview → 200 (2.8ms) role=-
+2026-08-11 17:19:42 | INFO    | amr.vision       | -        | [vision_bridge] cam=1 state=2 bbox=True → 이벤트 EV-20260811-0021 (NEW) map=(-3.3318936414584823,0.055239346990304666)
+2026-08-11 17:19:42 | INFO    | amr.request      | 61c0049f | OPTIONS /api/patrol/MSN-20260811-22f2/pause → 200 (0.2ms) role=-
+2026-08-11 17:19:42 | INFO    | amr.bridge       | cf92b413 | [robot_bridge] AMR-01 ← PAUSE CMD-20260811-7270
+2026-08-11 17:19:42 | INFO    | amr.request      | cf92b413 | POST /api/patrol/MSN-20260811-22f2/pause → 200 (4.9ms) role=-
+2026-08-11 17:19:43 | INFO    | amr.vision       | -        | [vision_bridge] cam=1 state=2 bbox=False → 이벤트 EV-20260811-0021 (MERGED) map=(None,None)
+2026-08-11 17:19:44 | INFO    | amr.vision       | -        | [vision_bridge] cam=1 state=2 bbox=True → 이벤트 EV-20260811-0021 (MERGED) map=(-3.338882113729739,0.07609178843036829)
+2026-08-11 17:19:45 | INFO    | amr.vision       | -        | [vision_bridge] cam=1 state=2 bbox=False → 이벤트 EV-20260811-0021 (MERGED) map=(None,None)
+2026-08-11 17:19:45 | INFO    | amr.vision       | -        | [vision_bridge] cam=1 state=2 bbox=True → 이벤트 EV-20260811-0021 (MERGED) map=(-3.3322029688066417,0.08499756961849385)
+2026-08-11 17:19:48 | INFO    | amr.vision       | -        | [vision_bridge] cam=1 state=2 bbox=False → 이벤트 EV-20260811-0021 (MERGED) map=(None,None)
+2026-08-11 17:19:57 | INFO    | amr.bridge       | 45b2db9a | [robot_bridge] AMR-01 ← RESUME CMD-20260811-f9be
+2026-08-11 17:19:57 | INFO    | amr.request      | 45b2db9a | POST /api/patrol/MSN-20260811-22f2/resume → 200 (8.1ms) role=-
+2026-08-11 17:20:02 | INFO    | amr.ws           | -        | WS 해제 — 현재 0개 연결
+2026-08-11 17:20:02 | INFO    | amr.request      | f19b0fa6 | GET /api/cameras/cctv1/stream → 200 (1.3ms) role=-
+2026-08-11 17:20:02 | INFO    | amr.request      | 976c29f6 | GET /api/cameras/cctv2/stream → 200 (1.0ms) role=-
+2026-08-11 17:20:02 | INFO    | amr.request      | 91837ca9 | GET /api/map → 200 (4.1ms) role=-
+2026-08-11 17:20:02 | INFO    | amr.request      | f334b2a7 | GET /api/zones → 200 (5.1ms) role=-
+2026-08-11 17:20:02 | INFO    | amr.request      | 04a5baea | GET /api/stats/overview → 200 (8.2ms) role=-
+2026-08-11 17:20:02 | INFO    | amr.ws           | -        | WS 접속 — 현재 1개 연결
+2026-08-11 17:20:02 | INFO    | amr.request      | 83b87244 | GET /api/map → 200 (10.7ms) role=-
+2026-08-11 17:20:02 | INFO    | amr.request      | 5b6e3faf | GET /api/zones → 200 (11.8ms) role=-
+2026-08-11 17:20:02 | INFO    | amr.request      | 5cf254a1 | GET /api/stats/overview → 200 (13.2ms) role=-
+2026-08-11 17:20:02 | INFO    | amr.request      | 9bbd9cc3 | GET /api/map/MAP-DC-V4/grid → 200 (1.9ms) role=-
+2026-08-11 17:20:13 | INFO    | amr.ws           | -        | WS 해제 — 현재 0개 연결
+2026-08-11 17:20:14 | INFO    | amr.request      | a069d3e8 | GET /api/cameras/cctv1/stream → 200 (1.3ms) role=-
+2026-08-11 17:20:14 | INFO    | amr.request      | 4cbbfb0f | GET /api/cameras/cctv2/stream → 200 (1.0ms) role=-
+2026-08-11 17:20:14 | INFO    | amr.request      | 1289ed3d | GET /api/map → 200 (3.7ms) role=-
+2026-08-11 17:20:14 | INFO    | amr.request      | e7905797 | GET /api/zones → 200 (4.0ms) role=-
+2026-08-11 17:20:14 | INFO    | amr.request      | 15beb82c | GET /api/stats/overview → 200 (6.5ms) role=-
+2026-08-11 17:20:14 | INFO    | amr.ws           | -        | WS 접속 — 현재 1개 연결
+2026-08-11 17:20:14 | INFO    | amr.request      | d7e5809e | GET /api/zones → 200 (8.8ms) role=-
+2026-08-11 17:20:14 | INFO    | amr.request      | f424af26 | GET /api/map → 200 (9.1ms) role=-
+2026-08-11 17:20:14 | INFO    | amr.request      | 481ebd2f | GET /api/stats/overview → 200 (9.3ms) role=-
+2026-08-11 17:20:14 | INFO    | amr.request      | 071d629f | GET /api/map/MAP-DC-V4/grid → 200 (2.0ms) role=-
+2026-08-11 17:20:26 | INFO    | amr.ws           | -        | WS 해제 — 현재 0개 연결
+2026-08-11 17:20:26 | INFO    | amr.request      | d1967a64 | GET /api/cameras/cctv1/stream → 200 (1.7ms) role=-
+2026-08-11 17:20:26 | INFO    | amr.request      | 14cb908a | GET /api/cameras/cctv2/stream → 200 (1.8ms) role=-
+2026-08-11 17:20:26 | INFO    | amr.request      | 8a33cb8e | GET /api/map → 200 (4.5ms) role=-
+2026-08-11 17:20:26 | INFO    | amr.request      | a51903ed | GET /api/zones → 200 (4.6ms) role=-
+2026-08-11 17:20:26 | INFO    | amr.request      | b1288863 | GET /api/stats/overview → 200 (6.5ms) role=-
+2026-08-11 17:20:26 | INFO    | amr.ws           | -        | WS 접속 — 현재 1개 연결
+2026-08-11 17:20:26 | INFO    | amr.request      | c36c15a7 | GET /api/zones → 200 (8.4ms) role=-
+2026-08-11 17:20:26 | INFO    | amr.request      | 94901650 | GET /api/map → 200 (8.7ms) role=-
+2026-08-11 17:20:26 | INFO    | amr.request      | 24a1c848 | GET /api/stats/overview → 200 (9.3ms) role=-
+2026-08-11 17:20:26 | INFO    | amr.request      | dec23bbb | GET /api/map/MAP-DC-V4/grid → 200 (1.7ms) role=-
+2026-08-11 17:20:28 | INFO    | amr.ws           | -        | WS 해제 — 현재 0개 연결
+2026-08-11 17:20:28 | INFO    | amr.request      | c5b3d87e | GET /api/cameras/cctv1/stream → 200 (1.2ms) role=-
+2026-08-11 17:20:28 | INFO    | amr.request      | 492da854 | GET /api/cameras/cctv2/stream → 200 (0.9ms) role=-
+2026-08-11 17:20:28 | INFO    | amr.request      | 64ff08f4 | GET /api/map → 200 (3.4ms) role=-
+2026-08-11 17:20:28 | INFO    | amr.request      | f64fd3a1 | GET /api/zones → 200 (4.3ms) role=-
+2026-08-11 17:20:28 | INFO    | amr.request      | 598745f1 | GET /api/stats/overview → 200 (6.3ms) role=-
+2026-08-11 17:20:28 | INFO    | amr.request      | 386f8bb6 | GET /api/map → 200 (4.6ms) role=-
+2026-08-11 17:20:28 | INFO    | amr.ws           | -        | WS 접속 — 현재 1개 연결
+2026-08-11 17:20:28 | INFO    | amr.request      | 459b96bd | GET /api/zones → 200 (12.4ms) role=-
+2026-08-11 17:20:28 | INFO    | amr.request      | 7a1308bf | GET /api/stats/overview → 200 (12.4ms) role=-
+2026-08-11 17:20:28 | INFO    | amr.request      | a7d8d19f | GET /api/map/MAP-DC-V4/grid → 200 (1.9ms) role=-
+2026-08-11 17:20:58 | INFO    | amr.request      | 50b088ab | GET /api/stats/overview → 200 (3.8ms) role=-
+2026-08-11 17:21:08 | ERROR   | amr.vision       | -        | [vision_bridge] rclpy spin 종료
+Traceback (most recent call last):
+  File "/home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/app/vision_bridge.py", line 340, in _spin
+    executor.spin_once(timeout_sec=0.5)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 808, in spin_once
+    self._spin_once_impl(timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 797, in _spin_once_impl
+    handler, entity, node = self.wait_for_ready_callbacks(timeout_sec=timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 780, in wait_for_ready_callbacks
+    return next(self._cb_iter)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 681, in _wait_for_ready_callbacks
+    raise ExternalShutdownException()
+rclpy.executors.ExternalShutdownException
+2026-08-11 17:21:08 | INFO    | amr.ws           | -        | WS 해제 — 현재 0개 연결
+2026-08-11 17:21:17 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 종료
+2026-08-11 17:21:17 | INFO    | amr.vision       | -        | [vision_bridge] 종료
+2026-08-11 17:21:17 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 브리지 종료
+2026-08-11 17:21:17 | INFO    | amr.main         | -        | 서버 종료
+2026-08-11 17:22:15 | WARNING | amr.db           | -        | 기존 테이블을 전부 삭제합니다 (drop=True)
+2026-08-11 17:22:15 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-11 17:22:15 | INFO    | amr.db           | -        | 시드 완료 — {'maps': 2, 'zones': 3, 'nodes': 8, 'routes': 1, 'equipment': 5, 'rules': 3, 'robots': 2}
+2026-08-11 17:22:17 | INFO    | amr.main         | -        | ======================================================================
+2026-08-11 17:22:17 | INFO    | amr.main         | -        | AMR 순찰·이상감지 관제 API v1.0.0 기동
+2026-08-11 17:22:17 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-11 17:22:17 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 브리지 기동 — 발행 2개, 구독 8토픽/로봇, 상행 큐 컨슈머 1
+2026-08-11 17:22:17 | INFO    | amr.bridge       | -        | 브리지 교체 → RobotBridge
+2026-08-11 17:22:17 | INFO    | amr.vision       | -        | [vision_bridge] 기동 — 구독 /detection/cam_state, 발행 /ui/start
+2026-08-11 17:22:17 | INFO    | amr.main         | -        | 데모 시뮬레이터 활성화 (AMR_DEMO_SIM=1)
+2026-08-11 17:22:17 | INFO    | amr.main         | -        | REST 15개 라우터 · WS /ws/monitor 준비 완료
+2026-08-11 17:22:17 | INFO    | amr.main         | -        | ======================================================================
+2026-08-11 17:22:17 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 시작
+2026-08-11 17:22:17 | INFO    | amr.demo_sim     | -        | 데모 시뮬레이터 시작 (TICK=0.6s, STEP=0.35m)
+2026-08-11 17:22:28 | INFO    | amr.request      | 1a2ca7a6 | GET /api/stats/overview → 200 (75.1ms) role=-
+2026-08-11 17:22:42 | ERROR   | amr.bridge       | -        | [robot_bridge] rclpy spin 종료
+Traceback (most recent call last):
+  File "/home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/app/robot_bridge.py", line 570, in _spin
+    executor.spin_once(timeout_sec=0.5)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 808, in spin_once
+    self._spin_once_impl(timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 805, in _spin_once_impl
+    raise handler.exception()
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 272, in _execute_coroutine_step
+    result = coro.send(None)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 488, in handler
+    await call_coroutine(entity, arg)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 407, in _execute_subscription
+    await await_or_execute(sub.callback, msg)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 110, in await_or_execute
+    return callback(*args)
+  File "/home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/app/robot_bridge.py", line 477, in <lambda>
+    lambda m, r=rid: produce(
+TypeError: Ros2Bridge._produce() takes 4 positional arguments but 5 were given
+2026-08-11 17:22:58 | INFO    | amr.request      | 82019d89 | GET /api/stats/overview → 200 (3.2ms) role=-
+2026-08-11 17:23:16 | INFO    | amr.request      | 27082920 | GET /api/cameras/cctv1/stream → 200 (12.8ms) role=-
+2026-08-11 17:23:16 | INFO    | amr.request      | 048f553a | GET /api/cameras/cctv2/stream → 200 (3.3ms) role=-
+2026-08-11 17:23:16 | INFO    | amr.ws           | -        | WS 접속 — 현재 1개 연결
+2026-08-11 17:23:16 | INFO    | amr.request      | 8dc51ed1 | GET /api/stats/overview → 200 (23.9ms) role=-
+2026-08-11 17:23:16 | INFO    | amr.request      | 281ef4d9 | GET /api/map → 200 (23.5ms) role=-
+2026-08-11 17:23:16 | INFO    | amr.request      | 0954a3d1 | GET /api/zones → 200 (23.9ms) role=-
+2026-08-11 17:23:16 | INFO    | amr.request      | 3d1ec647 | GET /api/stats/overview → 200 (5.1ms) role=-
+2026-08-11 17:23:16 | INFO    | amr.request      | 24749cd0 | GET /api/zones → 200 (3.0ms) role=-
+2026-08-11 17:23:16 | INFO    | amr.request      | db7dc59c | GET /api/map → 200 (5.9ms) role=-
+2026-08-11 17:23:16 | INFO    | amr.request      | ad5627da | GET /api/map/MAP-DC-V4/grid → 200 (3.2ms) role=-
+2026-08-11 17:23:22 | INFO    | amr.ws           | -        | WS 해제 — 현재 0개 연결
+2026-08-11 17:23:22 | INFO    | amr.request      | aa97cf48 | GET /api/cameras/cctv1/stream → 200 (1.3ms) role=-
+2026-08-11 17:23:22 | INFO    | amr.request      | 180031a2 | GET /api/cameras/cctv2/stream → 200 (1.0ms) role=-
+2026-08-11 17:23:22 | INFO    | amr.request      | 36d90364 | GET /api/zones → 200 (2.6ms) role=-
+2026-08-11 17:23:22 | INFO    | amr.request      | 47af09a4 | GET /api/stats/overview → 200 (4.1ms) role=-
+2026-08-11 17:23:22 | INFO    | amr.request      | cd45eaec | GET /api/map → 200 (4.6ms) role=-
+2026-08-11 17:23:22 | INFO    | amr.request      | b5f68df4 | GET /api/zones → 200 (4.2ms) role=-
+2026-08-11 17:23:22 | INFO    | amr.request      | ee7c144a | GET /api/stats/overview → 200 (5.4ms) role=-
+2026-08-11 17:23:22 | INFO    | amr.request      | 0e8ca433 | GET /api/map → 200 (4.9ms) role=-
+2026-08-11 17:23:22 | INFO    | amr.ws           | -        | WS 접속 — 현재 1개 연결
+2026-08-11 17:23:22 | INFO    | amr.request      | 5a697fbc | GET /api/map/MAP-DC-V4/grid → 200 (1.7ms) role=-
+2026-08-11 17:23:52 | INFO    | amr.request      | 3941652f | GET /api/stats/overview → 200 (3.8ms) role=-
+2026-08-11 17:24:22 | INFO    | amr.request      | 0e748e8d | GET /api/stats/overview → 200 (2.7ms) role=-
+2026-08-11 17:24:52 | INFO    | amr.request      | c565db9a | GET /api/stats/overview → 200 (2.4ms) role=-
+2026-08-11 17:25:22 | INFO    | amr.request      | 66562613 | GET /api/stats/overview → 200 (38.8ms) role=-
+2026-08-11 17:25:52 | INFO    | amr.request      | d64647d7 | GET /api/stats/overview → 200 (2.4ms) role=-
+2026-08-11 17:26:22 | INFO    | amr.request      | 3b2c8e3f | GET /api/stats/overview → 200 (3.9ms) role=-
+2026-08-11 17:26:52 | INFO    | amr.request      | e759295d | GET /api/stats/overview → 200 (2.2ms) role=-
+2026-08-11 17:27:22 | INFO    | amr.request      | 8845fac1 | GET /api/stats/overview → 200 (3.8ms) role=-
+2026-08-11 17:27:52 | INFO    | amr.request      | 5ece08cd | GET /api/stats/overview → 200 (3.0ms) role=-
+2026-08-11 17:28:22 | INFO    | amr.request      | 57a72794 | GET /api/stats/overview → 200 (3.0ms) role=-
+2026-08-11 17:28:52 | INFO    | amr.request      | 67049751 | GET /api/stats/overview → 200 (2.1ms) role=-

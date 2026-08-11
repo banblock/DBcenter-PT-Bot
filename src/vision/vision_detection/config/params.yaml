@@ -6,7 +6,10 @@ detect_cctv_node:
   ros__parameters:
     camera_devices: []  # 비워두면 연결된 웹캠을 자동 탐지
     camera_ids: ["cctv1", "cctv2"]
-    min_camera_index: 2
+    # 노트북 내장캠 등 잡히면 안 되는 장치를 V4L2 카드 이름(부분 문자열, 대소문자
+    # 무시)으로 배제한다. 예) 이 노트북 내장캠 = "HP Wide Vision HD Camera".
+    exclude_camera_names: ["HP Wide Vision"]
+    min_camera_index: 0  # 이름 배제로 충분하면 0(끔). 이름으로 못 거를 때만 상향.
     model_path: "models/cctv_best.pt"
     confidence: 0.77  #recall 우선 : 0.13, precision 우선 : 0.77
     jpeg_quality: 80
@@ -31,10 +34,6 @@ detect_ambient_node:
       - "/robot8/oakd/rgb/preview/image_raw"
     anomaly_classes:
       - "fire"
-<<<<<<< Updated upstream
-=======
-      # - "smoke"   # 차단기를 스모크로 오감지하는 문제로 비활성화(2026-08-11). 되살리려면 주석 해제.
->>>>>>> Stashed changes
       - "coolant"
     normal_process_every_n: 1
     throttled_process_every_n: 10
@@ -54,10 +53,10 @@ detect_station_node:
     hough_min_radius: 10
     hough_max_radius: 100
     # red wraps around hue 0/180 in OpenCV HSV, so "closed" needs two ranges
-    closed_hsv_lower1: [0, 70, 50]
-    closed_hsv_upper1: [10, 255, 255]
-    closed_hsv_lower2: [170, 70, 50]
-    closed_hsv_upper2: [180, 255, 255]
+    closed_hsv_lower1: [0, 0, 0]
+    closed_hsv_upper1: [180, 255, 50]
+    closed_hsv_lower2: [0, 0, 200]
+    closed_hsv_upper2: [180, 30, 255] 
     open_hsv_lower: [40, 70, 50]
     open_hsv_upper: [80, 255, 255]
     min_color_ratio: 0.3
