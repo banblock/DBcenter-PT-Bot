@@ -11423,3 +11423,17 @@ TypeError: Ros2Bridge._produce() takes 4 positional arguments but 5 were given
 2026-08-11 14:37:43 | INFO    | amr.request      | ea4e5ef3 | GET /api/stats/overview → 200 (2.4ms) role=-
 2026-08-11 14:38:13 | INFO    | amr.vision       | -        | [vision_bridge] cam=2 state=2 bbox=False → 이벤트 EV-20260811-0019 (NEW) map=(None,None)
 2026-08-11 14:38:13 | INFO    | amr.request      | 0473033e | GET /api/stats/overview → 200 (3.2ms) role=-
+2026-08-11 14:38:42 | INFO    | amr.vision       | -        | [vision_bridge] cam=1 state=0 bbox=True → 이벤트 EV-20260811-0020 (NEW) map=(-4.082788929024337,2.7710931464157693)
+2026-08-11 14:38:42 | INFO    | amr.bridge       | -        | [robot_bridge] AMR-01 ← GOTO CMD-20260811-c8fa
+2026-08-11 14:38:42 | INFO    | amr.vision       | -        | [vision_bridge] 화재 자동 급파 → AMR-01 GOTO(x=-4.082788929024337,y=2.7710931464157693) event=EV-20260811-0020 {'distance_m': 1.89, 'battery': 78, 'score': 0.52}
+2026-08-11 14:38:43 | INFO    | amr.request      | 92500de6 | GET /api/stats/overview → 200 (2.4ms) role=-
+2026-08-11 14:38:43 | INFO    | amr.vision       | -        | [vision_bridge] cam=1 state=0 bbox=False → 이벤트 EV-20260811-0020 (MERGED) map=(None,None)
+2026-08-11 14:39:13 | INFO    | amr.request      | 5285c09f | GET /api/stats/overview → 200 (2.2ms) role=-
+2026-08-11 14:39:43 | INFO    | amr.request      | c4cb7b91 | GET /api/stats/overview → 200 (2.4ms) role=-
+2026-08-11 14:40:13 | INFO    | amr.request      | 651412ea | GET /api/stats/overview → 200 (3.5ms) role=-
+2026-08-11 14:40:43 | INFO    | amr.request      | 5e0e05d4 | GET /api/stats/overview → 200 (2.8ms) role=-
+2026-08-11 14:40:57 | INFO    | amr.vision       | -        | [vision_bridge] cam=1 state=0 bbox=True → 이벤트 EV-20260811-0021 (NEW) map=(-4.072417871947239,2.750525126309542)
+2026-08-11 14:40:57 | INFO    | amr.bridge       | -        | [robot_bridge] AMR-01 ← GOTO CMD-20260811-39e1
+2026-08-11 14:40:57 | INFO    | amr.vision       | -        | [vision_bridge] 화재 자동 급파 → AMR-01 GOTO(x=-4.072417871947239,y=2.750525126309542) event=EV-20260811-0021 {'distance_m': 1.87, 'battery': 78, 'score': 0.52}
+2026-08-11 14:40:57 | INFO    | amr.vision       | -        | [vision_bridge] cam=1 state=0 bbox=False → 이벤트 EV-20260811-0021 (MERGED) map=(None,None)
+2026-08-11 14:41:16 | INFO    | amr.vision       | -        | [vision_bridge] cam=1 state=2 bbox=True → 이벤트 EV-20260811-0022 (NEW) map=(-3.616036805348249,1.752423523766133)
