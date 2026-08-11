@@ -66,37 +66,16 @@
   padding: 3px 9px;
   border-radius: 20px;
 }
-.modal__bbox {
+.modal__nofeed {
   position: absolute;
-  left: 30%;
-  top: 26%;
-  width: 40%;
-  height: 50%;
-  border: 2px solid;
-  border-radius: 3px;
-}
-.modal__bbox--red {
-  border-color: #e5484d;
-}
-.modal__bbox--green {
-  border-color: #2bb673;
-}
-.modal__lbl {
-  position: absolute;
-  top: -18px;
-  left: -2px;
-  font-size: 9.5px;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 3px;
-  color: #fff;
-  white-space: nowrap;
-}
-.modal__bbox--red .modal__lbl {
-  background: #e5484d;
-}
-.modal__bbox--green .modal__lbl {
-  background: #2bb673;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.5);
 }
 .modal__cfoot {
   position: absolute;
