@@ -72,10 +72,35 @@ def session_scope() -> Iterator[Session]:
         db.close()
 
 
+def _ensure_added_columns() -> None:
+    """create_all 은 새 컬럼을 기존 테이블에 추가하지 못한다(ALTER 안 함). 뒤늦게
+    모델에 추가된 컬럼을 기존 SQLite DB 에도 반영하기 위한 최소 마이그레이션 -
+    모델과 실제 테이블을 대조해 빠진 컬럼만 ALTER TABLE ADD COLUMN 한다(기존
+    행은 서버 default 로 채워진다). Alembic 을 도입하기 전까지의 임시 방편."""
+    from sqlalchemy import inspect, text
+
+    # (테이블, 컬럼명, DDL 타입, 기본값 리터럴)
+    added = [('tb_robots', 'charging', 'BOOLEAN', '0')]
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    with engine.begin() as conn:
+        for table, column, ddl_type, default in added:
+            if table not in existing_tables:
+                continue  # create_all 이 방금 통째로 만들었으면 컬럼도 이미 있다
+            cols = {c['name'] for c in inspector.get_columns(table)}
+            if column in cols:
+                continue
+            conn.execute(text(
+                f'ALTER TABLE {table} ADD COLUMN {column} {ddl_type} '
+                f'NOT NULL DEFAULT {default}'))
+            log.info("마이그레이션: %s.%s 컬럼 추가", table, column)
+
+
 def init_db(drop: bool = False) -> None:
     """테이블·인덱스 생성. 이미 있으면 건너뛴다(CREATE IF NOT EXISTS)."""
     if drop:
         log.warning("기존 테이블을 전부 삭제합니다 (drop=True)")
         Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+    _ensure_added_columns()
     log.info("DB 초기화 완료 — 테이블 %d개 (%s)", len(Base.metadata.tables), settings.database_url)

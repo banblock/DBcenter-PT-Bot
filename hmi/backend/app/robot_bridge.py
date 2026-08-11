@@ -47,6 +47,7 @@
 from __future__ import annotations
 
 import json
+import math
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -299,11 +300,30 @@ class RobotBridge:
         self._touch(robot_id)
         self._sink.robot_status(robot_id, x=x, y=y, theta=theta)
 
-    def on_battery_state(self, robot_id: str, percentage: float) -> None:
-        """sensor_msgs/BatteryState.percentage(0~1) → 0~100 정수."""
+    def on_battery_state(
+        self, robot_id: str, percentage: float,
+        power_supply_status: int | None = None,
+    ) -> None:
+        """sensor_msgs/BatteryState → 배터리 %(0~100) + 충전 여부.
+
+        REP-147 상 percentage 는 0.0~1.0 이지만, 펌웨어에 따라 0~100 을 그대로
+        싣기도 하고, 아직 값이 없으면 NaN 을 싣는다. NaN/inf 프레임은 % 를 갱신하지
+        않아(0% 로 튀지 않게) 마지막 유효값을 유지하고, 스케일은 값 범위로 판별해
+        0~100 으로 정규화·클램프한다.
+
+        power_supply_status 는 BatteryState 상수(1=CHARGING). 이 프레임에 %가
+        없더라도 충전 여부는 따로 갱신한다.
+        """
         self._touch(robot_id)
-        pct = round(percentage * 100) if percentage is not None and percentage <= 1.0 else round(percentage or 0)
-        self._sink.robot_status(robot_id, battery=pct)
+        fields: dict[str, Any] = {}
+        if percentage is not None and math.isfinite(percentage):
+            frac = percentage / 100.0 if percentage > 1.0 else percentage  # 0~1 로 정규화
+            fields["battery"] = max(0, min(100, round(frac * 100)))
+        if power_supply_status is not None:
+            # sensor_msgs/BatteryState.POWER_SUPPLY_STATUS_CHARGING == 1
+            fields["charging"] = power_supply_status == 1
+        if fields:
+            self._sink.robot_status(robot_id, **fields)
 
     def on_detection(self, robot_id: str, raw: str) -> None:
         """``{"type":"FIRE","conf":0.87,"bbox":[...]}`` JSON."""
@@ -452,8 +472,10 @@ class Ros2Bridge:
                                              lambda m, r=rid: produce("on_robot_state", r, m.data), 10)
                     self.create_subscription(PoseWithCovarianceStamped, f"{ns}/amcl_pose",
                                              lambda m, r=rid: self._pose(r, m), 10)
-                    self.create_subscription(BatteryState, f"{ns}/battery_state",
-                                             lambda m, r=rid: produce("on_battery_state", r, m.percentage), 10)
+                    self.create_subscription(
+                        BatteryState, f"{ns}/battery_state",
+                        lambda m, r=rid: produce(
+                            "on_battery_state", r, m.percentage, m.power_supply_status), 10)
                     self.create_subscription(String, f"{ns}/detection",
                                              lambda m, r=rid: produce("on_detection", r, m.data), 10)
                     self.create_subscription(String, f"{ns}/aruco_correction",

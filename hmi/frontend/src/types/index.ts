@@ -121,6 +121,7 @@ export interface Robot {
   step?: number;
   step_note?: string | null;
   battery: number;
+  charging?: boolean;
   task?: string;
   route?: string;
   zone?: string;

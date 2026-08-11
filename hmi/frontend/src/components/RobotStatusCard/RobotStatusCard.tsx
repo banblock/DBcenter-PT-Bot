@@ -1,4 +1,4 @@
-import { BatteryMedium } from "lucide-react";
+import { BatteryCharging, BatteryMedium } from "lucide-react";
 import { ALLOWED, CMD_LABEL, STATE_META, TRACKS } from "../../constants/dashboard";
 import { useDashboard } from "../../hooks/useDashboard";
 import type { Robot } from "../../types";
@@ -41,8 +41,10 @@ export function RobotStatusCard({ robot }: { robot: Robot }) {
           <span className={`pill ${meta.tone}${robot.state === "ALERTING" ? " blink" : ""}`}>
             {meta.ko}
           </span>
-          <span className={`battpill ${battTone}`}>
-            <BatteryMedium size={12} /> {robot.battery}%
+          <span className={`battpill ${battTone}${robot.charging ? " charging" : ""}`}>
+            {robot.charging ? <BatteryCharging size={12} /> : <BatteryMedium size={12} />}
+            {robot.battery}%
+            {robot.charging && <span className="chargebolt" title="충전 중">⚡</span>}
           </span>
         </div>
       </div>

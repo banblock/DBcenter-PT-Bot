@@ -23,7 +23,10 @@ from app.logging_config import get_logger
 log = get_logger("bridge")
 
 #: robot_state 로 들어온 필드명 → Robot 컬럼명. 나머지(state_msg 등)는 텔레메트리에 안 넣는다.
-_TELEMETRY_COLUMNS = {"state": "status", "x": "x", "y": "y", "theta": "theta", "battery": "battery"}
+_TELEMETRY_COLUMNS = {
+    "state": "status", "x": "x", "y": "y", "theta": "theta",
+    "battery": "battery", "charging": "charging",
+}
 
 
 # [공부 메모] "sink" = 상행 데이터가 최종적으로 흘러 들어가는 곳(수챗구멍 느낌).

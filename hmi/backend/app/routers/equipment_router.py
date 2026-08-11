@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app import crud
 from app.connection_manager import manager
 from app.database import get_db
-from app.enums import WsMessageType
+from app.enums import ObservedState, WsMessageType
 from app.errors import ApiError, E
 from app.responses import ok
 from app.schemas import (
@@ -20,6 +20,7 @@ from app.schemas import (
     AlignRuleIn,
     AlignRuleOut,
     AlignRuleUpdate,
+    BreakerObservationIn,
     EquipmentIn,
     EquipmentOut,
     EquipmentUpdate,
@@ -162,6 +163,18 @@ def _expected_state_bool(expected: str | None) -> bool:
     return (expected or "").upper() == "ON"
 
 
+async def _broadcast_auto_event(db: Session, result) -> None:
+    """대조가 불일치라 이벤트가 자동 생성됐으면(result.auto_created_event_id)
+    그 이벤트를 WS EVENT 로 방송한다. crud.events.create 는 WS 를 쏘지 않으므로
+    이걸 해야 대시보드가 실시간으로 '차단기 불일치' 카운터 증가 + 알림 배너를
+    띄운다(프론트 translateFrame 의 case 'EVENT'가 topAlert/이벤트 큐에 반영)."""
+    event_id = result.auto_created_event_id
+    if not event_id:
+        return
+    event = crud.events.get(db, event_id)
+    await manager.publish_async(WsMessageType.EVENT.value, crud.events.to_dict(event))
+
+
 @align_router.post("/check-gate", summary="차단기 실측 대조 (비전 CheckGate)")
 async def check_gate(body: GateCheckIn, db: DbDep):
     """로봇이 차단기 위치에 도착했을 때 백엔드가 비전에 실측 대조를 요청한다 (Phase 2-2).
@@ -203,6 +216,51 @@ async def check_gate(body: GateCheckIn, db: DbDep):
     payload["work_order_expected_state"] = work_order.expected_state if work_order else None
     payload["error_state"] = error_state
     await manager.publish_async(WsMessageType.ALIGN_RESULT.value, payload)
+    await _broadcast_auto_event(db, result)
+    return ok(payload)
+
+
+@align_router.post("/breaker-observation", summary="차단기 관측 push (비전→백엔드)")
+async def breaker_observation(body: BreakerObservationIn, db: DbDep):
+    """비전이 감지한 차단기 색을 직접 받아 DB 기준과 대조한다 (check-gate 의 push 버전).
+
+    check-gate 는 백엔드가 비전 CheckGate 서비스를 pull 하는 경로다. 이 엔드포인트는
+    반대로 비전이 관측 결과를 push 한다("비전이 감지했을 때 전달하면"). 비전 서비스
+    준비 상태와 무관하게 동작하므로, 데모나 실 비전 어느 쪽에서도 호출할 수 있다.
+
+    판정: DB 기준(작업지시 반영 normal_state, 평상시 ON=빨강) 대비
+      · detected_on=True(빨강) 이고 기준도 ON → 일치, 통과(이벤트 없음)
+      · detected_on=False(초록) 인데 기준은 ON → 불일치 → 이벤트 자동 생성 →
+        WS 로 방송해 대시보드 '차단기 불일치' 카운터 + 알림 배너 표출.
+    """
+    equipment = crud.equipment.get(db, body.equipment_id)  # 없으면 404
+    work_order = crud.equipment.active_work_order(db, body.equipment_id)
+    effective_expected = (work_order.expected_state if work_order else None) or equipment.normal_state
+    expected_on = _expected_state_bool(effective_expected)  # ON=True(빨강)
+
+    equal = body.detected_on == expected_on
+    error_state = 0 if equal else 1
+    observed_state = ObservedState.ON.value if body.detected_on else ObservedState.OFF.value
+
+    result = align_engine.record_gate_check(
+        db,
+        equipment_id=body.equipment_id,
+        gate_state_equal=equal,
+        error_state=error_state,
+        effective_expected=effective_expected,
+        robot_id=body.robot_id,
+    )
+    # record_gate_check 는 관측 상태를 안 남기므로 여기서 설비의 현재 관측 상태를
+    # 반영한다(Equipment 의 현재 상태 컬럼은 last_observed_state).
+    equipment.last_observed_state = observed_state
+    db.commit()
+
+    payload = AlignResultOut.model_validate(result).model_dump()
+    payload["work_order_expected_state"] = work_order.expected_state if work_order else None
+    payload["error_state"] = error_state
+    payload["observed_state"] = observed_state
+    await manager.publish_async(WsMessageType.ALIGN_RESULT.value, payload)
+    await _broadcast_auto_event(db, result)
     return ok(payload)
 
 

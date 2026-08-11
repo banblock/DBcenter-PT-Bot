@@ -477,6 +477,19 @@ class GateCheckIn(BaseModel):
     gate_id: int = 0         # 비전 쪽 차단기 식별자(★매핑 확정 필요)
 
 
+class BreakerObservationIn(BaseModel):
+    """비전이 감지한 차단기 색을 백엔드로 push (check-gate 의 push 버전).
+
+    detected_on=True  → 빨간색(차단기 ON, 전기 OFF) = DB 평상 기준(정상)
+    detected_on=False → 초록색(차단기 OFF, 전기 ON) = 기준과 불일치 후보
+    """
+
+    equipment_id: str
+    detected_on: bool
+    robot_id: str | None = None
+    gate_id: int = 0         # 비전 쪽 차단기 식별자(★매핑 확정 필요)
+
+
 class AlignResultOut(ORMModel):
     align_id: int
     event_id: str | None

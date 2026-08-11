@@ -23,12 +23,14 @@ EQUIPMENT_SEED: list[dict] = [
     {
         "equipment_id": "EQ-BRK-01", "type_": EquipmentType.BREAKER.value,
         "name": "1F 주배전반 A", "node_id": "N-004", "zone_id": "Z01",
-        "normal_state": ObservedState.ON.value, "value_min": 22.0, "value_max": 26.0, "unit": "V",
+        "normal_state": ObservedState.ON.value, "last_observed_state": ObservedState.ON.value,
+        "value_min": 22.0, "value_max": 26.0, "unit": "V",
     },
     {
         "equipment_id": "EQ-BRK-02", "type_": EquipmentType.BREAKER.value,
         "name": "1F 주배전반 B", "node_id": "N-005", "zone_id": "Z02",
-        "normal_state": ObservedState.ON.value, "value_min": 22.0, "value_max": 26.0, "unit": "V",
+        "normal_state": ObservedState.ON.value, "last_observed_state": ObservedState.ON.value,
+        "value_min": 22.0, "value_max": 26.0, "unit": "V",
     },
     {
         "equipment_id": "EQ-LOCK-02", "type_": EquipmentType.LOCK.value,

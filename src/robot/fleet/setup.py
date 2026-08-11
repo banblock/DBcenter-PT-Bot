@@ -23,6 +23,7 @@ setup(
         'console_scripts': [
             'fleet_node = fleet.fleet_node:main',
             'backend_adapter = fleet.backend_adapter:main',
+            'gate_check_bridge = fleet.gate_check_bridge:main',
         ],
     },
 )

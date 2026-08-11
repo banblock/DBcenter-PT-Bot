@@ -27,6 +27,10 @@
 .battpill.ok { background: var(--green-soft); color: var(--green); }
 .battpill.low { background: var(--amber-soft); color: var(--amber); }
 .battpill.crit { background: var(--red-soft); color: var(--red); }
+/* 충전 중: 초록 배경 + 은은한 펄스로 강조 (%가 낮아도 충전이면 알아보게) */
+.battpill.charging { background: var(--green-soft); color: var(--green); animation: battpulse 1.6s ease-in-out infinite; }
+.battpill .chargebolt { font-size: 9px; line-height: 1; }
+@keyframes battpulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
 
 .amr-body { display: flex; gap: 12px; padding: 12px 14px 0; }
 .amr-thumb { width: 56px; height: 56px; border-radius: 12px; background: #f1f2f6; border: 1px solid var(--line2); display: flex; align-items: center; justify-content: center; font-size: 24px; flex: 0 0 auto; }

@@ -235,6 +235,7 @@ class Robot(Base):
     ip: Mapped[str | None] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(24), default=RobotState.OFFLINE.value)
     battery: Mapped[int] = mapped_column(Integer, default=0)
+    charging: Mapped[bool] = mapped_column(Boolean, default=False)  # (보강) 충전 중 여부 — BatteryState.power_supply_status
     x: Mapped[float] = mapped_column(Float, default=0.0)
     y: Mapped[float] = mapped_column(Float, default=0.0)
     theta: Mapped[float] = mapped_column(Float, default=0.0)

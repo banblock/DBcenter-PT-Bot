@@ -87,6 +87,7 @@ interface BackendRobot {
   state_ko?: string;
   progress_step?: number;
   battery?: number;
+  charging?: boolean;
   pose?: BackendPose;
   mission_id?: string | null;
   current_node_id?: string | null;
@@ -192,6 +193,7 @@ function robotToPatch(r: BackendRobot): InboundRobotPatch {
     mission_type: mission?.mission_type ?? "PATROL",
     step: r.progress_step,
     battery: r.battery ?? 0,
+    charging: r.charging ?? false,
     task: r.state_ko,
     route: mission?.route_name ?? undefined,
     zone: r.current_node_id ?? undefined,

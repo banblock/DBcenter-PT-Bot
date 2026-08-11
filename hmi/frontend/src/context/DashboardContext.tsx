@@ -155,8 +155,25 @@ function emptyWaypoints(): WaypointMap {
   return ZONES.reduce((acc, z) => ({ ...acc, [z]: [] }), {} as WaypointMap);
 }
 
-/** 맵 크기에 맞춘 기본 존 사각형 — 저장된 존이 없을 때 초기값(픽셀 좌표). */
-function defaultZoneRects(map: MapInfo | null): ZoneRectMap {
+/** 고정 존 영역 — 월드 좌표(m) 폴리곤. 파란(존-1)/핑크(존-2) 영역을 처음부터 이 값으로
+ *  고정한다(차단기 원과 동일하게 월드 좌표 기준이라 맵 해상도/크기와 무관하게 같은 자리). */
+const FIXED_ZONE_POLYGON: Record<string, number[][]> = {
+  "존-1": [
+    [-4.8599, 1.9769],
+    [-2.3186, 1.9769],
+    [-2.3186, -0.3144],
+    [-4.8599, -0.3144],
+  ],
+  "존-2": [
+    [-2.3064, 2.1802],
+    [0.0972, 2.1802],
+    [0.0972, -0.2466],
+    [-2.3064, -0.2466],
+  ],
+};
+
+/** 맵 로드 전(활성 맵 없음) 임시 폴백 — 픽셀 프랙션. */
+function fractionZoneRects(map: MapInfo | null): ZoneRectMap {
   const w = map?.width ?? 113;
   const h = map?.height ?? 66;
   return {
@@ -165,21 +182,24 @@ function defaultZoneRects(map: MapInfo | null): ZoneRectMap {
   };
 }
 
-/** 저장된 존 폴리곤(월드 m) → 맵 픽셀 사각형. 없는 존은 기본값으로 채운다. */
-function zoneRectsFromBackend(
-  map: MapInfo | null,
-  raw: Array<{ zone_id: string; polygon: number[][] }>,
-): ZoneRectMap {
-  const defaults = defaultZoneRects(map);
-  if (!map) return defaults;
-  const out: ZoneRectMap = { ...defaults };
+/** 고정 존 영역을 현재 맵의 픽셀 사각형으로 변환. 맵이 없으면 임시 폴백. */
+function defaultZoneRects(map: MapInfo | null): ZoneRectMap {
+  if (!map) return fractionZoneRects(null);
+  const out: ZoneRectMap = { ...fractionZoneRects(map) };
   for (const zone of ZONES) {
-    const meta = ZONE_META[zone];
-    const found = raw.find((z) => z.zone_id === meta.zoneId);
-    const rect = found ? polygonToRect(map, found.polygon) : null;
-    if (rect && rect.w > 0.5 && rect.h > 0.5) out[zone] = rect;
+    const rect = polygonToRect(map, FIXED_ZONE_POLYGON[zone]);
+    if (rect) out[zone] = rect;
   }
   return out;
+}
+
+/** 존-1/존-2 는 항상 고정 영역(FIXED_ZONE_POLYGON)을 쓴다 — 백엔드 저장값과 무관하게
+ *  처음부터 같은 파란/핑크 영역이 뜨도록 고정한다. (드래그 재설정은 세션 내에서만 반영) */
+function zoneRectsFromBackend(
+  map: MapInfo | null,
+  _raw: Array<{ zone_id: string; polygon: number[][] }>,
+): ZoneRectMap {
+  return defaultZoneRects(map);
 }
 
 export function DashboardProvider({ children }: { children: ReactNode }) {

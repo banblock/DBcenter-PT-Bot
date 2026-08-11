@@ -10,6 +10,14 @@ import { heldWaypoint, includesUnknownCell } from "./mapRules";
 type Mode = "zone" | "waypoint";
 const MIN_ZONE_PX = 6; // 이보다 작게 드래그하면 클릭으로 간주하고 무시
 
+// 차단기(BREAKER) 실측 위치 — 월드 좌표(m). 세 번째 값(theta)은 원 표시엔 불필요.
+// 맵 위에 노란 원(반지름 0.24m)으로 표시해 실측 대조 대상 지점을 알린다.
+const BREAKER_RADIUS_M = 0.24;
+const BREAKERS: { id: string; label: string; x: number; y: number }[] = [
+  { id: "EQ-BRK-01", label: "차단기 1", x: -0.253, y: 1.99 },
+  { id: "EQ-BRK-02", label: "차단기 2", x: -4.52, y: -0.157 },
+];
+
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
@@ -351,6 +359,37 @@ export function MapPanel() {
               </g>
             );
           })}
+
+          {/* 차단기 위치 — 노란 원(반지름 0.24m). 실측 대조 대상 지점을 UI에 표시.
+              반지름은 실제 거리(m)라서 맵 해상도(m/cell)로 픽셀 반경으로 환산한다. */}
+          {activeMap &&
+            BREAKERS.map((b) => {
+              const c = worldToPixel(activeMap, b.x, b.y);
+              const rPx = BREAKER_RADIUS_M / activeMap.resolution;
+              return (
+                <g key={b.id} transform={`translate(${c.px},${c.py})`}>
+                  <circle
+                    r={rPx}
+                    fill="#f5c518"
+                    fillOpacity={0.35}
+                    stroke="#f5c518"
+                    strokeWidth={2}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                  <text
+                    y={-rPx - 0.6 * U}
+                    textAnchor="middle"
+                    fontSize={2.4 * U}
+                    fontWeight={700}
+                    fill="#a67c00"
+                    fontFamily="sans-serif"
+                    style={{ paintOrder: "stroke", stroke: "#fff", strokeWidth: 0.7 * U }}
+                  >
+                    {b.label}
+                  </text>
+                </g>
+              );
+            })}
 
           {/* 존 사각형 (저장/그리는 중) */}
           {ZONES.map((z) => {

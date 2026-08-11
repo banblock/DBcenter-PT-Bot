@@ -42,7 +42,7 @@ import time
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import (DurabilityPolicy, HistoryPolicy, QoSProfile,
-                       ReliabilityPolicy)
+                       ReliabilityPolicy, qos_profile_sensor_data)
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from sensor_msgs.msg import BatteryState
 from std_msgs.msg import String
@@ -74,6 +74,7 @@ CONTROL_STATE_TO_ROBOT_STATE = {
     'gate_checking': 'INSPECTING',
     'anomaly_moving': 'DISPATCHING',  # 이상지점 이동 중
     'anomaly_waiting': 'INSPECTING',  # 현장 도착·상황 확인(운영자 결정 대기)
+    'patrol_paused': 'PATROL_PAUSED',  # 운영자 개별 일시정지
     'patrol_resuming': 'RESUMING',    # 순찰 복귀 중
     'patrol_waiting': 'PATROLLING',   # 순찰 루프 간 대기(순찰 임무 유지)
     'emergency_stopped': 'EMERGENCY_STOP',
@@ -96,6 +97,12 @@ _SRC_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
 _UP_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
                      durability=DurabilityPolicy.VOLATILE,
                      history=HistoryPolicy.KEEP_LAST, depth=10)
+# 배터리(Create 3 /battery_state)는 amcl_pose 와 달리 latch 되지 않는 스트리밍
+# 센서 토픽이라 TRANSIENT_LOCAL 이 아니다. _SRC_QOS(RELIABLE/TRANSIENT_LOCAL)로
+# 구독하면 durability 불일치로 메시지가 한 건도 안 들어온다(웹 배터리가 안 뜸).
+# 구독을 BEST_EFFORT/VOLATILE(sensor data)로 두면 발행자가 RELIABLE 이든
+# BEST_EFFORT 든, VOLATILE 이든 TRANSIENT_LOCAL 이든 모두 호환된다(가장 관대한 쪽).
+_BATT_QOS = qos_profile_sensor_data
 
 
 class BackendAdapter(Node):
@@ -109,6 +116,20 @@ class BackendAdapter(Node):
         # 이상감지 출동: 백엔드가 화재 로봇에 GOTO(event.x/y)를 보내면, Fleet 의 좌표 기반
         # 이상 급파(최근접 로봇)로 넘긴다. (이상감지 입력은 비전(CamState→vision_bridge)이 처리)
         self.anomaly_pub = self.create_publisher(String, '/fleet/anomaly_trigger', 10)
+
+        # 개별 일시정지/재개·재순찰은 Fleet 이 다루는 개념이 아니라 Control Node 만의
+        # 관심사라, Fleet 을 거치지 않고 로봇별 control 토픽으로 직접 중계한다
+        # (anomaly_trigger 처럼 /fleet/* 로 직접 발행하는 기존 패턴과 동일).
+        #  · PAUSE/RESUME → /fleet/<robot>/pause {"stop": bool}
+        #  · START_PATROL → /fleet/<robot>/repatrol (도킹된 로봇 재순찰용, docked 해제)
+        self._pause_pubs = {
+            robot: self.create_publisher(String, f'/fleet/{robot}/pause', 10)
+            for robot in ROBOT_TO_AMR
+        }
+        self._repatrol_pubs = {
+            robot: self.create_publisher(String, f'/fleet/{robot}/repatrol', 10)
+            for robot in ROBOT_TO_AMR
+        }
 
         # 백엔드 명령 구독 (amr_1/amr_2)
         for amr_ns in AMR_TO_ROBOT:
@@ -139,7 +160,7 @@ class BackendAdapter(Node):
                 lambda m, r=robot: self._on_state(r, m), 10)
             self.create_subscription(
                 BatteryState, f'/{robot}/battery_state',
-                lambda m, r=robot: self._on_battery(r, m), _SRC_QOS)
+                lambda m, r=robot: self._on_battery(r, m), _BATT_QOS)
 
         self.get_logger().info(
             'backend_adapter up — subscribing %s, mapping %s'
@@ -173,9 +194,7 @@ class BackendAdapter(Node):
         elif ctype == 'CANCEL':
             self._handle_cancel(robot)
         elif ctype in ('PAUSE', 'RESUME'):
-            # Fleet/Control 에 per-robot 순찰 일시정지/재개 핸들러가 아직 없다
-            # (로봇 HANDOFF: PATROL_PAUSED 는 향후 작업). 지금은 무시하고 로그만 남긴다.
-            self.get_logger().info(f'{robot} <- {ctype} (로봇측 일시정지/재개 미지원 · 무시)')
+            self._handle_pause(robot, ctype == 'PAUSE')
         else:
             # INSPECT/EVACUATE/START_SLAM 등 — 로봇측 대응 토픽 없음
             self.get_logger().info(f'{robot} <- {ctype} (미매핑 · 무시)')
@@ -187,15 +206,24 @@ class BackendAdapter(Node):
                 'x': float(n['x']),
                 'y': float(n['y']),
                 'yaw': float(n.get('theta') or 0.0),
-                'point_type': 'normal',
+                # 백엔드가 차단기 점검 노드에 실어준 point_type('gate')을 그대로
+                # 넘긴다 - zone_router 가 이걸 has_gate 로 바꿔, 로봇이 그 웨이포인트
+                # 에서 차단기 실측 대조(gate_check_bridge)를 수행한다. 없으면 'normal'.
+                'point_type': n.get('point_type') or 'normal',
             }
             for n in nodes
             if 'x' in n and 'y' in n
         ]
         self._points_by_robot[robot] = points
+        # 도킹 복귀로 self.docked 가 선 로봇을 다시 순찰시키려면 재순찰 신호가
+        # 필요하다 - 안 그러면 Control 이 docked 인 동안 아래 map_points 로 만들어진
+        # 미션을 계속 무시한다(도킹 안 한 로봇에는 무해한 no-op). map_points 보다
+        # 먼저 보내 docked 를 내려둔다.
+        self._repatrol_pubs[robot].publish(String(data=''))
         # 백엔드는 로봇별로 START_PATROL 을 따로 보낸다 → 짧게 모아 한 번에 발행한다.
         self._flush_deadline = time.monotonic() + MAP_POINTS_DEBOUNCE_SEC
-        self.get_logger().info(f'{robot} <- START_PATROL ({len(points)} points) · map_points 예약')
+        self.get_logger().info(
+            f'{robot} <- START_PATROL ({len(points)} points) · repatrol+map_points 예약')
 
     def _flush_map_points(self):
         if self._flush_deadline is None or time.monotonic() < self._flush_deadline:
@@ -212,6 +240,14 @@ class BackendAdapter(Node):
         self.get_logger().info(
             'published /backend/map_points: %s'
             % {z['robot']: len(z['points']) for z in zones})
+
+    def _handle_pause(self, robot, stop):
+        # 개별 순찰 일시정지/재개. Control 이 /fleet/<robot>/pause {"stop":bool}을
+        # 구독해 긴급정지와 같은 메커니즘(제자리 대기→같은 웨이포인트 재개)으로
+        # 처리하되 상태만 PATROL_PAUSED 로 구분 보고한다.
+        self._pause_pubs[robot].publish(String(data=json.dumps({'stop': stop})))
+        self.get_logger().info(
+            f'{robot} <- {"PAUSE" if stop else "RESUME"} → /fleet/{robot}/pause')
 
     def _handle_dock(self, robot):
         self.dock_pub.publish(String(data=json.dumps({'robots': [robot]})))
@@ -265,7 +301,10 @@ class BackendAdapter(Node):
 
     def _on_battery(self, robot, msg):
         self._up_batt_pubs[robot].publish(msg)
-        self._first(robot, 'batt', f'/{robot}/battery_state → /{ROBOT_TO_AMR[robot]}/battery_state')
+        self._first(
+            robot, 'batt',
+            f'/{robot}/battery_state (percentage={msg.percentage}) → '
+            f'/{ROBOT_TO_AMR[robot]}/battery_state')
 
     def _on_state(self, robot, msg):
         # /control/robotN_State (JSON {robot,status,detail}) → 백엔드 "STATE:msg" 규칙.

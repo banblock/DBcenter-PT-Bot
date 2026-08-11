@@ -47,6 +47,7 @@ def to_dict(r: models.Robot) -> dict:
         "state_ko": ROBOT_STATE_KO.get(r.status, r.status),
         "progress_step": r.progress_step,
         "battery": r.battery,
+        "charging": r.charging,
         "pose": {"x": r.x, "y": r.y, "theta": r.theta},
         "mission_id": r.current_mission_id,
         "current_node_id": r.current_node_id,

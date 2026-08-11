@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "hmi/frontend"],
       "port": 5175
+    },
+    {
+      "name": "hmi-backend",
+      "runtimeExecutable": "hmi/backend/.venv/bin/uvicorn",
+      "runtimeArgs": ["app.main:app", "--app-dir", "hmi/backend", "--host", "127.0.0.1", "--port", "8000"],
+      "port": 8000
     }
   ]
 }

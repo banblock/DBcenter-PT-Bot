@@ -137,6 +137,25 @@ class ControlNode:
             String, f'/fleet/{namespace}/emergency_stop',
             self._on_emergency_stop, 10)
 
+        # 순찰 일시정지/재개 - {"stop": true/false}. 긴급정지와 같은 메커니즘
+        # (제자리 대기 후 같은 웨이포인트로 재개)이지만 별개 채널이다:
+        # 긴급정지는 전역·안전 정지라 상태를 EMERGENCY_STOP으로, 일시정지는
+        # 운영자가 특정 로봇만 잠깐 세우는 것이라 PATROL_PAUSED로 구분해
+        # 보고한다(프론트가 '재개' 버튼을 띄우려면 이 구분이 필요하다).
+        # backend_adapter가 HMI의 PAUSE/RESUME을 여기로 중계한다.
+        self.paused = False
+        self.navigator.create_subscription(
+            String, f'/fleet/{namespace}/pause', self._on_pause, 10)
+
+        # 재순찰(도킹 해제) - 도킹 복귀로 self.docked가 선 로봇을 다시
+        # 순찰시키려면 명시적 신호가 필요하다(_handle_dock() 주석의 "재순찰
+        # 신호 미구현" 해소). HMI에서 그 로봇의 순찰을 다시 시작하면
+        # backend_adapter가 START_PATROL과 함께 이 신호를 보내고, 여기서
+        # self.docked를 내려 다음 미션(Fleet이 1Hz로 재발행)을 받아들이게
+        # 한다. payload 불필요 - 이 로봇 전용 토픽에 온 것 자체가 신호다.
+        self.navigator.create_subscription(
+            String, f'/fleet/{namespace}/repatrol', self._on_repatrol, 10)
+
         # 도킹 복귀 - 통로 그래프로 라우팅된 웨이포인트 리스트
         # (zone_router.route_to_point(), /fleet/<ns>/mission과 같은 모양).
         # 그 경로를 점유 프로토콜을 지키며 따라간 뒤 실제 Dock 액션을
@@ -236,6 +255,35 @@ class ControlNode:
         else:
             self.navigator.info(
                 f'[{self.namespace}] emergency stop released')
+
+    def _on_pause(self, msg):
+        # 긴급정지와 같은 이유로 여기서 직접 cancelTask()를 부르지 않고
+        # 플래그만 세운다(_on_emergency_stop 주석의 전역 executor 재진입
+        # 참고). _move_to()의 while 루프가 매 반복마다 self.paused를 확인해
+        # 콜백 밖 안전한 위치에서 취소·대기한다.
+        try:
+            payload = json.loads(msg.data) if msg.data else {}
+            stop = payload.get('stop', True)
+            if not isinstance(stop, bool):
+                raise ValueError('stop must be a bool')
+        except (json.JSONDecodeError, ValueError) as exc:
+            self._report_failure('invalid_pause_json', {'error': str(exc)})
+            return
+        self.paused = stop
+        self.navigator.info(
+            f'[{self.namespace}] patrol {"pause" if stop else "resume"} received')
+
+    def _on_repatrol(self, msg):
+        # 도킹 복귀로 self.docked가 선 로봇을 다시 순찰시키는 신호. 여기서
+        # self.docked만 내리면, 그 동안 무시되던 Fleet의 1Hz 미션 재발행을
+        # _on_mission()이 곧바로(≤1초) 받아들이고 run()이 언도킹 후 순찰을
+        # 시작한다. 일시정지 중이었다면 함께 풀어 새 순찰이 바로 이어지게
+        # 한다(순찰 재시작은 정지 해제를 함의한다).
+        if self.docked or self.paused:
+            self.navigator.info(
+                f'[{self.namespace}] re-patrol signal - clearing docked/paused')
+        self.docked = False
+        self.paused = False
 
     def _on_dock(self, msg):
         # Fleet이 이제 좌표 하나가 아니라 통로 그래프로 라우팅한
@@ -352,10 +400,20 @@ class ControlNode:
             # 정지 중에 새 이동 명령이 나가는 순간이 없어야 한다.
             self.navigation_interrupt_reason = 'emergency_stop'
             return False
+        if self.paused:
+            # 일시정지도 긴급정지와 같다 - 정지 중엔 이동 명령을 안 낸다.
+            self.navigation_interrupt_reason = 'pause'
+            return False
         self.navigator.goToPose(pose)
         while not self.navigator.isTaskComplete():
             if self.emergency_stopped:
                 self.navigation_interrupt_reason = 'emergency_stop'
+                self._cancel_navigation_task()
+                return False
+            if self.paused:
+                # 긴급정지 다음 우선순위. 취소하고 _handle_pause()가
+                # 재개될 때까지 대기 후 같은 웨이포인트로 재시도한다.
+                self.navigation_interrupt_reason = 'pause'
                 self._cancel_navigation_task()
                 return False
             if self._check_collision_risk():
@@ -537,6 +595,25 @@ class ControlNode:
             rclpy.spin_once(self.navigator, timeout_sec=0.5)
         self.navigator.info(
             f'[{self.namespace}] emergency stop released, resuming patrol')
+        self._publish_state('patrol_resuming')
+        return True
+
+    def _handle_pause(self):
+        """순찰 일시정지 - 재개될 때까지 제자리에서 대기한 뒤, 해제되면
+        중단됐던 웨이포인트로 이동을 재시도한다(True 반환 → 호출부가 같은
+        pose로 _move_to()를 다시 시도). 긴급정지(_handle_emergency_stop)와
+        동일한 구조지만 상태를 PATROL_PAUSED로 구분 보고한다. 대기 중
+        긴급정지가 겹쳐 들어오면 그쪽이 우선이라 먼저 빠져나가고, 다음
+        _move_to() 재시도 때 emergency_stop 인터럽트로 다시 잡힌다."""
+        self._publish_state('patrol_paused')
+        self.navigator.info(
+            f'[{self.namespace}] paused - holding until resume...')
+        while self.paused and not self.emergency_stopped:
+            rclpy.spin_once(self.navigator, timeout_sec=0.5)
+        if self.emergency_stopped:
+            return True
+        self.navigator.info(
+            f'[{self.namespace}] resumed, continuing patrol')
         self._publish_state('patrol_resuming')
         return True
 
@@ -794,6 +871,8 @@ class ControlNode:
     def _handle_navigation_interrupt(self, waypoint):
         if self.navigation_interrupt_reason == 'emergency_stop':
             return self._handle_emergency_stop()
+        if self.navigation_interrupt_reason == 'pause':
+            return self._handle_pause()
         if self.navigation_interrupt_reason == 'dock':
             return self._handle_dock()
         if self.navigation_interrupt_reason == 'anomaly':

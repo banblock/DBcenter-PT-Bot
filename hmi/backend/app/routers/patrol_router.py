@@ -12,7 +12,7 @@ from app.bridge import get_bridge
 from app.connection_manager import manager
 from app.crud import ids
 from app.database import get_db
-from app.enums import MissionStatus, RobotState, WsMessageType
+from app.enums import EquipmentType, MissionStatus, RobotState, WsMessageType
 from app.errors import ApiError, E
 from app.services import node_lock
 from app.models import utcnow
@@ -272,6 +272,13 @@ async def start_patrol(body: PatrolStartIn, db: DbDep, actor: ActorDep):
         assigned_payload.append({"robot_id": robot_id, "nodes": nodes})
 
         node_rows = {n.node_id: n for n in crud.patrol.list_nodes(db)}
+        # 차단기(BREAKER)를 점검하는 노드는 point_type='gate' 로 표시해, 로봇이 그
+        # 웨이포인트에 도착하면 차단기 실측 대조(gate_check_request → gate_check_bridge
+        # → /api/align/check-gate)를 자동 수행하게 한다. 그 외 노드는 'normal'.
+        breaker_ids = {
+            e.equipment_id
+            for e in crud.equipment.list_all(db, type_=EquipmentType.BREAKER.value)
+        }
         get_bridge().publish_command(
             robot_id,
             "START_PATROL",
@@ -284,6 +291,11 @@ async def start_patrol(body: PatrolStartIn, db: DbDep, actor: ActorDep):
                         "y": node_rows[nid].y,
                         "theta": node_rows[nid].theta,
                         "dwell_sec": node_rows[nid].dwell_sec,
+                        "point_type": (
+                            "gate"
+                            if set(node_rows[nid].inspect_targets or []) & breaker_ids
+                            else "normal"
+                        ),
                     }
                     for nid in nodes
                     if nid in node_rows
