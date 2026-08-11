@@ -24,8 +24,10 @@ import time
 
 import rclpy
 from rclpy.qos import (QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile,
-                       QoSReliabilityPolicy)
+                       QoSReliabilityPolicy, qos_profile_sensor_data)
 from std_msgs.msg import String
+from irobot_create_msgs.action import Undock
+from irobot_create_msgs.msg import HazardDetectionVector
 from turtlebot4_navigation.turtlebot4_navigator import TurtleBot4Navigator
 
 try:
@@ -47,6 +49,20 @@ MISSION_QOS = QoSProfile(
     history=QoSHistoryPolicy.KEEP_LAST,
     depth=1,
 )
+
+# ── undock 방어 파라미터 ──────────────────────────────────────────────
+# 정상 undock은 실기에서 약 5초(후진 + 180도 회전). 그 2배 남짓을 결과
+# 타임아웃으로 잡아 멀쩡한 undock을 중간에 자르지 않게 한다.
+UNDOCK_SERVER_WAIT_SEC = 5.0       # 액션 서버 디스커버리 대기
+UNDOCK_ACCEPT_TIMEOUT_SEC = 5.0    # goal 수락 응답 대기
+UNDOCK_RESULT_TIMEOUT_SEC = 12.0   # goal 수락 후 완료(후진+회전) 대기
+UNDOCK_CANCEL_TIMEOUT_SEC = 5.0    # 취소 ack 대기
+UNDOCK_STATUS_WAIT_SEC = 3.0       # dock_status 최초 수신 대기
+UNDOCK_ATTEMPTS = 3
+# 재시도 간격을 길게 두는 이유: 실패의 유력한 원인이 DDS 계층이라
+# 곧바로 재발행하면 요청이 미들웨어에 쌓였다가 한꺼번에 로봇으로 몰려가
+# Create 3 통신이 끊긴다(실기에서 관측됨).
+UNDOCK_BACKOFF_SEC = 30.0
 
 
 class ControlNode:
@@ -131,6 +147,14 @@ class ControlNode:
         self.docked = False
         self.navigator.create_subscription(
             String, f'/fleet/{namespace}/dock', self._on_dock, 10)
+
+        # undock 실패 원인 구분용 진단. BACKUP_LIMIT(type 0)이 잡히면 통신이
+        # 아니라 Create 3 안전장치가 후진을 막고 있는 것이다 - 전원이 켜진
+        # 상태에서 로봇을 손으로 옮기면(kidnap) 즉시 활성화된다.
+        self._hazard_types = []
+        self.navigator.create_subscription(
+            HazardDetectionVector, 'hazard_detection',
+            self._on_hazard, qos_profile_sensor_data)
 
     def _on_mission(self, msg):
         if self.docked:
@@ -516,6 +540,191 @@ class ControlNode:
         self._publish_state('patrol_resuming')
         return True
 
+    def _on_hazard(self, msg):
+        self._hazard_types = [d.type for d in msg.detections]
+
+    def _hazard_names(self):
+        names = {0: 'BACKUP_LIMIT', 1: 'BUMP', 2: 'CLIFF', 3: 'STALL',
+                 4: 'WHEEL_DROP', 5: 'OBJECT_PROXIMITY'}
+        return [names.get(t, str(t)) for t in self._hazard_types]
+
+    def _spin_for(self, seconds, should_stop=None):
+        """time.sleep과 달리 대기 중에도 콜백을 계속 처리한다.
+        should_stop()이 True면 즉시 빠져나온다."""
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            rclpy.spin_once(self.navigator, timeout_sec=0.1)
+            if should_stop is not None and should_stop():
+                return
+
+    def _wait_while_emergency_stopped(self):
+        """긴급정지 중에는 undock(후진)을 절대 시작하지 않는다 - 정지된
+        로봇을 움직이면 안 되기 때문. 플래그가 풀릴 때까지 콜백을 돌리며
+        대기한다. run()에서만(=콜백 밖에서) 불리므로 재진입 hang(알려진
+        이슈 13)이 없고, 해제 신호(_on_emergency_stop)가 이 spin 도중에
+        도착해 플래그를 내린다."""
+        while self.emergency_stopped and rclpy.ok():
+            rclpy.spin_once(self.navigator, timeout_sec=0.1)
+
+    def _dock_status(self, timeout_sec):
+        """현재 도킹 여부를 bool로 돌려준다. 한 번도 못 받았으면 None.
+
+        navigator.getDockedStatus()는 dock_status가 한 번도 안 오면
+        `while self.is_docked is None`에서 영원히 대기하므로 쓰지 않는다.
+        """
+        deadline = time.monotonic() + timeout_sec
+        while time.monotonic() < deadline:
+            rclpy.spin_once(self.navigator, timeout_sec=0.1)
+            if self.navigator.is_docked is not None:
+                return bool(self.navigator.is_docked)
+        return None
+
+    def _wait_dock_status(self, expected, timeout_sec):
+        """dock_status가 expected(bool)가 될 때까지 최대 timeout_sec 대기."""
+        deadline = time.monotonic() + timeout_sec
+        while time.monotonic() < deadline:
+            rclpy.spin_once(self.navigator, timeout_sec=0.1)
+            if self.navigator.is_docked is not None and \
+                    bool(self.navigator.is_docked) == expected:
+                return True
+        return False
+
+    def _send_undock_goal(self):
+        """undock goal을 보내고 (goal_handle, 실패사유)를 돌려준다.
+
+        navigator.undock()/undock_send_goal()을 쓰지 않는 이유:
+        wait_for_server()와 goal 수락 대기 양쪽에 타임아웃이 없어서 응답이
+        안 오면 그대로 멈춘다(실기에서 "Goal accepted"가 끝내 안 뜨는 경우).
+
+        서버가 디스커버리되지 않았으면 goal을 아예 보내지 않는다 - 보낸
+        요청이 미들웨어 큐에 쌓였다가 나중에 한꺼번에 몰려가면 Create 3
+        통신이 끊기므로, 쌓을 여지를 안 만드는 게 가장 확실한 방어다.
+        """
+        client = self.navigator.undock_action_client
+        if not client.wait_for_server(timeout_sec=UNDOCK_SERVER_WAIT_SEC):
+            return None, 'undock_server_unreachable'
+
+        goal_future = client.send_goal_async(Undock.Goal())
+        deadline = time.monotonic() + UNDOCK_ACCEPT_TIMEOUT_SEC
+        while not goal_future.done():
+            if time.monotonic() >= deadline:
+                # 요청이 로봇에 도달했는지 알 수 없는 상태다. 호출부가 긴
+                # backoff를 두고 재시도하도록 사유를 구분해서 돌려준다.
+                goal_future.cancel()
+                return None, 'undock_goal_not_accepted'
+            rclpy.spin_once(self.navigator, timeout_sec=0.1)
+
+        handle = goal_future.result()
+        if handle is None or not handle.accepted:
+            return None, 'undock_goal_rejected'
+        return handle, None
+
+    def _cancel_undock_goal(self, handle):
+        """진행 중인 undock goal을 취소하고 서버가 받아들였는지 확인한다.
+        취소를 확인하지 않고 새 goal을 보내면 Create 3 쪽에 goal이 쌓여
+        통신이 끊기므로, ack를 받은 뒤에만 재시도해야 한다."""
+        try:
+            cancel_future = handle.cancel_goal_async()
+        except Exception as exc:
+            self.navigator.info(f'[{self.namespace}] undock 취소 요청 실패: {exc}')
+            return False
+        deadline = time.monotonic() + UNDOCK_CANCEL_TIMEOUT_SEC
+        while not cancel_future.done():
+            if time.monotonic() >= deadline:
+                self.navigator.info(f'[{self.namespace}] undock 취소 응답 없음')
+                return False
+            rclpy.spin_once(self.navigator, timeout_sec=0.1)
+        response = cancel_future.result()
+        return bool(response is not None and response.goals_canceling)
+
+    def _fail_undock(self, reason, attempts):
+        detail = {'attempts': attempts, 'hazards': self._hazard_names()}
+        self.navigator.info(
+            f'[{self.namespace}] undock 실패 ({reason}) hazards={detail["hazards"]}')
+        self._report_failure(reason, detail)
+        self._publish_state('undock_failed', detail)
+
+    def _ensure_undocked(self):
+        """도킹 상태면 실제로 도크에서 빠져나올 때까지 undock을 시도한다.
+
+        navigator.undock()을 그대로 쓰지 않는 이유:
+          - goal 거부/실패를 전부 성공처럼 반환한다(isUndockComplete()가 True).
+          - 결과가 안 오면 `while not isUndockComplete()`에서 무한 대기한다.
+          - 서버 대기/goal 수락에도 타임아웃이 없다.
+          - 반환값이 없어 호출부가 성공 여부를 알 수 없다.
+
+        성공 판정은 우선 액션 결과(후진+180도 회전 완주)로 하고, 결과가
+        끝내 안 오면 그때만 dock_status(물리적 이탈)로 폴백한다 - is_docked는
+        후진 직후(회전 전)에 이미 False가 될 수 있어서, 그것만으로 성공
+        처리하고 goal을 취소하면 회전을 덜 끝낸 자세로 멈춘다.
+        """
+        # 긴급정지 중이면 undock(후진)을 시작하지 않는다 - 풀릴 때까지 대기.
+        self._wait_while_emergency_stopped()
+
+        status = self._dock_status(UNDOCK_STATUS_WAIT_SEC)
+        if status is None:
+            # dock_status를 한 번도 못 받았다 = 도킹 여부를 모른다. 이 상태로
+            # undock을 쏘면 이미 나와 있는 경우 실패하므로 보내지 않는다.
+            self._fail_undock('dock_status_unavailable', 0)
+            return False
+        if status is False:
+            return True                       # 이미 도크 밖
+
+        reason = 'undock_failed'
+        for attempt in range(1, UNDOCK_ATTEMPTS + 1):
+            # 각 시도 직전에도 긴급정지를 다시 확인한다 - backoff 도중
+            # 긴급정지가 들어왔을 수 있다. 정지 상태면 풀릴 때까지 대기.
+            self._wait_while_emergency_stopped()
+
+            self._publish_state('undocking', {'attempt': attempt})
+            self.navigator.info(
+                f'[{self.namespace}] undocking... ({attempt}/{UNDOCK_ATTEMPTS})')
+
+            handle, reason = self._send_undock_goal()
+            if handle is None:
+                self.navigator.info(f'[{self.namespace}] undock goal 실패: {reason}')
+                if attempt < UNDOCK_ATTEMPTS:
+                    self._spin_for(UNDOCK_BACKOFF_SEC,
+                                   should_stop=lambda: self.emergency_stopped)
+                continue
+
+            # 성공 판정은 우선 액션 결과로 한다 - is_docked가 후진 직후
+            # (180도 회전 전에) 먼저 False로 바뀌더라도 여기서 곧장 성공
+            # 처리하지 않는다. 결과가 정상적으로 오면 후진+회전이 다 끝난
+            # 것이므로 타임아웃까지 그걸 기다린다.
+            result_future = handle.get_result_async()
+            deadline = time.monotonic() + UNDOCK_RESULT_TIMEOUT_SEC
+            while time.monotonic() < deadline and not result_future.done():
+                rclpy.spin_once(self.navigator, timeout_sec=0.1)
+
+            # 결과가 왔든(정상 완주) 안 왔든, 최종 성공 여부는 물리적
+            # 이탈(dock_status)로 확인한다 - 결과 status가 실패로 와도 실제로
+            # 빠져나왔으면 순찰을 시작할 수 있기 때문.
+            if self._wait_dock_status(False, 1.0):
+                if not result_future.done():
+                    # 결과 타임아웃까지 안 왔는데 물리적으론 빠져나온 상태
+                    # (액션이 매달림) - 서버에 goal을 남기지 않도록 취소한다.
+                    # 이미 결과 타임아웃까지 기다린 뒤라 회전은 사실상
+                    # 끝났거나 애초에 진행이 멈춘 것이므로 여기서 잘라도 된다.
+                    self._cancel_undock_goal(handle)
+                self.navigator.info(f'[{self.namespace}] undock 확인됨')
+                self._publish_state('undocked')
+                return True
+
+            reason = 'undock_timeout'
+            self.navigator.info(
+                f'[{self.namespace}] undock 미완료 - 이전 goal 취소 후 재시도')
+            if not self._cancel_undock_goal(handle):
+                # 취소가 안 되는데 재발행하면 goal이 쌓여 통신이 끊긴다. 중단.
+                self._fail_undock('undock_cancel_failed', attempt)
+                return False
+            if attempt < UNDOCK_ATTEMPTS:
+                self._spin_for(UNDOCK_BACKOFF_SEC,
+                               should_stop=lambda: self.emergency_stopped)
+
+        self._fail_undock(reason, UNDOCK_ATTEMPTS)
+        return False
+
     def _handle_dock(self):
         """도킹 복귀 - Fleet이 통로 그래프로 라우팅해 보낸 웨이포인트
         리스트(self.dock_route, zone_router.route_to_point() 참고)를
@@ -611,11 +820,21 @@ class ControlNode:
         self._wait_for_mission()
         self.navigator.waitUntilNav2Active()
 
-        if self.navigator.getDockedStatus():
-            self.navigator.info(f'[{self.namespace}] docked, undocking...')
-            self.navigator.undock()
-
         while rclpy.ok():
+            # 도킹된 채로 goToPose()를 쏘면 progress_checker 실패 →
+            # route_update_request 타임아웃 → abort 루프만 30초 주기로 돈다.
+            # 주행 전에 반드시 도크에서 빠져나온다. 시작 시 1회가 아니라 매
+            # 미션 앞에서 확인해야 abort 후에도 스스로 복구된다. self.docked는
+            # _handle_dock()이 의도적으로 도킹했을 때 세우는 플래그라 그
+            # 경우엔 건너뛰고, 이미 도크 밖이면 _ensure_undocked()가
+            # dock_status 한 번 읽고 즉시 True를 돌려준다(보통 1초 이내).
+            if not self.docked and not self._ensure_undocked():
+                self.mission = None
+                self._spin_for(UNDOCK_BACKOFF_SEC,
+                               should_stop=lambda: self.emergency_stopped)
+                self._wait_for_mission()
+                continue
+
             self.mission_aborted = False
             mission_completed = self._run_current_mission()
             self.mission = None

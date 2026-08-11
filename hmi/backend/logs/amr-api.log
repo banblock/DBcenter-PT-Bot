@@ -9039,3 +9039,47 @@ rclpy.executors.ExternalShutdownException
 2026-08-10 21:52:03 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 브리지 종료
 2026-08-10 21:52:03 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 종료
 2026-08-10 21:52:03 | INFO    | amr.main         | -        | 서버 종료
+2026-08-11 10:28:31 | WARNING | amr.db           | -        | 기존 테이블을 전부 삭제합니다 (drop=True)
+2026-08-11 10:28:31 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-11 10:28:31 | INFO    | amr.db           | -        | 시드 완료 — {'maps': 2, 'zones': 3, 'nodes': 8, 'routes': 1, 'equipment': 5, 'rules': 3, 'robots': 2}
+2026-08-11 10:28:32 | INFO    | amr.main         | -        | ======================================================================
+2026-08-11 10:28:32 | INFO    | amr.main         | -        | AMR 순찰·이상감지 관제 API v1.0.0 기동
+2026-08-11 10:28:32 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-11 10:28:32 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 브리지 기동 — 발행 2개, 구독 8토픽/로봇, 상행 큐 컨슈머 1
+2026-08-11 10:28:32 | INFO    | amr.bridge       | -        | 브리지 교체 → RobotBridge
+2026-08-11 10:28:32 | INFO    | amr.vision       | -        | [vision_bridge] 기동 — 구독 /detection/cam_state, 발행 /ui/start
+2026-08-11 10:28:32 | INFO    | amr.main         | -        | 데모 시뮬레이터 활성화 (AMR_DEMO_SIM=1)
+2026-08-11 10:28:32 | INFO    | amr.main         | -        | REST 15개 라우터 · WS /ws/monitor 준비 완료
+2026-08-11 10:28:32 | INFO    | amr.main         | -        | ======================================================================
+2026-08-11 10:28:32 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 시작
+2026-08-11 10:28:32 | INFO    | amr.demo_sim     | -        | 데모 시뮬레이터 시작 (TICK=0.6s, STEP=0.35m)
+2026-08-11 10:29:26 | INFO    | amr.request      | c1dfde22 | GET /api/cameras/cctv1/stream → 200 (84.1ms) role=-
+2026-08-11 10:29:26 | INFO    | amr.request      | 7ed10f4a | GET /api/cameras/cctv2/stream → 200 (4.7ms) role=-
+2026-08-11 10:29:26 | INFO    | amr.ws           | -        | WS 접속 — 현재 1개 연결
+2026-08-11 10:29:26 | INFO    | amr.ws           | -        | WS 접속 — 현재 2개 연결
+2026-08-11 10:29:26 | INFO    | amr.ws           | -        | WS 해제 — 현재 1개 연결
+2026-08-11 10:29:26 | INFO    | amr.request      | 9575537e | GET /api/stats/overview → 200 (22.2ms) role=-
+2026-08-11 10:29:26 | INFO    | amr.request      | f8c87634 | GET /api/map → 200 (22.4ms) role=-
+2026-08-11 10:29:26 | INFO    | amr.request      | f9247ca5 | GET /api/stats/overview → 200 (3.0ms) role=-
+2026-08-11 10:29:26 | INFO    | amr.request      | e09c222f | GET /api/zones → 200 (24.1ms) role=-
+2026-08-11 10:29:26 | INFO    | amr.request      | 8ecede56 | GET /api/map → 200 (3.9ms) role=-
+2026-08-11 10:29:26 | INFO    | amr.request      | e4373ddc | GET /api/zones → 200 (1.6ms) role=-
+2026-08-11 10:29:26 | INFO    | amr.request      | 142bb111 | GET /api/map/MAP-DC-V4/grid → 200 (2.7ms) role=-
+2026-08-11 10:29:26 | INFO    | amr.request      | 047757e9 | GET /media/maps/datacenter_map_v4.png → 304 (3.3ms) role=-
+2026-08-11 10:29:56 | INFO    | amr.request      | e6f4a22e | GET /api/stats/overview → 200 (2.7ms) role=-
+2026-08-11 10:30:26 | INFO    | amr.request      | 7de397af | GET /api/stats/overview → 200 (3.0ms) role=-
+2026-08-11 10:30:56 | INFO    | amr.request      | fcc83108 | GET /api/stats/overview → 200 (2.8ms) role=-
+2026-08-11 10:31:26 | INFO    | amr.request      | 74bd149b | GET /api/stats/overview → 200 (36.9ms) role=-
+2026-08-11 10:31:56 | INFO    | amr.request      | 759fd6af | GET /api/stats/overview → 200 (3.2ms) role=-
+2026-08-11 10:32:26 | INFO    | amr.request      | 385379a3 | GET /api/stats/overview → 200 (4.5ms) role=-
+2026-08-11 10:32:56 | INFO    | amr.request      | e7b1452c | GET /api/stats/overview → 200 (2.9ms) role=-
+2026-08-11 10:33:16 | INFO    | amr.request      | 00f62177 | OPTIONS /api/zones/Z-P1 → 200 (0.2ms) role=-
+2026-08-11 10:33:16 | WARNING | amr.request      | 9ed0dd2c | PUT /api/zones/Z-P1 → 404 (3.0ms) role=ADMIN
+2026-08-11 10:33:16 | INFO    | amr.request      | 3a301aa5 | OPTIONS /api/zones → 200 (0.2ms) role=-
+2026-08-11 10:33:16 | INFO    | amr.request      | 18134d3d | POST /api/zones → 201 (5.0ms) role=ADMIN
+2026-08-11 10:33:23 | INFO    | amr.request      | 9bef6c75 | OPTIONS /api/zones/Z-P2 → 200 (0.4ms) role=-
+2026-08-11 10:33:23 | WARNING | amr.request      | 2ee9f705 | PUT /api/zones/Z-P2 → 404 (3.0ms) role=ADMIN
+2026-08-11 10:33:23 | INFO    | amr.request      | 3a6ecb28 | POST /api/zones → 201 (3.1ms) role=ADMIN
+2026-08-11 10:33:26 | INFO    | amr.request      | 74c54ca7 | GET /api/stats/overview → 200 (2.5ms) role=-
+2026-08-11 10:33:56 | INFO    | amr.request      | 76f45e48 | GET /api/stats/overview → 200 (2.3ms) role=-
+2026-08-11 10:34:27 | INFO    | amr.request      | 4925f032 | GET /api/stats/overview → 200 (3.9ms) role=-
