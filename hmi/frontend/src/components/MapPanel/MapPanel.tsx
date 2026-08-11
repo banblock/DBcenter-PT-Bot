@@ -14,8 +14,8 @@ const MIN_ZONE_PX = 6; // 이보다 작게 드래그하면 클릭으로 간주�
 // 맵 위에 노란 원(반지름 0.24m)으로 표시해 실측 대조 대상 지점을 알린다.
 const BREAKER_RADIUS_M = 0.24;
 const BREAKERS: { id: string; label: string; x: number; y: number }[] = [
-  { id: "EQ-BRK-01", label: "차단기 1", x: -0.253, y: 1.99 },
-  { id: "EQ-BRK-02", label: "차단기 2", x: -4.52, y: -0.157 },
+  { id: "EQ-BRK-01", label: "차단기 1", x: -4.52, y: -0.157 },
+  { id: "EQ-BRK-02", label: "차단기 2", x: -0.253, y: 1.99 },
 ];
 
 function clamp(v: number, lo: number, hi: number): number {

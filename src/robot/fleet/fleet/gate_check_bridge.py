@@ -18,8 +18,8 @@ gate_check_response 로 로봇에 돌려준다.
   robot(ROS) ← gate_check_response(ROS) ← 이 브릿지 ← HTTP resp ←
 
 로봇이 넘기는 정보는 {"robot": ns} 뿐이라 "어느 차단기(equipment_id)인지"는
-알 수 없다. 데모 배치는 로봇 1대당 구역에 차단기 1개(robot3/zoneAB→EQ-BRK-01,
-robot8/zoneCD→EQ-BRK-02)이므로 ns→equipment 를 파라미터 고정 매핑으로 푼다.
+알 수 없다. 데모 배치는 로봇 1대당 구역에 차단기 1개(robot3/zoneAB→EQ-BRK-02,
+robot8/zoneCD→EQ-BRK-01)이므로 ns→equipment 를 파라미터 고정 매핑으로 푼다.
 로봇 한 대가 여러 차단기를 도는 배치로 확장하려면 gate_check_request 에
 equipment_id 를 실어(웨이포인트까지 plumbing) 이 매핑을 대체하면 된다.
 
@@ -29,7 +29,7 @@ equipment_id 를 실어(웨이포인트까지 plumbing) 이 매핑을 대체하�
   · api_prefix         기본 /api
   · robot_namespaces   기본 [robot3, robot8]        (구독할 로봇 ns)
   · backend_robot_ids  기본 [AMR-01, AMR-02]        (check-gate 의 robot_id, ns 와 병렬)
-  · equipment_ids      기본 [EQ-BRK-01, EQ-BRK-02]  (검사 대상 차단기, ns 와 병렬)
+  · equipment_ids      기본 [EQ-BRK-02, EQ-BRK-01]  (검사 대상 차단기, ns 와 병렬)
   · gate_id            기본 0                        (비전 쪽 차단기 식별자)
   · request_timeout_sec 기본 8.0                     (check-gate 는 비전 왕복까지 ~6s)
   · abort_on_mismatch  기본 False                    (True 면 불일치 시 로봇 미션 중단)
@@ -53,7 +53,8 @@ class GateCheckBridge(Node):
         self.declare_parameter('api_prefix', '/api')
         self.declare_parameter('robot_namespaces', ['robot3', 'robot8'])
         self.declare_parameter('backend_robot_ids', ['AMR-01', 'AMR-02'])
-        self.declare_parameter('equipment_ids', ['EQ-BRK-01', 'EQ-BRK-02'])
+        # 웹 맵의 차단기 표시와 일치하도록 검사 대상 차단기를 교체(robot3→EQ-BRK-02, robot8→EQ-BRK-01).
+        self.declare_parameter('equipment_ids', ['EQ-BRK-02', 'EQ-BRK-01'])
         self.declare_parameter('gate_id', 0)
         self.declare_parameter('request_timeout_sec', 8.0)
         self.declare_parameter('abort_on_mismatch', False)
