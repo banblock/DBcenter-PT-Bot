@@ -70,21 +70,28 @@ def _is_gate(point_type):
 
 
 def _heading_deg(a, b):
-    """경유 노드(transit)의 yaw는 UI가 준 값이 없으니, 이전 지점 -> 이
-    지점 방향을 향하도록 자동으로 계산한다 (도 단위, 기존 코드와 동일
-    컨벤션)."""
+    """웨이포인트의 yaw는 UI가 의미 있는 값을 주지 않으니(순찰 지점은
+    전부 0으로 옴), 이전 지점 a -> 이 지점 b 방향을 향하도록 자동으로
+    계산한다 (도 단위). 경유 노드(transit)와 최종 목적지 모두에 쓴다 -
+    둘 다 "로봇이 오던 방향 그대로 도착"하게 만드는 게 목적."""
     return math.degrees(math.atan2(b[1] - a[1], b[0] - a[0]))
 
 
 def _emit_hop(g, from_node, to_node, dest_point, waypoints, incoming_edge,
-              waypoint_node_ids):
+              waypoint_node_ids, final_yaw=None):
     """`from_node`에서 `to_node`까지 다익스트라(RouteGraph.shortest_path)로
     실제 경로를 구해, 중간에 어쩔 수 없이 지나가는 경유 교차로(transit)와
-    최종 목적지(`dest_point`, UI가 준 원본 좌표/yaw 사용) 웨이포인트를
+    최종 목적지(`dest_point`, UI가 준 원본 좌표 사용) 웨이포인트를
     `waypoints`/`incoming_edge`/`waypoint_node_ids`에 이어붙인다. 순찰
     지점 사이 홉과, 로봇의 실제 시작 위치에서 첫 순찰 지점까지의 홉에
     공통으로 쓴다(`_route_zone()` 참고) - 둘 다 "그래프 위 한 노드에서
-    다른 한 노드로 이동"이라는 점은 같기 때문."""
+    다른 한 노드로 이동"이라는 점은 같기 때문.
+
+    `final_yaw`(도)가 주어지면 목적지에서 로봇이 향할 방향을 그 값으로
+    고정한다 - 도킹 복귀처럼 "진입점 도착 후 실제 도크(초기 위치)를
+    바라봐야" 도크 액션이 붙을 수 있는 경우에 쓴다. None이면 목적지도
+    transit 경유점과 똑같이 진행방향(직전 노드 -> 목적지)으로 자동
+    계산한다(순찰/이상신호 - 오던 방향 그대로 도착)."""
     path_nodes, base_edges = g.shortest_path(from_node, to_node)
     # path_nodes[0]은 from_node로, 이전 홉에서 이미 웨이포인트로 나갔거나
     # (또는 이번이 첫 홉이라 애초에 웨이포인트가 아니거나) 하니 그 다음부터
@@ -96,11 +103,19 @@ def _emit_hop(g, from_node, to_node, dest_point, waypoints, incoming_edge,
         is_final = (j == len(path_nodes) - 1)
         if is_final and nid == to_node:
             # 이 홉의 목적지 = 원래 UI가 지정한 순찰 지점이므로,
-            # 그래프에 스냅된 좌표가 아니라 UI가 준 원본 좌표/yaw를
-            # 그대로 쓴다.
+            # 그래프에 스냅된 좌표가 아니라 UI가 준 원본 좌표를 그대로
+            # 쓴다. yaw는 UI가 따로 의미 있는 값을 주지 않아(순찰 지점은
+            # 전부 0으로 옴) 목적지에서 억지로 특정 방향(0도)을 바라보며
+            # 제자리 회전하는 게 어색하다 - `final_yaw`가 지정된 경우(도킹
+            # 진입점 -> 도크 응시)만 그 값을 쓰고, 아니면 transit 경유점과
+            # 똑같이 직전 노드 -> 목적지 진행방향으로 자동 계산해서 로봇이
+            # 오던 방향 그대로 도착하게 한다.
+            prev_xy = g.nodes[path_nodes[j - 1]]
+            dest_xy = (float(dest_point['x']), float(dest_point['y']))
             waypoints.append({
-                'x': float(dest_point['x']), 'y': float(dest_point['y']),
-                'yaw': float(dest_point.get('yaw', 0.0)),
+                'x': dest_xy[0], 'y': dest_xy[1],
+                'yaw': (float(final_yaw) if final_yaw is not None
+                        else _heading_deg(prev_xy, dest_xy)),
                 'has_gate': _is_gate(dest_point.get('point_type')),
                 'point_id': None,
                 'origin': 'patrol',
@@ -317,11 +332,17 @@ def build_missions(graph, zones, robot_positions=None):
     return per_robot_waypoints, crossing_log, resource_canonical
 
 
-def route_to_point(graph, start_pos, target, id_prefix, canonical_point_ids=None):
+def route_to_point(graph, start_pos, target, id_prefix, canonical_point_ids=None,
+                   face_toward=None):
     """`start_pos`(x, y)에서 `target`({'x','y','yaw', ...})까지 그래프
     경로를 계산해 웨이포인트 리스트를 만든다. 순찰 미션(`build_missions`)
     밖에서 일어나는 1회성 이동 - 도킹 복귀(`fleet_node._on_dock_return`),
     이상신호 급파(`fleet_node._on_anomaly_trigger`) - 에 쓴다.
+
+    `face_toward`((x, y), 옵션)가 주어지면 목적지 도착 후 로봇이 그 점을
+    바라보도록 최종 yaw를 잡는다 - 도킹은 진입점(`target`)에 도착한 뒤
+    실제 도크(초기 위치)를 응시해야 도크 액션이 붙으므로 홈 좌표를 넘긴다.
+    None이면 목적지에서도 진행방향(오던 방향)으로 자동 계산한다(이상신호).
     `_route_zone()`/`_emit_hop()`과 같은 파이프라인을 그대로 타므로,
     지나가는 통로도 occupancy 프로토콜 보호를 받는다 (0번 순찰 지점이
     그래프 밖에서 무보호로 직행하던 것과 같은 부류의 위험이 도킹/이상신호
@@ -355,18 +376,23 @@ def route_to_point(graph, start_pos, target, id_prefix, canonical_point_ids=None
     end_node = g.insert_point(
         f'{id_prefix}_end', (float(target['x']), float(target['y'])))
 
+    dest_xy = (float(target['x']), float(target['y']))
+    final_yaw = _heading_deg(dest_xy, face_toward) if face_toward is not None else None
+
     if start_node == end_node:
         # 이미 목표 지점 바로 근처(snap_threshold 이내) - 홉이 없으니
-        # 그냥 직접 웨이포인트 하나로 박아 넣는다.
+        # 그냥 직접 웨이포인트 하나로 박아 넣는다. 진행방향을 계산할
+        # 직전 홉이 없으므로, face_toward가 있으면 그쪽을, 없으면 예전처럼
+        # target이 준 yaw를 그대로 쓴다.
         return [{
-            'x': float(target['x']), 'y': float(target['y']),
-            'yaw': float(target.get('yaw', 0.0)),
+            'x': dest_xy[0], 'y': dest_xy[1],
+            'yaw': final_yaw if final_yaw is not None else float(target.get('yaw', 0.0)),
             'has_gate': False, 'point_id': None, 'origin': 'patrol',
         }]
 
     waypoints, incoming_edge, waypoint_node_ids = [], [], []
     _emit_hop(g, start_node, end_node, target,
-              waypoints, incoming_edge, waypoint_node_ids)
+              waypoints, incoming_edge, waypoint_node_ids, final_yaw=final_yaw)
 
     # 지나가는 모든 홉에 항상 point_id를 태깅한다(위 docstring 참고) -
     # 엣지/교차로 자원을 build_missions()와 같은 방식(union-find)으로

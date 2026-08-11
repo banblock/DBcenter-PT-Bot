@@ -535,14 +535,25 @@ class FleetNode(Node):
         for ns in dispatched:
             target = dock_control.DOCK_STATIONS[ns]
             start_pos = self._robot_pose.get(ns)
+            # 도킹 진입점(target)에 도착한 뒤에는 실제 도크 = 로봇의 초기
+            # 위치(DEFAULT_ROBOT_START, 실측 홈 자리)를 바라보게 해야 도크
+            # 액션이 IR 비콘을 보고 붙을 수 있다. 그 홈 좌표를 face_toward로
+            # 넘겨 최종 yaw를 "진입점 -> 도크" 방향으로 잡는다. 홈 좌표가
+            # 없는 로봇이면 None이라 예전처럼 진행방향/target yaw로 떨어진다.
+            home = DEFAULT_ROBOT_START.get(ns)
             if start_pos is None:
                 # amcl_pose를 아직 한 번도 못 받았으면(막 켜진 직후 등)
                 # 그래프 경로를 계산할 방법이 없다 - 예전처럼 좌표
                 # 하나짜리 무보호 웨이포인트로 폴백한다(0번 순찰 지점의
                 # start_pos=None 폴백과 동일한 패턴, zone_router.py 참고).
+                if home is not None:
+                    yaw = zone_router._heading_deg(
+                        (float(target['x']), float(target['y'])), home)
+                else:
+                    yaw = target.get('yaw', 0.0)
                 route = [{
                     'x': target['x'], 'y': target['y'],
-                    'yaw': target.get('yaw', 0.0),
+                    'yaw': yaw,
                     'has_gate': False, 'point_id': None, 'origin': 'patrol',
                 }]
             else:
@@ -553,7 +564,8 @@ class FleetNode(Node):
                 # 마주칠 수 있었다(0번 순찰 지점 문제와 같은 부류).
                 route = zone_router.route_to_point(
                     self.graph, start_pos, target, f'dock_{ns}',
-                    canonical_point_ids=self._resource_canonical)
+                    canonical_point_ids=self._resource_canonical,
+                    face_toward=home)
             out = String()
             out.data = json.dumps(route)
             self._dock_pubs[ns].publish(out)
