@@ -8,7 +8,7 @@ detect_cctv_node:
     camera_ids: ["cctv1", "cctv2"]
     min_camera_index: 2
     model_path: "models/cctv_best.pt"
-    confidence: 0.13  #recall 우선 : 0.13, precision 우선 : 0.77
+    confidence: 0.77  #recall 우선 : 0.13, precision 우선 : 0.77
     jpeg_quality: 80
     device: ""  # 비워두면 ultralytics 기본 디바이스 선택
     image_width: 1280
@@ -24,7 +24,7 @@ detect_ambient_node:
       - "ambient_yolov8n_v2.pt"
       - "ambient_yolo26n_v2.pt"
     model_tta: [true, false]  # yolo26 계열은 augment=True 미지원(자동 revert)
-    conf_threshold: 0.13  # F1 최적점(conf/wbf_merge_iou 2D 스윕 결과)
+    conf_threshold: 0.5  # F1 최적점(conf/wbf_merge_iou 2D 스윕 결과)
     wbf_merge_iou: 0.25  # F1 최적 구간(0.20~0.35) 중앙값
     amr_cam_topics:
       - "/robot3/oakd/rgb/preview/image_raw"
