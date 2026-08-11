@@ -180,7 +180,11 @@ export function MapPanel() {
 
   // 기능2: 순찰 중 로봇 실좌표가 waypoint 도달 반경 안이면 그 점을 "방문"으로 누적한다.
   //   순서 개념 없이(가까운 점 우선 순회) 지나간 점부터 색이 칠해진다. 순찰 종료 시 초기화.
-  const SNAP = Math.max(1.5, W * 0.02);
+  // 반경은 픽셀이 아니라 실제 거리(m)로 잡는다 — Nav2 목표 허용오차(~0.25m)와 pose 가
+  //   띄엄띄엄(≈1Hz) 오는 사이 로봇이 이동하는 거리를 함께 견뎌야, waypoint 위를 지나갈 때
+  //   놓치지 않고 채워진다. 맵 해상도(m/cell)로 픽셀(=셀) 반경으로 환산한다.
+  const REACH_M = 0.4;
+  const SNAP = activeMap?.resolution ? REACH_M / activeMap.resolution : Math.max(6, W * 0.06);
   if (!patrolStarted) {
     if (Object.keys(visitedRef.current).length) visitedRef.current = {};
   } else {
@@ -431,9 +435,11 @@ export function MapPanel() {
             }),
           )}
 
-          {/* 규칙2: AMR 마커는 도달한 waypoint 에 스냅해 고정 — 실시간 위치는 표기하지 않는다. */}
+          {/* 규칙2: AMR 마커는 도달한 waypoint 에 스냅해 고정 — 실시간 위치는 표기하지 않는다.
+              직전 도달 waypoint 에 마커를 고정해두고, 다음 waypoint 도달 반경 안에 들어오면
+              그 지점으로 옮긴다(heldWaypoint). 첫 도달 전에는 마커를 그리지 않는다. */}
           {robots.map((r) => {
-            // 실제(월드) 포즈를 픽셀로 환산
+            // 실제(월드) 포즈를 픽셀로 환산 (스냅 판정용 — 화면에는 직접 쓰지 않는다)
             let live = { x: W / 2, y: H / 2 };
             if (r.pose && activeMap) {
               const c = worldToPixel(activeMap, r.pose.x, r.pose.y);
@@ -443,7 +449,7 @@ export function MapPanel() {
             }
             // 각 AMR은 담당 존 waypoint만 판정한다. 다른 AMR 경로 근처를 지나도 잘못
             // 스냅되지 않으며, 첫 waypoint 도달 전에는 마커 자체를 표시하지 않는다.
-            const SNAP = Math.max(1.5, W * 0.02);
+            // 스냅 반경은 위 "방문(done) 색칠"과 동일한 SNAP(도달 반경 0.4m)을 그대로 쓴다.
             const assignedZone = ZONES.find((z) => ZONE_AMR[z] === r.id);
             const robotWaypoints = assignedZone ? (waypoints[assignedZone] ?? []) : [];
             const atDock = ["IDLE", "DOCKING", "CHARGING"].includes(r.state);
