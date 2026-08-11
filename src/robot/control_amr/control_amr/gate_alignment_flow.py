@@ -10,7 +10,9 @@ from geometry_msgs.msg import PoseWithCovarianceStamped
 from std_msgs.msg import String
 
 ALIGNMENT_TOLERANCE_RAD = 0.05
-SPIN_TIME_ALLOWANCE_SEC = 10.0
+# nav2 spin()은 내부에서 Duration(sec=time_allowance)를 만드는데 sec 필드가
+# int만 허용한다(float면 AssertionError로 죽음) - 반드시 정수로 둔다.
+SPIN_TIME_ALLOWANCE_SEC = 10
 CANCEL_WAIT_SEC = 2.0
 
 
