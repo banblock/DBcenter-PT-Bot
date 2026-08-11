@@ -28,7 +28,11 @@ Phase 3 (상행) 범위: 로봇 텔레메트리를 백엔드가 구독하는 §1
 백엔드는 topic_prefix_map(AMR-01→/amr_1)대로 ``/amr_1/amcl_pose``·``/amr_1/robot_state``·
 ``/amr_1/battery_state`` 를 구독하는데 로봇은 ``/robot3/*``·``/control/robot3_State`` 로 낸다.
   · pose:    /robotN/amcl_pose (PoseWithCovarianceStamped) → /amr_N/amcl_pose (그대로) — 웹 원 채색·좌표
-  · state:   /control/robotN_State (String JSON {robot,status,detail}) → /amr_N/robot_state (String "status:detail")
+  · state:   /control/robotN_State (String JSON {robot,status,detail}) → /amr_N/robot_state
+             (String "STATE:msg"). status 를 RobotState enum 으로 매핑한다
+             (CONTROL_STATE_TO_ROBOT_STATE) - Fleet 대문자 상태는 그대로 통과,
+             Control 소문자 세부상태만 enum 으로 올려 프론트가 한글 라벨·허용 명령을
+             제대로 붙이게 한다. 콜론 뒤엔 매핑 전 원본 status 를 실어 디버깅에 남긴다.
   · battery: /robotN/battery_state (BatteryState) → /amr_N/battery_state (그대로)
 """
 
@@ -49,6 +53,37 @@ ROBOT_TO_AMR = {v: k for k, v in AMR_TO_ROBOT.items()}
 # Fleet map_points 의 zone_id 는 임시 포인트 라벨 접두사로만 쓰인다(그래프 종속 아님).
 # 로봇별로 유일하기만 하면 되므로 고정 매핑을 준다.
 ROBOT_TO_ZONE = {'robot3': 'zoneAB', 'robot8': 'zoneCD'}
+
+# 로봇측 /control/<ns>_State 의 status 값을 백엔드/프론트의 RobotState enum(15종,
+# hmi/backend/app/enums.py · hmi/frontend/src/constants/dashboard.ts)으로 매핑한다.
+# Fleet(robot_status.py)은 이미 enum 대문자(PATROLLING/IDLE/DISPATCHING/
+# EMERGENCY_STOP)를 그대로 내보내므로 이 표의 키(전부 소문자)와 겹치지
+# 않아 아래 .get(status, status) 폴백으로 자동 통과된다. Control(control_node.py/
+# state_flow.py)이 내보내는 소문자 세부상태만 여기서 enum 으로 올린다 - 안 그러면
+# 프론트가 STATE_META 에 없는 원문("moving" 등)을 idle 톤 원문 라벨로 밋밋하게
+# 표시한다(크래시는 안 나지만 한글 라벨·허용 명령이 안 붙는다).
+# 표에 없는 값은 원문 그대로 통과시킨다(프론트가 폴백으로 견딤).
+CONTROL_STATE_TO_ROBOT_STATE = {
+    'waiting_mission': 'IDLE',        # 미션 대기 = 대기
+    'moving': 'PATROLLING',           # 순찰 웨이포인트 이동
+    'crossing_wait': 'PATROLLING',    # 교차점 점유 대기(순찰 진행 중의 짧은 대기)
+    'crossing_granted': 'PATROLLING',
+    'crossing_released': 'PATROLLING',
+    'gate_aligning': 'INSPECTING',    # 차단기 정렬/점검
+    'gate_alignment_done': 'INSPECTING',
+    'gate_checking': 'INSPECTING',
+    'anomaly_moving': 'DISPATCHING',  # 이상지점 이동 중
+    'anomaly_waiting': 'INSPECTING',  # 현장 도착·상황 확인(운영자 결정 대기)
+    'patrol_resuming': 'RESUMING',    # 순찰 복귀 중
+    'patrol_waiting': 'PATROLLING',   # 순찰 루프 간 대기(순찰 임무 유지)
+    'emergency_stopped': 'EMERGENCY_STOP',
+    'undocking': 'UNDOCKING',         # 출발 준비(도크 이탈 중)
+    'undocked': 'PATROLLING',         # 도크 이탈 완료 → 곧 순찰 이동
+    'undock_failed': 'ERROR',         # 재시도 끝에 언도킹 실패 - 운영자에게 노출
+    'dock_moving': 'DOCKING',         # 도킹 스테이션으로 이동
+    'docking': 'DOCKING',
+    'docked': 'CHARGING',             # 도킹 완료·대기(충전)
+}
 
 MAP_POINTS_DEBOUNCE_SEC = 0.3  # 로봇별 START_PATROL 을 하나의 map_points 로 합치는 창
 
@@ -241,10 +276,13 @@ class BackendAdapter(Node):
             status = None
         if not status:
             return
-        detail = d.get('detail') or ''
-        self._up_state_pubs[robot].publish(String(data=f'{status}:{detail}'))
+        # status 를 RobotState enum 으로 올린다(표에 없으면 원문 통과 - Fleet 대문자
+        # 상태와 미지 상태 모두 그대로). 콜론 뒤 메시지에는 매핑 전 원본 세부상태를
+        # 실어, 웹은 enum 라벨을 쓰면서도 토픽을 tail 하면 세밀한 상태를 볼 수 있게 한다.
+        mapped = CONTROL_STATE_TO_ROBOT_STATE.get(status, status)
+        self._up_state_pubs[robot].publish(String(data=f'{mapped}:{status}'))
         self.get_logger().info(
-            f'{robot} state={status} → /{ROBOT_TO_AMR[robot]}/robot_state')
+            f'{robot} state={status} → {mapped} → /{ROBOT_TO_AMR[robot]}/robot_state')
 
     def _first(self, robot, kind, text):
         """고빈도 텔레메트리(pose/battery)는 첫 수신 때만 로그로 남긴다."""
