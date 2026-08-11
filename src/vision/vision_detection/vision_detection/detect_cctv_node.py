@@ -57,7 +57,8 @@ class DetectCctvNode(Node):
     검출, 해제는 연속 미검출 카운트로 확정한다(순간적인 오검출/흔들림 방지).
     """
 
-    STATUS_STATES = STATE_BY_CLASS
+    # smoke 오탐이 잦아 CCTV 이상감지 대상에서 제외 (fire/coolant만 판정·발행)
+    STATUS_STATES = {name: value for name, value in STATE_BY_CLASS.items() if name != 'smoke'}
     # 진입(켜짐)은 연속 이 프레임 수만큼 검출돼야 확정 - 1프레임짜리 순간 노이즈 필터링.
     # 30fps 기준 0.1초라 실제 감지 반응속도엔 거의 영향 없음.
     HIT_THRESHOLD = 5

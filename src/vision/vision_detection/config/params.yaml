@@ -31,7 +31,6 @@ detect_ambient_node:
       - "/robot8/oakd/rgb/preview/image_raw"
     anomaly_classes:
       - "fire"
-      - "smoke"
       - "coolant"
     normal_process_every_n: 1
     throttled_process_every_n: 10
