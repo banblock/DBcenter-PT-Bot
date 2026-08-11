@@ -106,6 +106,13 @@ def test_anomaly_hold_command_accepted(bridge: RobotBridge, pub: RecordingPublis
     assert "ANOMALY_HOLD" in [env["command_type"] for _topic, env in pub.frames]
 
 
+def test_anomaly_resume_command_accepted(bridge: RobotBridge, pub: RecordingPublisher):
+    """이상 대응 작업 복귀 — ANOMALY_RESUME 가 §10-2 화이트리스트를 통과해 발행돼야 한다."""
+    result = bridge.publish_command("amr_1", "ANOMALY_RESUME", {})
+    assert result["accepted"] is True
+    assert "ANOMALY_RESUME" in [env["command_type"] for _topic, env in pub.frames]
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # 단일 AMR 목표 하달 · 도착 확인 (§10-2 → §10-3)
 # ══════════════════════════════════════════════════════════════════════════

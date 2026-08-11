@@ -33,6 +33,7 @@ interface DemoDeps {
 const COMMAND_STATE_MAP: Record<Command, RobotState> = {
   pause: "PATROL_PAUSED",
   resume: "PATROLLING",
+  anomaly_resume: "RESUMING",
   estop: "EMERGENCY_STOP",
   reset: "IDLE",
   dock: "DOCKING",
@@ -367,6 +368,11 @@ export function startDemoSimulator(deps: DemoDeps): DemoHandle {
         if (cmd === "dock") extra.task = "도킹 스테이션 복귀 중";
         if (cmd === "pause") paused.add(id);
         if (cmd === "resume") paused.delete(id);
+        if (cmd === "anomaly_resume") {
+          // 이상 대응 hold 해제 → 순찰 복귀 (resumeRobot 이 이벤트 해제·상태 전이 처리)
+          resumeRobot(id);
+          return;
+        }
         if (robots[id]) emit([one(id, extra)]);
       }, 500);
     },

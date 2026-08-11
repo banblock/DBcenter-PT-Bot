@@ -103,6 +103,7 @@ export const CMD_LABEL: Record<Command, string> = {
   start: "▶ 순찰",
   pause: "⏸ 일시정지",
   resume: "▶ 재개",
+  anomaly_resume: "▶ 작업 복귀",
   dock: "🔌 복귀",
   estop: "⨯ 정지",
   stop_and_dock: "⏹ 정지 및 복귀",

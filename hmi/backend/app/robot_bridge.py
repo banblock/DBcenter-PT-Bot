@@ -111,6 +111,7 @@ COMMAND_TYPES: frozenset[str] = frozenset(
         "CANCEL",
         "GOTO",
         "ANOMALY_HOLD",  # 자체 감지 로봇 제자리 정지 (fleet 의 /fleet/anomaly_trigger{"robot"} 매핑)
+        "ANOMALY_RESUME",  # 이상 대응 hold 해제·순찰 복귀 (fleet 의 /backend/anomaly_resume 매핑)
         "INSPECT",
         "EVACUATE",
         "ESTOP",

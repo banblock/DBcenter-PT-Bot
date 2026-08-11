@@ -426,6 +426,10 @@ export async function backendCommand(robotId: string, cmd: Command): Promise<voi
       await req("POST", `/api/robots/${robotId}/resume`, { mode: "RESUME_CHECKPOINT" });
       return;
     }
+    case "anomaly_resume":
+      // 이상 대응 hold 해제·순찰 복귀. 순찰 pause 재개(resume)와 다른 전용 엔드포인트다.
+      await req("POST", `/api/robots/${robotId}/anomaly-resume`);
+      return;
     case "start": {
       const routeId = await latestRouteOnActiveMap(robotId) ?? await firstRouteId();
       if (!routeId) throw new Error("등록된 순찰 경로가 없습니다");

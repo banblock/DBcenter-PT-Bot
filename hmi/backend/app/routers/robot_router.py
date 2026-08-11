@@ -16,6 +16,7 @@ from app.errors import ApiError, E
 from app.responses import ok
 from app.schemas import EmergencyStopIn, EvacuateIn, GotoIn, ResumeIn
 from app.security import ActorDep, Permission, require
+from app.services import dispatch as dispatch_service
 
 router = APIRouter(prefix="/robots", tags=["로봇 제어"])
 DbDep = Annotated[Session, Depends(get_db)]
@@ -110,6 +111,44 @@ async def resume(robot_id: str, body: ResumeIn, db: DbDep):
     db.commit()
     await manager.publish_async(WsMessageType.ROBOT_STATUS.value, crud.robots.to_dict(robot))
     return ok({"state": robot.status, "resumed_from": resumed_from})
+
+
+@router.post("/{robot_id}/anomaly-resume", summary="이상 대응 작업 복귀(재개)", dependencies=[RobotControl])
+async def anomaly_resume(robot_id: str, db: DbDep):
+    """이상 지점에서 대기(hold) 중인 로봇에 '작업 복귀'를 지시한다.
+
+    순찰 일시정지 재개(/patrol/{id}/resume)와는 다른 경로다 — 그건 순찰 pause 해제이고,
+    이건 이상 대응 hold 를 풀어 원래 순찰로 되돌리는 신호(ROS anomaly_resume)를 보낸다.
+    로봇은 hold 에서 벗어난 뒤 중단됐던 순찰 웨이포인트로 복귀한다.
+    """
+    robot = crud.robots.get(db, robot_id)
+    if robot.status != RobotState.INSPECTING.value:
+        raise ApiError(
+            E.CONFLICT,
+            f"{robot.status} 상태에서는 작업 복귀할 수 없습니다 "
+            "(이상 대응 대기 중=INSPECTING 만 가능)",
+        )
+    outcome = dispatch_service.resume_from_anomaly(db, robot_id)
+    db.commit()
+    await manager.publish_async(WsMessageType.ROBOT_STATUS.value, crud.robots.to_dict(robot))
+    if outcome.resumed_patrol is not None:
+        await manager.publish_async(
+            WsMessageType.MISSION_STATUS.value,
+            crud.robots.mission_to_dict(db, outcome.resumed_patrol),
+        )
+    if outcome.event_id:
+        event = crud.events.get(db, outcome.event_id)
+        if event is not None:
+            await manager.publish_async(WsMessageType.EVENT.value, crud.events.to_dict(event))
+    return ok(
+        {
+            "state": robot.status,
+            "resumed_patrol_mission_id": outcome.resumed_patrol.mission_id
+            if outcome.resumed_patrol
+            else None,
+            "event_id": outcome.event_id,
+        }
+    )
 
 
 @router.post("/{robot_id}/goto", summary="지도 클릭 이동 (다지점)", dependencies=[RobotControl])

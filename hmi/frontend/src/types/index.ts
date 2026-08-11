@@ -39,7 +39,16 @@ export interface Track {
   steps: TrackStep[];
 }
 
-export type Command = "start" | "pause" | "resume" | "dock" | "estop" | "stop_and_dock" | "reset" | "ack";
+export type Command =
+  | "start"
+  | "pause"
+  | "resume"
+  | "anomaly_resume"
+  | "dock"
+  | "estop"
+  | "stop_and_dock"
+  | "reset"
+  | "ack";
 
 export type ZoneState = "NORMAL" | "MISMATCH" | "RECHECK" | "SCANNING" | "STALE" | "UNREADABLE";
 

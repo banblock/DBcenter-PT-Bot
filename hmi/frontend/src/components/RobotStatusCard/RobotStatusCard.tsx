@@ -1,7 +1,7 @@
 import { BatteryCharging, BatteryMedium } from "lucide-react";
 import { ALLOWED, CMD_LABEL, STATE_META, TRACKS } from "../../constants/dashboard";
 import { useDashboard } from "../../hooks/useDashboard";
-import type { Robot } from "../../types";
+import type { Command, Robot } from "../../types";
 import { ageSec, stepIndex } from "../../utils/robot";
 import "./RobotStatusCard.css";
 
@@ -20,7 +20,14 @@ export function RobotStatusCard({ robot }: { robot: Robot }) {
       ? `${robot.event_id ?? ""} · ${robot.target_zone ?? ""} ${robot.event_type ?? ""}`
       : `${robot.route ?? "Route A"} · ${robot.zone ?? ""}`;
 
-  const allowedCmds = ALLOWED[robot.state] ?? [];
+  // 이상 대응으로 현장에 정지(hold)해 운영자 판단을 기다리는 중(INSPECTING + ANOMALY)에는
+  // '일시정지'가 의미 없고 '작업 복귀'/'정지 및 복귀' 두 결정만 유효하다(로봇 hold 는 이
+  // 두 신호로만 풀린다 — control_node._handle_anomaly). 그 외 INSPECTING(순찰 중 차단기
+  // 점검 등)은 기존 허용 명령을 그대로 쓴다.
+  const anomalyHold = robot.state === "INSPECTING" && robot.mission_type === "ANOMALY";
+  const allowedCmds: Command[] = anomalyHold
+    ? ["anomaly_resume", "stop_and_dock"]
+    : ALLOWED[robot.state] ?? [];
 
   return (
     <section

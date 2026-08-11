@@ -12,12 +12,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import crud, models
 from app.bridge import get_bridge
 from app.config import settings
-from app.enums import EventStatus, EventType, RobotState
+from app.enums import EventStatus, EventType, MissionStatus, RobotState
 from app.logging_config import get_logger
 from app.models import utcnow
 
@@ -145,6 +146,78 @@ def assign_and_hold(
     )
     get_bridge().publish_command(robot_id, "ANOMALY_HOLD", {"event_id": event.event_id})
     return DispatchOutcome(mission=mission, preempted_mission_id=preempted_mission_id)
+
+
+def _latest_mission(
+    db: Session, robot_id: str, mission_type: str, statuses: list[str]
+) -> models.Mission | None:
+    """robot_id 의 특정 유형·상태 미션 중 가장 최근 것(없으면 None)."""
+    return (
+        db.execute(
+            select(models.Mission)
+            .where(
+                models.Mission.robot_id == robot_id,
+                models.Mission.mission_type == mission_type,
+                models.Mission.status.in_(statuses),
+            )
+            .order_by(models.Mission.created_at.desc())
+        )
+        .scalars()
+        .first()
+    )
+
+
+@dataclass
+class ResumeOutcome:
+    resumed_patrol: models.Mission | None
+    closed_anomaly: models.Mission | None
+    event_id: str | None
+
+
+def resume_from_anomaly(db: Session, robot_id: str) -> ResumeOutcome:
+    """이상 지점에서 대기(hold) 중인 로봇에 '작업 복귀' 결정을 하달한다.
+
+    로봇에 ANOMALY_RESUME 을 보내 hold 를 풀고(→ 원래 순찰 웨이포인트로 복귀시킨다,
+    control_node._handle_anomaly 참고), 백엔드 상태도 되돌린다:
+      · 진행 중이던 ANOMALY 미션을 종료(DONE)
+      · 급파로 선점(PREEMPTED)됐던 PATROL 미션이 있으면 복원(RUNNING) — 없으면 IDLE
+      · 연결된 이벤트는 종결(RESOLVED)
+    순찰 일시정지 재개(assign_and_goto/patrol resume)와는 별개 경로다 — 그건 순찰 pause
+    해제이고, 이건 이상 대응 hold 해제다. commit/broadcast 는 호출부.
+    """
+    anomaly = _latest_mission(
+        db, robot_id, "ANOMALY",
+        [MissionStatus.RUNNING.value, MissionStatus.PENDING.value],
+    )
+    event_id = anomaly.event_id if anomaly is not None else None
+    if anomaly is not None:
+        anomaly.status = MissionStatus.DONE.value
+        anomaly.end_time = utcnow()
+
+    patrol = _latest_mission(db, robot_id, "PATROL", [MissionStatus.PREEMPTED.value])
+    robot = crud.robots.get(db, robot_id)
+    if patrol is not None:
+        context = patrol.resume_context_json or {}
+        resumed_node = (context.get("remaining_nodes") or [None])[0]
+        patrol.current_node_id = resumed_node or patrol.current_node_id
+        patrol.status = MissionStatus.RUNNING.value
+        patrol.resume_context_json = None
+        robot.current_mission_id = patrol.mission_id
+        robot.status = RobotState.RESUMING.value
+    else:
+        robot.current_mission_id = None
+        robot.status = RobotState.IDLE.value
+    robot.progress_step = 0
+
+    if event_id:
+        crud.events.set_status(
+            db, event_id, EventStatus.RESOLVED.value,
+            actor="operator", detail="작업 복귀 결정(이상 대응 해제)",
+        )
+
+    # 로봇에 재개 신호 → anomaly hold 해제 후 순찰 복귀.
+    get_bridge().publish_command(robot_id, "ANOMALY_RESUME", {})
+    return ResumeOutcome(resumed_patrol=patrol, closed_anomaly=anomaly, event_id=event_id)
 
 
 #: 자동 급파를 발동시키는 이상 유형. 화재(FIRE)는 2026-08-09부터, 냉각수 누수

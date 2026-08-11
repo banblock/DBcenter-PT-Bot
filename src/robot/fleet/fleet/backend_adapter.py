@@ -116,6 +116,11 @@ class BackendAdapter(Node):
         # 이상감지 출동: 백엔드가 화재 로봇에 GOTO(event.x/y)를 보내면, Fleet 의 좌표 기반
         # 이상 급파(최근접 로봇)로 넘긴다. (이상감지 입력은 비전(CamState→vision_bridge)이 처리)
         self.anomaly_pub = self.create_publisher(String, '/fleet/anomaly_trigger', 10)
+        # 이상 대응 작업 복귀(재개): 운영자가 hold 중인 로봇에 "순찰 복귀"를 결정하면,
+        # fleet_node 가 구독하는 /backend/anomaly_resume 로 넘긴다. fleet_node 가 그 로봇의
+        # /fleet/<ns>/anomaly_resume 로 중계해 Control Node 의 hold 를 푼다. 자체 감지
+        # 제자리 정지(ANOMALY_HOLD)의 반대 방향 신호다.
+        self.anomaly_resume_pub = self.create_publisher(String, '/backend/anomaly_resume', 10)
 
         # 개별 일시정지/재개·재순찰은 Fleet 이 다루는 개념이 아니라 Control Node 만의
         # 관심사라, Fleet 을 거치지 않고 로봇별 control 토픽으로 직접 중계한다
@@ -193,6 +198,8 @@ class BackendAdapter(Node):
             self._handle_goto(robot, payload)
         elif ctype == 'ANOMALY_HOLD':
             self._handle_anomaly_hold(robot)
+        elif ctype == 'ANOMALY_RESUME':
+            self._handle_anomaly_resume(robot)
         elif ctype == 'CANCEL':
             self._handle_cancel(robot)
         elif ctype in ('PAUSE', 'RESUME'):
@@ -295,6 +302,14 @@ class BackendAdapter(Node):
         self.anomaly_pub.publish(String(data=json.dumps({'robot': robot})))
         self.get_logger().info(
             f'{robot} <- ANOMALY_HOLD → /fleet/anomaly_trigger{{robot:{robot}}} (제자리 정지)')
+
+    def _handle_anomaly_resume(self, robot):
+        # 이상 대응 hold 해제·순찰 복귀: robot id 를 실어 /backend/anomaly_resume 로 보내면
+        # fleet_node 가 등록 여부를 확인하고 /fleet/<ns>/anomaly_resume 로 중계한다
+        # (fleet_node._on_anomaly_resume 참고). Control Node 가 hold 를 풀고 순찰로 복귀한다.
+        self.anomaly_resume_pub.publish(String(data=json.dumps({'robot': robot})))
+        self.get_logger().info(
+            f'{robot} <- ANOMALY_RESUME → /backend/anomaly_resume{{robot:{robot}}} (작업 복귀)')
 
     def _handle_cancel(self, robot):
         # 순찰 취소: Fleet 에 per-robot 취소 입력이 없다. 재시작 흐름(취소→재시작)에서는

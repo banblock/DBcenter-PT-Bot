@@ -157,3 +157,65 @@ def test_assign_and_hold_publishes_hold_without_waypoints(db: Session, bridge: N
     assert hold[0]["payload"]["event_id"] == event.event_id
     assert "waypoints" not in hold[0]["payload"]
     assert not [c for c in bridge.sent if c["command_type"] == "GOTO"]
+
+
+def _make_anomaly_hold(db: Session, robot_id: str, *, with_preempted_patrol: bool):
+    """robot_id 를 '이상 대응 hold(INSPECTING)' 상태로 만든다 - 진행 중 ANOMALY 미션 +
+    (옵션) 선점된 PATROL 미션 + 연결 이벤트."""
+    event = crud.events.create(db, source="amr", type_="LEAK", confidence=0.9, x=None, y=None)
+    db.flush()
+    patrol = None
+    if with_preempted_patrol:
+        patrol = crud.robots.create_mission(
+            db, mission_id=crud.ids.next_mission_id(), mission_type="PATROL",
+            robot_id=robot_id, status="PREEMPTED",
+            node_order_json=["N1", "N2", "N3"], current_node_id="N2",
+            resume_context_json={"remaining_nodes": ["N2", "N3"], "current_index": 1,
+                                 "reason": "ANOMALY_PREEMPT"},
+        )
+    anomaly = crud.robots.create_mission(
+        db, mission_id=crud.ids.next_mission_id(), mission_type="ANOMALY",
+        robot_id=robot_id, event_id=event.event_id, status="RUNNING",
+    )
+    robot = crud.robots.get(db, robot_id)
+    robot.current_mission_id = anomaly.mission_id
+    robot.status = RobotState.INSPECTING.value
+    db.flush()
+    return event, patrol, anomaly
+
+
+def test_resume_from_anomaly_restores_patrol_and_signals(db: Session, bridge: NullBridge) -> None:
+    _seed_min(db)
+    _make_eligible_robot(db, "amr_1")
+    event, patrol, anomaly = _make_anomaly_hold(db, "amr_1", with_preempted_patrol=True)
+
+    outcome = dispatch.resume_from_anomaly(db, "amr_1")
+
+    # ANOMALY 미션 종료, 선점됐던 PATROL 미션 복원(재개 노드 = 남은 노드 첫 번째)
+    assert outcome.closed_anomaly.mission_id == anomaly.mission_id
+    assert anomaly.status == "DONE"
+    assert outcome.resumed_patrol.mission_id == patrol.mission_id
+    assert patrol.status == "RUNNING"
+    assert patrol.current_node_id == "N2"
+    assert patrol.resume_context_json is None
+    robot = crud.robots.get(db, "amr_1")
+    assert robot.current_mission_id == patrol.mission_id
+    assert robot.status == RobotState.RESUMING.value
+    assert event.status == "RESOLVED"
+    # 로봇에 hold 해제 신호(ANOMALY_RESUME)가 정확히 한 번 나가야 한다
+    resume = [c for c in bridge.sent if c["command_type"] == "ANOMALY_RESUME"]
+    assert len(resume) == 1
+
+
+def test_resume_from_anomaly_without_preempted_patrol_goes_idle(db: Session, bridge: NullBridge) -> None:
+    _seed_min(db)
+    _make_eligible_robot(db, "amr_1")
+    _make_anomaly_hold(db, "amr_1", with_preempted_patrol=False)  # 순찰 중이 아니었던 경우
+
+    outcome = dispatch.resume_from_anomaly(db, "amr_1")
+
+    assert outcome.resumed_patrol is None
+    robot = crud.robots.get(db, "amr_1")
+    assert robot.status == RobotState.IDLE.value
+    assert robot.current_mission_id is None
+    assert [c for c in bridge.sent if c["command_type"] == "ANOMALY_RESUME"]
