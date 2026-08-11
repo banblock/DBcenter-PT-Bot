@@ -203,6 +203,14 @@ def test_battery_percentage_normalized(bridge: RobotBridge, sink: RecordingSink)
     assert sink.status[-1][1]["battery"] == 76
 
 
+def test_battery_charging_status(bridge: RobotBridge, sink: RecordingSink):
+    # Ros2Bridge 플러밍이 (percentage, power_supply_status) 를 튜플로 실어 보내므로
+    # sink 는 두 값을 함께 받아 처리해야 한다 (1 = POWER_SUPPLY_STATUS_CHARGING).
+    bridge.on_battery_state("amr_1", 0.5, 1)
+    assert sink.status[-1][1]["battery"] == 50
+    assert sink.status[-1][1]["charging"] is True
+
+
 def test_detection_and_aruco_json(bridge: RobotBridge, sink: RecordingSink):
     bridge.on_detection("amr_1", json.dumps({"type": "FIRE", "conf": 0.87, "bbox": [1, 2, 3, 4]}))
     bridge.on_aruco_correction("amr_1", json.dumps({"marker_id": 7, "error_m": 0.08}))

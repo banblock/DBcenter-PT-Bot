@@ -477,7 +477,8 @@ class Ros2Bridge:
                     self.create_subscription(
                         BatteryState, f"{ns}/battery_state",
                         lambda m, r=rid: produce(
-                            "on_battery_state", r, m.percentage, m.power_supply_status), 10)
+                            "on_battery_state", r,
+                            (m.percentage, m.power_supply_status)), 10)
                     self.create_subscription(String, f"{ns}/detection",
                                              lambda m, r=rid: produce("on_detection", r, m.data), 10)
                     self.create_subscription(String, f"{ns}/aruco_correction",
@@ -554,6 +555,11 @@ class Ros2Bridge:
                 if method == "on_amcl_pose":
                     x, y, theta = arg
                     fn(robot_id, x=x, y=y, theta=theta)
+                elif method == "on_battery_state":
+                    # 배터리는 값이 2개(percentage, power_supply_status)라 amcl_pose 처럼
+                    # 튜플 하나로 실어 보내고 여기서 편다.
+                    percentage, power_supply_status = arg
+                    fn(robot_id, percentage, power_supply_status)
                 else:
                     fn(robot_id, arg)
             except Exception:  # noqa: BLE001 - 한 프레임 실패가 컨슈머를 멈추면 안 된다
@@ -569,7 +575,13 @@ class Ros2Bridge:
         executor.add_node(self._node)
         try:
             while rclpy.ok() and not self._stop.is_set():
-                executor.spin_once(timeout_sec=0.5)
+                # 콜백 하나가 예외를 던져도(예: 잘못된 메시지) 스핀 스레드 전체가 죽으면
+                # 배터리·pose·상태 등 모든 로봇 텔레메트리 수신이 끊긴다. 반복별로 잡아
+                # 로깅만 하고 계속 돈다 - 종료는 rclpy.ok()/_stop 조건이 담당한다.
+                try:
+                    executor.spin_once(timeout_sec=0.5)
+                except Exception:  # noqa: BLE001
+                    log.exception("[robot_bridge] 콜백 처리 중 예외 — 스핀 계속")
         except Exception:  # noqa: BLE001
             log.exception("[robot_bridge] rclpy spin 종료")
         finally:
