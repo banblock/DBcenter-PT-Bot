@@ -1,10 +1,15 @@
+"""차단기 인디케이터의 열림/닫힘을 HoughCircles+HSV 색상 판별로 검사하는 순수 CV 로직.
+
+ROS에 의존하지 않아 numpy 이미지만으로 단독 테스트가 가능하며,
+detect_station_node.py에서만 사용한다.
+"""
+
 import cv2
 import numpy as np
 
 
 class GateColorDetector:
     """차단기의 원형 상태 표시등을 찾아 색상으로 열림/닫힘을 판별하는 순수 CV 로직.
-
     ROS에 의존하지 않는 클래스라서 ROS 없이도(numpy 이미지만으로) 단독 테스트가 가능하다.
     1) HoughCircles로 원형 인디케이터 위치를 찾고
     2) 그 원 내부 픽셀을 HSV로 변환해 '닫힘 색상'/'열림 색상' 비율을 비교해 판정한다.
@@ -22,8 +27,12 @@ class GateColorDetector:
         self.open_hsv_ranges = open_hsv_ranges
         self.min_color_ratio = min_color_ratio
 
-    def detect(self, cv_image):
-        """(주석 그려진 이미지, gate_closed)를 반환. 원을 못 찾으면 gate_closed는 None."""
+    def detect(self, cv_image, draw=True):
+        """(주석 그려진 이미지 또는 draw=False면 None, gate_closed)를 반환.
+        원을 못 찾으면 gate_closed는 None. draw=False는 판정 결과 이미지를 안 쓰는
+        호출부(detect_station_node)를 위한 것 - HoughCircles/HSV 판정과 무관한
+        cv2.circle/putText 그리기 비용을 아낀다.
+        """
         gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
         blurred = cv2.medianBlur(gray, 5)
         circles = cv2.HoughCircles(
@@ -31,12 +40,11 @@ class GateColorDetector:
             param1=self.param1, param2=self.param2,
             minRadius=self.min_radius, maxRadius=self.max_radius)
 
-        annotated = cv_image.copy()
         if circles is None:
-            return annotated, None
+            return (cv_image.copy() if draw else None), None
 
         hsv = cv2.cvtColor(cv_image, cv2.COLOR_BGR2HSV)
-        # 원이 여러 개 검출될 수 있는데, 가장 큰(카메라와 가장 가까운) 원을 인디케이터로 가정
+        # 원이 여러 개 검출되는 경우, 가장 큰(카메라와 가장 가까운) 원을 인디케이터로 가정
         x, y, r = max(np.round(circles[0]).astype(int), key=lambda c: c[2])
 
         mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
@@ -46,7 +54,11 @@ class GateColorDetector:
         open_ratio = self._color_ratio(hsv, mask, self.open_hsv_ranges)
         gate_closed = closed_ratio >= self.min_color_ratio and closed_ratio >= open_ratio
 
+        if not draw:
+            return None, gate_closed
+
         # 판정 결과를 원 + 텍스트로 그려서 디버깅/모니터링용 이미지로 사용
+        annotated = cv_image.copy()
         label = f'CLOSED {closed_ratio:.2f}' if gate_closed else f'OPEN {open_ratio:.2f}'
         color = (0, 0, 255) if gate_closed else (0, 255, 0)
         cv2.circle(annotated, (x, y), r, color, 3)

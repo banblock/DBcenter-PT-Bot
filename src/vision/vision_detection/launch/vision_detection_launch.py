@@ -32,5 +32,6 @@ def generate_launch_description():
             package='vision_detection',
             executable='detect_cctv_node',
             name='detect_cctv_node',
+            parameters=[params_file],
         ),
     ])
