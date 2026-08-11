@@ -1,3 +1,9 @@
+"""CCTV 웹캠 여러 대에서 화재/연기/냉각수 이상 감지를 수행하는 노드.
+
+카메라별 캡처 스레드로 최신 프레임만 유지하고, 타이머 주기로 그 프레임들을
+배치로 YOLO 추론해 상태 변화 시 CamState를 발행한다.
+"""
+
 from __future__ import annotations
 
 import glob
@@ -22,7 +28,7 @@ from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import Bool
 from ultralytics import YOLO
 
-from vision_detection.param_utils import declare_parameters_from_yaml
+from vision_detection.node_utils import declare_parameters_from_yaml, STATE_BY_CLASS, CAMERA_ID_BY_NAME
 
 @dataclass
 class CameraContext:
@@ -51,14 +57,12 @@ class DetectCctvNode(Node):
     검출, 해제는 연속 미검출 카운트로 확정한다(순간적인 오검출/흔들림 방지).
     """
 
-    STATUS_STATES = {"fire": 0, "smoke": 1, "coolant": 2,}
+    STATUS_STATES = STATE_BY_CLASS
     # 진입(켜짐)은 연속 이 프레임 수만큼 검출돼야 확정 - 1프레임짜리 순간 노이즈 필터링.
     # 30fps 기준 0.1초라 실제 감지 반응속도엔 거의 영향 없음.
     HIT_THRESHOLD = 5
-    # 해제(꺼짐)는 연속 이 프레임 수만큼 미검출이어야 확정. conf=0.13에서 CCTV
-    # recall=0.750(놓침률 25%) 기준 순수 놓침 노이즈만으로 7연속 미검출이 나올
-    # 확률은 0.25^7(약 0.006%)이고, 30fps에서 0.23초라 CCTV는 고정 카메라라
-    # ambient처럼 "다른 위치 사건을 씹는" 위험도 없어서 더 여유 있게 잡았다.
+    # 해제(꺼짐)는 연속 이 프레임 수만큼 미검출이어야 확정. CCTV는 고정 카메라라
+    # ambient처럼 "다른 위치 사건을 씹는" 위험이 없어서, 노이즈 방어를 더 여유 있게 잡았다.
     OFF_MISS_THRESHOLD = 7
 
     def __init__(self) -> None:
@@ -235,7 +239,9 @@ class DetectCctvNode(Node):
         )
         return CameraContext(
             camera_id=camera_id,
-            camera_number=camera_number,
+            # camera_ids 리스트 순번이 아니라 CamState.msg 프로토콜 고정값(cctv1=0, cctv2=1)을
+            # 이름으로 조회해서 쓴다 - yaml에서 camera_ids 순서를 바꿔도 camera_id가 안 틀어지게.
+            camera_number=CAMERA_ID_BY_NAME.get(camera_id, camera_number),
             camera_device=self._convert_camera_device(camera_device),
             capture=capture,
             image_publisher=image_publisher,

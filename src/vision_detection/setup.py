@@ -14,7 +14,7 @@ setup(
         ('share/' + package_name + '/config', ['config/params.yaml']),
         ('share/' + package_name + '/models', [
             'resource/ambient_yolov8n_v2.pt', 'resource/ambient_yolo26n_v2.pt',
-            'resource/ambient_yolo11n_v3.pt', 'resource/cctv_best.pt']),
+            'resource/cctv_best.pt']),
     ],
     install_requires=['setuptools', 'ultralytics'],
     zip_safe=True,

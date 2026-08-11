@@ -1,3 +1,10 @@
+"""AMR 주변 이상상황(화재/연기/냉각수 누출)을 상시 감지하는 노드.
+
+AMR 캠 이미지를 항상 구독하며 서로 다른 아키텍처의 YOLO 3개를 WBF(Weighted
+Boxes Fusion)로 앙상블 추론해 CamState를 발행한다.
+"""
+
+from collections import deque
 from pathlib import Path
 
 import cv2
@@ -16,25 +23,20 @@ from std_msgs.msg import Bool
 from std_srvs.srv import SetBool
 from patrol_interfaces.msg import CamState
 
-from vision_detection.param_utils import declare_parameters_from_yaml
+from vision_detection.node_utils import declare_parameters_from_yaml, STATE_BY_CLASS, CAMERA_ID_BY_NAME
 
-# CamState.msg의 state 값
-STATE_BY_CLASS = {'fire': 0, 'smoke': 1, 'coolant': 2}
-# CamState.msg의 camera_id 값 (0/1은 cctv1/cctv2가 사용, AMR 캠은 2번부터)
-CAMERA_ID_BY_ROBOT = {'robot3': 2, 'robot8': 3}
-# 진입(켜짐)은 연속 이 프레임 수만큼 검출돼야 확정한다. 모션블러/순간 조명 변화 같은
-# 1~2프레임짜리 일시적 노이즈를 걸러내기 위함 - 실제 화재/연기는 한두 프레임만 반짝이고
-# 사라지지 않으므로 이 정도 지연(10Hz에서 0.3초)은 실제 감지 반응속도에 거의 영향 없다.
-# 다만 오탐 자체가 "잘못된 사물을 계속 화재로 오인"하는 구조적 문제라면(비상등, 스팀 등)
-# 몇 프레임을 요구하든 못 거른다 - 이건 debounce가 아니라 재학습으로 풀어야 하는 문제.
-HIT_THRESHOLD = 5
+# 진입(켜짐)은 최근 HIT_WINDOW프레임 중 HIT_REQUIRED장 이상 검출되면 확정한다(연속일
+# 필요는 없음 - 중간에 한두 번 놓쳐도 누적이 안 사라짐). 연속 요구 방식보다 실제
+# 탐지까지 걸리는 시간이 짧고 확실하다. 대신 산발적인(비연속) 노이즈 방어력은 연속
+# 방식보다 약하지만, 확인된 노이즈 패턴이 1프레임짜리 순간 플래시뿐이라 이 방식으로도
+# 충분히 걸러진다.
+HIT_WINDOW = 5
+HIT_REQUIRED = 3
 
-# 해제(꺼짐)는 연속 이 프레임 수만큼 미검출이어야 확정한다. AMR 앙상블 recall(87.2%)
-# 기준으로 순수 놓침 노이즈만으로 5연속 미검출이 나올 확률은 0.128^5(약 0.003%)라
-# 사실상 무시할 수준이고, 10Hz에서 0.5초면 AMR이 실제로 지나쳐서 안 보이게 된 상황에도
-# 충분히 빠르게 반응한다. 너무 길면(=꺼짐 판정이 너무 느리면) AMR이 다른 지점으로
-# 이동한 뒤에도 active 상태가 오래 남아서, 그 사이 실제로 다른 위치에서 발생한 새
-# 이상상황을 "이미 진행 중"으로 착각해 재발행을 놓칠 위험이 커진다.
+# 해제(꺼짐)는 연속 이 프레임 수만큼 미검출이어야 확정한다. 너무 길면(=꺼짐 판정이
+# 너무 느리면) AMR이 다른 지점으로 이동한 뒤에도 active 상태가 오래 남아서, 그 사이
+# 실제로 다른 위치에서 발생한 새 이상상황을 "이미 진행 중"으로 착각해 재발행을
+# 놓칠 위험이 커진다.
 OFF_MISS_THRESHOLD = 5
 
 CLASS_COLORS = {'fire': (0, 0, 255), 'smoke': (0, 255, 255), 'coolant': (255, 128, 0)}
@@ -146,10 +148,10 @@ class DetectAmbientNode(Node):
         self._frame_counters = {}
 
         # CamState 재발행을 막기 위해 클래스별로 "지금 이상상황이 진행 중인가"를 기억해둔다.
-        # 진입은 연속 검출 카운트가 HIT_THRESHOLD에, 해제는 연속 미검출 카운트가
-        # OFF_MISS_THRESHOLD에 닿아야 반영한다.
+        # 진입은 최근 HIT_WINDOW프레임 중 HIT_REQUIRED장 이상 검출되면, 해제는 연속
+        # 미검출 카운트가 OFF_MISS_THRESHOLD에 닿아야 반영한다.
         self._active_classes = {}
-        self._hit_counts = {}
+        self._hit_windows = {}
         self._miss_counts = {}
         self._camera_id_by_topic = {}
 
@@ -159,9 +161,11 @@ class DetectAmbientNode(Node):
             robot_id = self._robot_id_from_topic(topic)
             self._frame_counters[topic] = 0
             self._active_classes[topic] = set()
-            self._hit_counts[topic] = {class_name: 0 for class_name in self.anomaly_classes}
+            self._hit_windows[topic] = {
+                class_name: deque(maxlen=HIT_WINDOW) for class_name in self.anomaly_classes
+            }
             self._miss_counts[topic] = {class_name: 0 for class_name in self.anomaly_classes}
-            self._camera_id_by_topic[topic] = CAMERA_ID_BY_ROBOT.get(robot_id)
+            self._camera_id_by_topic[topic] = CAMERA_ID_BY_NAME.get(robot_id)
             self._image_pubs[topic] = self.create_publisher(
                 CompressedImage, f'/detection/{robot_id}_cam/detection_image', image_qos)
             self._subs.append(self.create_subscription(
@@ -305,38 +309,39 @@ class DetectAmbientNode(Node):
             if detected_classes:
                 self._image_pubs[topic].publish(self._to_compressed_image_msg(annotated_image))
 
-            # CamState: 진입은 연속 HIT_THRESHOLD프레임 검출돼야, 해제는 연속 OFF_MISS_THRESHOLD
-            # 프레임 미검출이어야 확정한다. 둘 다 모델이 가끔 놓치거나(recall<100%) 순간
-            # 노이즈로 헛 잡는 것만으로 같은 상황이 반복 발행되는 걸 막기 위함.
+            # CamState: 진입은 최근 HIT_WINDOW프레임 중 HIT_REQUIRED장 이상 검출되면,
+            # 해제는 연속 OFF_MISS_THRESHOLD프레임 미검출이어야 확정한다. 둘 다 모델이
+            # 가끔 놓치거나(recall<100%) 순간 노이즈로 헛 잡는 것만으로 같은 상황이
+            # 반복 발행되는 걸 막기 위함.
             camera_id = self._camera_id_by_topic[topic]
             active_classes = self._active_classes[topic]
-            hit_counts = self._hit_counts[topic]
+            hit_windows = self._hit_windows[topic]
             miss_counts = self._miss_counts[topic]
             for class_name in self.anomaly_classes:
                 detected = class_name in detected_classes
 
-                if detected:
-                    miss_counts[class_name] = 0
-                    if class_name in active_classes:
-                        continue
-                    hit_counts[class_name] += 1
-                    if hit_counts[class_name] < HIT_THRESHOLD:
-                        continue
-                    hit_counts[class_name] = 0
-                    active_classes.add(class_name)
-                    # AMR 캠은 CCTV처럼 고정 설치가 아니라 호모그래피(픽셀->맵) 캘리브레이션이
-                    # 없어서 bbox를 실어 보내도 백엔드가 맵 좌표로 못 바꾼다. 그래서 항상
-                    # 무효 bbox(-1)+confidence 0으로 보낸다.
-                    self.cam_state_pub.publish(CamState(
-                        camera_id=camera_id, state=STATE_BY_CLASS[class_name],
-                        bbox_x1=-1.0, bbox_y1=-1.0, bbox_x2=-1.0, bbox_y2=-1.0, confidence=0.0))
-                else:
-                    hit_counts[class_name] = 0
-                    if class_name in active_classes:
+                if class_name in active_classes:
+                    if detected:
+                        miss_counts[class_name] = 0
+                    else:
                         miss_counts[class_name] += 1
                         if miss_counts[class_name] >= OFF_MISS_THRESHOLD:
                             active_classes.discard(class_name)
                             miss_counts[class_name] = 0
+                            hit_windows[class_name].clear()
+                else:
+                    window = hit_windows[class_name]
+                    window.append(detected)
+                    if sum(window) >= HIT_REQUIRED:
+                        window.clear()
+                        miss_counts[class_name] = 0
+                        active_classes.add(class_name)
+                        # AMR 캠은 CCTV처럼 고정 설치가 아니라 호모그래피(픽셀->맵) 캘리브레이션이
+                        # 없어서 bbox를 실어 보내도 백엔드가 맵 좌표로 못 바꾼다. 그래서 항상
+                        # 무효 bbox(-1)+confidence 0으로 보낸다.
+                        self.cam_state_pub.publish(CamState(
+                            camera_id=camera_id, state=STATE_BY_CLASS[class_name],
+                            bbox_x1=-1.0, bbox_y1=-1.0, bbox_x2=-1.0, bbox_y2=-1.0, confidence=0.0))
 
         return callback
 

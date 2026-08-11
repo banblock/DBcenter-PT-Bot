@@ -1,3 +1,9 @@
+"""차단기 인디케이터의 열림/닫힘을 HoughCircles+HSV 색상 판별로 검사하는 순수 CV 로직.
+
+ROS에 의존하지 않아 numpy 이미지만으로 단독 테스트가 가능하며,
+detect_station_node.py에서만 사용한다.
+"""
+
 import cv2
 import numpy as np
 

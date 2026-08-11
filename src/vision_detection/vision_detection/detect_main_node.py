@@ -1,3 +1,9 @@
+"""전체 검사 흐름을 조율하는 중앙 노드.
+
+외부(UI/백엔드)의 CheckGate 요청을 받으면 ambient_node 쓰로틀 -> station_node
+검사 요청 -> ambient_node 복구 순서로 다른 노드들을 제어하고 결과를 응답한다.
+"""
+
 import time
 
 import rclpy
@@ -9,7 +15,7 @@ from std_msgs.msg import Bool
 from std_srvs.srv import SetBool
 from patrol_interfaces.srv import CheckGate
 
-from vision_detection.param_utils import declare_parameters_from_yaml
+from vision_detection.node_utils import declare_parameters_from_yaml
 
 class DetectMainNode(Node):
     """전체 detection 흐름을 관리하는 중앙 노드.

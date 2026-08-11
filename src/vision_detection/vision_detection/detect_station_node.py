@@ -1,3 +1,9 @@
+"""차단기(gate) 색상으로 열림/닫힘 상태를 검사하는 노드.
+
+평소엔 AMR 캠을 구독하지 않고 대기하다가, main_node의 inspect_gate 요청이
+들어온 순간에만 구독을 열어 프레임 여러 장을 다수결로 판정한다.
+"""
+
 import threading
 import time
 
@@ -12,7 +18,7 @@ from std_msgs.msg import Bool
 from patrol_interfaces.srv import CheckGate
 
 from vision_detection.gate_color_detector import GateColorDetector
-from vision_detection.param_utils import declare_parameters_from_yaml
+from vision_detection.node_utils import declare_parameters_from_yaml
 
 class DetectStationNode(Node):
     """차단기(gate) 상태를 검사하는 노드.

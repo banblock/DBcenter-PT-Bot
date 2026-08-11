@@ -18,14 +18,14 @@ detect_cctv_node:
 
 detect_ambient_node:
   ros__parameters:
-    # 3모델 WBF 앙상블 구성 (yolov8n_amr_v2+TTA, yolo26n_amr_v2, yolo11n_amr_v3+TTA)
+    # 2모델 WBF 앙상블 구성 (yolov8n_amr_v2+TTA, yolo26n_amr_v2) - 3모델(yolo11n_amr_v3
+    # 포함) 대비 이 조합이 mAP50/recall/F1 전부 더 높아서 11n_amr_v3 제외.
     model_paths:
       - "ambient_yolov8n_v2.pt"
       - "ambient_yolo26n_v2.pt"
-      - "ambient_yolo11n_v3.pt"
-    model_tta: [true, false, true]  # yolo26 계열은 augment=True 미지원(자동 revert)
-    conf_threshold: 0.25  # WBF conf 스윕 F1 최적점(0.230~0.250)과 일치
-    wbf_merge_iou: 0.5
+    model_tta: [true, false]  # yolo26 계열은 augment=True 미지원(자동 revert)
+    conf_threshold: 0.13  # F1 최적점(conf/wbf_merge_iou 2D 스윕 결과)
+    wbf_merge_iou: 0.25  # F1 최적 구간(0.20~0.35) 중앙값
     amr_cam_topics:
       - "/robot3/oakd/rgb/preview/image_raw"
       - "/robot8/oakd/rgb/preview/image_raw"
