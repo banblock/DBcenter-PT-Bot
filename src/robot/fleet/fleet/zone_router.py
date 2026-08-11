@@ -77,6 +77,49 @@ def _heading_deg(a, b):
     return math.degrees(math.atan2(b[1] - a[1], b[0] - a[0]))
 
 
+# 맵에 고정된 차단기(gate) 점검 지점. 순찰 웨이포인트가 이 원
+# (중심 center, 반지름 radius_m) 안에 들어오면 그 지점을 차단기 점검
+# 지점으로 보고(has_gate=True), 바라볼 대상(차단기) 좌표 look_at을
+# 웨이포인트에 실어보낸다. 정렬 회전 + 2초 대기 + 비전 대조는
+# control_amr(GateAlignmentFlowSupport/InspectionFlowSupport)가 수행한다 -
+# 여기서는 "어디가 차단기고 무엇을 볼지"만 태깅한다. (사용자 실측값 -
+# 필요하면 좌표/반지름/look_at 교체.)
+GATE_ZONES = [
+    {'center': (-0.253, 1.99), 'radius': 0.24, 'look_at': (-0.222, 2.36)},
+    {'center': (-4.52, -0.157), 'radius': 0.24, 'look_at': (-4.43, -0.514)},
+]
+
+
+def _gate_at(x, y):
+    """(x, y)가 어느 차단기 원 안에 있으면 그 gate dict를, 아니면 None."""
+    for gate in GATE_ZONES:
+        cx, cy = gate['center']
+        if math.hypot(x - cx, y - cy) <= gate['radius']:
+            return gate
+    return None
+
+
+def _apply_gate(wp):
+    """순찰 웨이포인트 dict가 차단기 원 안이면 차단기 점검 지점으로
+    태깅한다(제자리 mutate): has_gate=True로 올리고, 바라볼 대상(차단기)
+    좌표를 gate_look_at=[x, y]로 실어준다.
+
+    카메라 정렬 각도는 fleet이 미리 계산하지 않는다 - nav 도착 오차로
+    로봇이 목표에서 조금 벗어나면 계획 좌표 기준으로 굳힌 각도는
+    빗나가기 때문. control_amr가 도착 직후 amcl_pose(실제 위치)에서
+    gate_look_at까지의 방향을 그 자리에서 다시 계산해 정렬한다. 여기서는
+    nav 도착 자세 yaw(도)만 계획 좌표 기준으로 대략 차단기 쪽에 맞춰
+    회전량을 줄여둘 뿐이고(진행방향 도착보다 우선), 정밀 정렬은 control
+    몫이다."""
+    gate = _gate_at(wp['x'], wp['y'])
+    if gate is None:
+        return
+    lx, ly = gate['look_at']
+    wp['has_gate'] = True
+    wp['gate_look_at'] = [lx, ly]
+    wp['yaw'] = math.degrees(math.atan2(ly - wp['y'], lx - wp['x']))
+
+
 def _emit_hop(g, from_node, to_node, dest_point, waypoints, incoming_edge,
               waypoint_node_ids, final_yaw=None):
     """`from_node`에서 `to_node`까지 다익스트라(RouteGraph.shortest_path)로
@@ -202,6 +245,12 @@ def _route_zone(graph, zone, start_pos=None):
     for i in range(len(points) - 1):
         _emit_hop(g, node_ids[i], node_ids[i + 1], points[i + 1],
                   waypoints, incoming_edge, waypoint_node_ids)
+
+    # 순찰 지점(origin='patrol')이 차단기 원 안이면 차단기 점검 지점으로
+    # 태깅한다 - 지나가기만 하는 경유 교차로(transit)는 대상이 아니다.
+    for wp in waypoints:
+        if wp.get('origin') == 'patrol':
+            _apply_gate(wp)
 
     return waypoints, incoming_edge, waypoint_node_ids
 

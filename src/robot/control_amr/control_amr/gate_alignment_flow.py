@@ -28,12 +28,17 @@ class GateAlignmentFlowSupport:
         self.alignment_done_pub = self.navigator.create_publisher(
             String, f'/fleet/{namespace}/gate_alignment_done', 10)
         self._current_yaw = None
+        self._current_x = None
+        self._current_y = None
         self._pose_sub = self.navigator.create_subscription(
             PoseWithCovarianceStamped, 'amcl_pose', self._on_pose, 10)
         # TODO: gate 정렬 완료 후 정지 시간을 운영 정책에 맞게 조정한다.
         self.pause_after_alignment_sec = 2.0
 
     def _on_pose(self, msg):
+        position = msg.pose.pose.position
+        self._current_x = position.x
+        self._current_y = position.y
         orientation = msg.pose.pose.orientation
         sin_yaw = 2.0 * (
             orientation.w * orientation.z + orientation.x * orientation.y)
@@ -42,8 +47,16 @@ class GateAlignmentFlowSupport:
         self._current_yaw = math.atan2(sin_yaw, cos_yaw)
 
     def get_target_direction(self, waypoint):
-        # TODO: waypoint의 gate 방향 필드 이름을 확정한다. 예: gate_yaw, camera_yaw.
-        # TODO: 방향 필드가 없을 때 기본값을 waypoint yaw로 할지, 현재 자세로 할지 결정한다.
+        # 차단기를 바라볼 각도(라디안)를 도착 시점에 계산한다. fleet이 실어준
+        # gate_look_at([x, y], 차단기 대상 좌표)이 있으면, nav 도착 오차를
+        # 감수하고 굳힌 각도 대신 지금 amcl_pose(실제 위치)에서 그 대상까지의
+        # 방향을 그 자리에서 다시 계산한다 - 목표에서 조금 벗어나 도착해도
+        # 카메라가 정확히 차단기를 겨냥하게 하기 위함이다.
+        look_at = waypoint.get('gate_look_at')
+        if look_at is not None and self._current_x is not None:
+            lx, ly = look_at
+            return math.atan2(ly - self._current_y, lx - self._current_x)
+        # 하위호환: look_at이 없으면 예전처럼 웨이포인트가 준 각도를 쓴다.
         return waypoint.get('gate_yaw', waypoint.get('yaw'))
 
     def align_camera_to_gate(self, waypoint):
