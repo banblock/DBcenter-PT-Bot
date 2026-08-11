@@ -57,8 +57,15 @@ class DetectCctvNode(Node):
     검출, 해제는 연속 미검출 카운트로 확정한다(순간적인 오검출/흔들림 방지).
     """
 
+<<<<<<< Updated upstream
     # smoke 오탐이 잦아 CCTV 이상감지 대상에서 제외 (fire/coolant만 판정·발행)
     STATUS_STATES = {name: value for name, value in STATE_BY_CLASS.items() if name != 'smoke'}
+=======
+    # 차단기를 smoke로 오감지하는 문제로 smoke는 추적에서 제외(2026-08-11).
+    # STATE_BY_CLASS(프로토콜 상수, smoke=1)는 그대로 두고 여기서만 필터한다.
+    # 되살리려면 아래 컴프리헨션을 STATUS_STATES = STATE_BY_CLASS 로 되돌리면 된다.
+    STATUS_STATES = {name: state for name, state in STATE_BY_CLASS.items() if name != "smoke"}
+>>>>>>> Stashed changes
     # 진입(켜짐)은 연속 이 프레임 수만큼 검출돼야 확정 - 1프레임짜리 순간 노이즈 필터링.
     # 30fps 기준 0.1초라 실제 감지 반응속도엔 거의 영향 없음.
     HIT_THRESHOLD = 5
@@ -398,10 +405,28 @@ class DetectCctvNode(Node):
                 current_boxes = self._extract_boxes(result)
                 stable_status = self._apply_debounce(camera, detected_status)
                 self._publish_status(camera, stable_status, current_boxes)
-                self._publish_image(camera, result.plot())
+                self._publish_image(camera, self._plot_tracked_only(result))
                 camera.last_inferred_sequence = sequence
         except Exception as exc:
             self.get_logger().error(f"YOLO 배치 처리 중 오류: {exc}")
+
+    def _plot_tracked_only(self, result: Any) -> Any:
+        """추적 대상(STATUS_STATES) 클래스 박스만 그린다.
+
+        result.plot()은 모델이 검출한 모든 클래스를 그려서, 추적 제외한 smoke 같은
+        클래스도 영상에 표시된다. 이벤트뿐 아니라 화면에서도 감추기 위해 제외 클래스
+        박스는 그리기 전에 걸러낸다.
+        """
+        boxes = result.boxes
+        if boxes is None or len(boxes) == 0:
+            return result.plot()
+        keep = [
+            i for i, class_index in enumerate(boxes.cls.tolist())
+            if self._class_name_from_index(int(class_index), result.names) in self.STATUS_STATES
+        ]
+        if len(keep) == len(boxes):
+            return result.plot()
+        return result[keep].plot()
 
     def _extract_detected_status(self, result: Any) -> Dict[str, bool]:
         """YOLO 결과 1장에서 클래스별 검출 여부(True/False)만 뽑는다."""

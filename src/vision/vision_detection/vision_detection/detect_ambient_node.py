@@ -259,7 +259,9 @@ class DetectAmbientNode(Node):
                 'xyxy': [float(v) for v in box],
             })
 
-        annotated_image = self._draw_detections(cv_image, detections)
+        # 화면에도 추적 대상(anomaly_classes)만 표시한다 - 제외한 smoke 등은 박스도 안 그린다.
+        drawable = [d for d in detections if d['class_name'] in self.anomaly_classes]
+        annotated_image = self._draw_detections(cv_image, drawable)
         return annotated_image, detections
 
     @staticmethod

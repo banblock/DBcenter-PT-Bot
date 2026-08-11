@@ -11529,3 +11529,594 @@ TypeError: Ros2Bridge._produce() takes 4 positional arguments but 5 were given
 2026-08-11 15:13:42 | INFO    | amr.request      | f42a56dd | GET /api/stats/overview → 200 (2.3ms) role=-
 2026-08-11 15:14:42 | INFO    | amr.request      | d4ae4b1f | GET /api/stats/overview → 200 (4.0ms) role=-
 2026-08-11 15:15:42 | INFO    | amr.request      | 184817e1 | GET /api/stats/overview → 200 (4.9ms) role=-
+2026-08-11 15:16:42 | INFO    | amr.request      | c8b44b7d | GET /api/stats/overview → 200 (2.6ms) role=-
+2026-08-11 15:17:03 | INFO    | amr.request      | 6ea73077 | GET /api/stats/overview → 200 (2.0ms) role=-
+2026-08-11 15:17:05 | INFO    | amr.ws           | -        | WS 해제 — 현재 0개 연결
+2026-08-11 15:17:05 | INFO    | amr.request      | a043d5ab | GET /api/cameras/cctv1/stream → 200 (1.2ms) role=-
+2026-08-11 15:17:05 | INFO    | amr.request      | ca67f48f | GET /api/cameras/cctv2/stream → 200 (0.9ms) role=-
+2026-08-11 15:17:05 | INFO    | amr.ws           | -        | WS 접속 — 현재 1개 연결
+2026-08-11 15:17:05 | INFO    | amr.ws           | -        | WS 해제 — 현재 0개 연결
+2026-08-11 15:17:05 | INFO    | amr.request      | 79527574 | GET /api/map → 200 (8.3ms) role=-
+2026-08-11 15:17:05 | INFO    | amr.request      | 1af0b4dd | GET /api/stats/overview → 200 (9.7ms) role=-
+2026-08-11 15:17:05 | INFO    | amr.request      | 9d68e91c | GET /api/zones → 200 (8.5ms) role=-
+2026-08-11 15:17:05 | INFO    | amr.ws           | -        | WS 접속 — 현재 1개 연결
+2026-08-11 15:17:05 | INFO    | amr.request      | df2bb4b8 | GET /api/zones → 200 (1.5ms) role=-
+2026-08-11 15:17:05 | INFO    | amr.request      | b010a6a6 | GET /api/map → 200 (6.9ms) role=-
+2026-08-11 15:17:05 | INFO    | amr.request      | b3d9c11f | GET /api/stats/overview → 200 (7.9ms) role=-
+2026-08-11 15:17:05 | INFO    | amr.request      | a6cad514 | GET /api/map/MAP-DC-V4/grid → 200 (1.7ms) role=-
+2026-08-11 15:17:35 | INFO    | amr.request      | a47f8b80 | GET /api/stats/overview → 200 (2.7ms) role=-
+2026-08-11 15:18:00 | INFO    | amr.request      | 92b6e9e4 | OPTIONS /api/zones/Z-P1 → 200 (0.2ms) role=-
+2026-08-11 15:18:00 | WARNING | amr.request      | 10fae221 | PUT /api/zones/Z-P1 → 404 (4.7ms) role=ADMIN
+2026-08-11 15:18:00 | INFO    | amr.request      | c9892f13 | OPTIONS /api/zones → 200 (0.3ms) role=-
+2026-08-11 15:18:00 | INFO    | amr.request      | 5af0f986 | POST /api/zones → 201 (5.6ms) role=ADMIN
+2026-08-11 15:18:00 | INFO    | amr.request      | 47b6c9f1 | GET /api/patrol/missions → 200 (2.2ms) role=-
+2026-08-11 15:18:00 | INFO    | amr.request      | a6c85635 | OPTIONS /api/nodes → 200 (0.1ms) role=-
+2026-08-11 15:18:00 | INFO    | amr.request      | 7b3e8d53 | POST /api/nodes → 201 (6.8ms) role=ADMIN
+2026-08-11 15:18:00 | INFO    | amr.request      | ea2b46f9 | POST /api/nodes → 201 (2.9ms) role=ADMIN
+2026-08-11 15:18:00 | INFO    | amr.request      | 5376e094 | POST /api/nodes → 201 (3.2ms) role=ADMIN
+2026-08-11 15:18:00 | INFO    | amr.request      | 27ae6c58 | OPTIONS /api/routes → 200 (0.1ms) role=-
+2026-08-11 15:18:00 | INFO    | amr.request      | 63f12053 | POST /api/routes → 201 (4.3ms) role=ADMIN
+2026-08-11 15:18:00 | INFO    | amr.request      | d830bafa | OPTIONS /api/patrol/start → 200 (0.1ms) role=-
+2026-08-11 15:18:00 | INFO    | amr.bridge       | 2c63c7ff | [robot_bridge] AMR-01 ← START_PATROL CMD-20260811-64c5
+2026-08-11 15:18:00 | INFO    | amr.vision       | 2c63c7ff | [vision_bridge] /ui/start=True 발행
+2026-08-11 15:18:00 | INFO    | amr.vision       | -        | [vision_bridge] cam=0 state=0 bbox=False → 이벤트 EV-20260811-0001 (NEW) map=(None,None)
+2026-08-11 15:18:00 | INFO    | amr.vision       | -        | [vision_bridge] cam=0 state=1 bbox=False → 이벤트 EV-20260811-0002 (NEW) map=(None,None)
+2026-08-11 15:18:00 | INFO    | amr.vision       | -        | [vision_bridge] cam=0 state=2 bbox=False → 이벤트 EV-20260811-0003 (NEW) map=(None,None)
+2026-08-11 15:18:00 | INFO    | amr.vision       | -        | [vision_bridge] cam=1 state=0 bbox=False → 이벤트 EV-20260811-0004 (NEW) map=(None,None)
+2026-08-11 15:18:00 | INFO    | amr.vision       | -        | [vision_bridge] cam=1 state=1 bbox=False → 이벤트 EV-20260811-0005 (NEW) map=(None,None)
+2026-08-11 15:18:00 | INFO    | amr.request      | 2c63c7ff | POST /api/patrol/start → 200 (34.1ms) role=-
+2026-08-11 15:18:00 | INFO    | amr.vision       | -        | [vision_bridge] cam=1 state=2 bbox=False → 이벤트 EV-20260811-0006 (NEW) map=(None,None)
+2026-08-11 15:18:00 | INFO    | amr.request      | 1feb052a | OPTIONS /api/zones/Z-P2 → 200 (0.2ms) role=-
+2026-08-11 15:18:00 | WARNING | amr.request      | 5937a415 | PUT /api/zones/Z-P2 → 404 (2.6ms) role=ADMIN
+2026-08-11 15:18:00 | INFO    | amr.request      | 9d351ff3 | POST /api/zones → 201 (3.4ms) role=ADMIN
+2026-08-11 15:18:00 | INFO    | amr.request      | 3f40f274 | GET /api/patrol/missions → 200 (1.6ms) role=-
+2026-08-11 15:18:00 | INFO    | amr.request      | 5c9c579f | POST /api/nodes → 201 (3.3ms) role=ADMIN
+2026-08-11 15:18:00 | INFO    | amr.request      | 70686f6e | POST /api/nodes → 201 (3.0ms) role=ADMIN
+2026-08-11 15:18:00 | INFO    | amr.request      | 484e1951 | POST /api/nodes → 201 (2.7ms) role=ADMIN
+2026-08-11 15:18:00 | INFO    | amr.request      | 655eb3f8 | POST /api/routes → 201 (2.2ms) role=ADMIN
+2026-08-11 15:18:00 | INFO    | amr.bridge       | 258e4116 | [robot_bridge] AMR-02 ← START_PATROL CMD-20260811-db20
+2026-08-11 15:18:00 | INFO    | amr.vision       | 258e4116 | [vision_bridge] /ui/start=True 발행
+2026-08-11 15:18:00 | INFO    | amr.request      | 258e4116 | POST /api/patrol/start → 200 (5.2ms) role=-
+2026-08-11 15:18:05 | INFO    | amr.request      | b967e424 | GET /api/stats/overview → 200 (1.9ms) role=-
+2026-08-11 15:18:15 | INFO    | amr.vision       | -        | [vision_bridge] cam=2 state=1 bbox=False → 이벤트 EV-20260811-0007 (NEW) map=(None,None)
+2026-08-11 15:18:15 | INFO    | amr.request      | 3dc2cd19 | GET /api/cameras/AMR-01/stream → 200 (0.7ms) role=-
+2026-08-11 15:18:22 | INFO    | amr.request      | 844419df | POST /api/align/check-gate → 200 (352.2ms) role=-
+2026-08-11 15:18:25 | INFO    | amr.request      | 11560089 | POST /api/align/check-gate → 200 (2038.6ms) role=-
+2026-08-11 15:18:25 | INFO    | amr.request      | ceb519d8 | POST /api/align/check-gate → 200 (428.4ms) role=-
+2026-08-11 15:18:28 | INFO    | amr.request      | ae865e1f | POST /api/align/check-gate → 200 (348.6ms) role=-
+2026-08-11 15:18:30 | INFO    | amr.request      | 73fd5073 | POST /api/align/check-gate → 200 (2039.1ms) role=-
+2026-08-11 15:18:31 | INFO    | amr.request      | c3764482 | POST /api/align/check-gate → 200 (368.0ms) role=-
+2026-08-11 15:18:35 | INFO    | amr.request      | 2fc9c69f | POST /api/align/check-gate → 200 (1477.9ms) role=-
+2026-08-11 15:18:35 | INFO    | amr.request      | 0c0682d3 | POST /api/align/check-gate → 200 (409.1ms) role=-
+2026-08-11 15:18:35 | INFO    | amr.request      | ee1d6154 | GET /api/stats/overview → 200 (2.4ms) role=-
+2026-08-11 15:18:37 | INFO    | amr.request      | c58255cf | POST /api/align/check-gate → 200 (325.2ms) role=-
+2026-08-11 15:18:39 | INFO    | amr.request      | fb3cfaee | POST /api/align/check-gate → 200 (2039.9ms) role=-
+2026-08-11 15:18:40 | INFO    | amr.request      | f16eb605 | OPTIONS /api/events/EV-20260811-0007/ack → 200 (0.1ms) role=-
+2026-08-11 15:18:40 | INFO    | amr.request      | 408e5b6e | POST /api/events/EV-20260811-0007/ack → 200 (4.8ms) role=-
+2026-08-11 15:18:40 | INFO    | amr.request      | b4c01cd8 | POST /api/align/check-gate → 200 (366.2ms) role=-
+2026-08-11 15:18:43 | INFO    | amr.request      | b88269a5 | POST /api/align/check-gate → 200 (1380.3ms) role=-
+2026-08-11 15:18:43 | INFO    | amr.request      | 3586e384 | POST /api/align/check-gate → 200 (390.0ms) role=-
+2026-08-11 15:18:46 | INFO    | amr.request      | 029df751 | POST /api/align/check-gate → 200 (350.1ms) role=-
+2026-08-11 15:18:46 | INFO    | amr.request      | 58aaefc1 | POST /api/align/check-gate → 200 (309.5ms) role=-
+2026-08-11 15:18:49 | INFO    | amr.request      | ada8c060 | POST /api/align/check-gate → 200 (347.0ms) role=-
+2026-08-11 15:18:51 | INFO    | amr.request      | 1b8726d5 | POST /api/align/check-gate → 200 (2039.2ms) role=-
+2026-08-11 15:18:52 | INFO    | amr.request      | 876b8460 | POST /api/align/check-gate → 200 (348.9ms) role=-
+2026-08-11 15:18:55 | INFO    | amr.request      | 9656a262 | POST /api/align/check-gate → 200 (1371.9ms) role=-
+2026-08-11 15:18:55 | INFO    | amr.request      | 117a75e9 | POST /api/align/check-gate → 200 (369.2ms) role=-
+2026-08-11 15:18:58 | INFO    | amr.request      | 69b63113 | POST /api/align/check-gate → 200 (290.6ms) role=-
+2026-08-11 15:18:58 | INFO    | amr.request      | 9df2f406 | POST /api/align/check-gate → 200 (310.0ms) role=-
+2026-08-11 15:19:01 | INFO    | amr.request      | 23390693 | POST /api/align/check-gate → 200 (324.4ms) role=-
+2026-08-11 15:19:01 | INFO    | amr.request      | ed78ec24 | POST /api/align/check-gate → 200 (286.9ms) role=-
+2026-08-11 15:19:04 | INFO    | amr.request      | ec62f063 | POST /api/align/check-gate → 200 (289.9ms) role=-
+2026-08-11 15:19:04 | INFO    | amr.request      | 8c9d43da | POST /api/align/check-gate → 200 (387.1ms) role=-
+2026-08-11 15:19:05 | INFO    | amr.request      | 567cbe55 | GET /api/stats/overview → 200 (2.2ms) role=-
+2026-08-11 15:19:07 | INFO    | amr.request      | 4450d5ab | POST /api/align/check-gate → 200 (330.8ms) role=-
+2026-08-11 15:19:07 | INFO    | amr.request      | 296e1d1f | POST /api/align/check-gate → 200 (365.5ms) role=-
+2026-08-11 15:19:10 | INFO    | amr.request      | ba7ecf4a | POST /api/align/check-gate → 200 (288.3ms) role=-
+2026-08-11 15:19:10 | INFO    | amr.request      | f59843d5 | POST /api/align/check-gate → 200 (304.5ms) role=-
+2026-08-11 15:19:13 | INFO    | amr.request      | 875aeb56 | POST /api/align/check-gate → 200 (350.0ms) role=-
+2026-08-11 15:19:13 | INFO    | amr.request      | 40e847db | POST /api/align/check-gate → 200 (308.5ms) role=-
+2026-08-11 15:19:16 | INFO    | amr.request      | cf595fbc | POST /api/align/check-gate → 200 (366.8ms) role=-
+2026-08-11 15:19:18 | INFO    | amr.request      | 72dca5d8 | POST /api/align/check-gate → 200 (2037.4ms) role=-
+2026-08-11 15:19:19 | INFO    | amr.request      | c0244104 | POST /api/align/check-gate → 200 (389.3ms) role=-
+2026-08-11 15:19:23 | INFO    | amr.request      | 2a50d4e6 | POST /api/align/check-gate → 200 (409.5ms) role=-
+2026-08-11 15:19:23 | INFO    | amr.request      | 1b7268e6 | POST /api/align/check-gate → 200 (1511.9ms) role=-
+2026-08-11 15:19:25 | INFO    | amr.request      | a5315b33 | POST /api/align/check-gate → 200 (326.7ms) role=-
+2026-08-11 15:19:27 | INFO    | amr.request      | 20c18e19 | POST /api/align/check-gate → 200 (2039.7ms) role=-
+2026-08-11 15:19:28 | INFO    | amr.request      | 3664f983 | POST /api/align/check-gate → 200 (368.0ms) role=-
+2026-08-11 15:19:31 | INFO    | amr.request      | 31a61f86 | POST /api/align/check-gate → 200 (1376.9ms) role=-
+2026-08-11 15:19:31 | INFO    | amr.request      | 01da3b8c | POST /api/align/check-gate → 200 (368.0ms) role=-
+2026-08-11 15:19:34 | INFO    | amr.request      | 5483ae4f | POST /api/align/check-gate → 200 (366.3ms) role=-
+2026-08-11 15:19:34 | INFO    | amr.request      | f86b9b9e | POST /api/align/check-gate → 200 (407.1ms) role=-
+2026-08-11 15:19:35 | INFO    | amr.request      | 7f632071 | GET /api/stats/overview → 200 (2.6ms) role=-
+2026-08-11 15:19:35 | INFO    | amr.request      | 080ce489 | OPTIONS /api/patrol/MSN-20260811-7610/pause → 200 (0.1ms) role=-
+2026-08-11 15:19:35 | INFO    | amr.bridge       | 1f324752 | [robot_bridge] AMR-01 ← PAUSE CMD-20260811-cc11
+2026-08-11 15:19:35 | INFO    | amr.request      | 1f324752 | POST /api/patrol/MSN-20260811-7610/pause → 200 (8.3ms) role=-
+2026-08-11 15:19:37 | INFO    | amr.bridge       | 761a9717 | [robot_bridge] AMR-01 ← RESUME CMD-20260811-d0c3
+2026-08-11 15:19:37 | INFO    | amr.request      | 761a9717 | POST /api/patrol/MSN-20260811-7610/resume → 200 (5.8ms) role=-
+2026-08-11 15:19:39 | INFO    | amr.request      | fdc3c384 | OPTIONS /api/patrol/MSN-20260811-2237/pause → 200 (0.2ms) role=-
+2026-08-11 15:19:39 | INFO    | amr.bridge       | 5879e899 | [robot_bridge] AMR-02 ← PAUSE CMD-20260811-a4d7
+2026-08-11 15:19:39 | INFO    | amr.request      | 5879e899 | POST /api/patrol/MSN-20260811-2237/pause → 200 (6.0ms) role=-
+2026-08-11 15:19:39 | INFO    | amr.request      | 1615f346 | POST /api/align/check-gate → 200 (2043.5ms) role=-
+2026-08-11 15:19:39 | INFO    | amr.request      | 7c322be6 | POST /api/align/check-gate → 200 (366.7ms) role=-
+2026-08-11 15:19:40 | INFO    | amr.bridge       | e626e9e5 | [robot_bridge] AMR-02 ← RESUME CMD-20260811-7180
+2026-08-11 15:19:40 | INFO    | amr.request      | e626e9e5 | POST /api/patrol/MSN-20260811-2237/resume → 200 (6.8ms) role=-
+2026-08-11 15:19:43 | INFO    | amr.request      | a4c1e6e8 | POST /api/align/check-gate → 200 (390.0ms) role=-
+2026-08-11 15:19:43 | INFO    | amr.request      | 6adde55a | POST /api/align/check-gate → 200 (328.7ms) role=-
+2026-08-11 15:19:44 | INFO    | amr.request      | 7e563131 | OPTIONS /api/robots/AMR-01/emergency-stop → 200 (0.2ms) role=-
+2026-08-11 15:19:44 | INFO    | amr.bridge       | b73f033d | [robot_bridge] AMR-01 ← ESTOP CMD-20260811-7498
+2026-08-11 15:19:44 | INFO    | amr.request      | b73f033d | POST /api/robots/AMR-01/emergency-stop → 200 (3.9ms) role=-
+2026-08-11 15:19:44 | INFO    | amr.bridge       | dad8daf7 | [robot_bridge] AMR-01 ← DOCK CMD-20260811-7429
+2026-08-11 15:19:44 | INFO    | amr.request      | dad8daf7 | POST /api/robots/AMR-01/dock → 200 (3.9ms) role=-
+2026-08-11 15:19:45 | INFO    | amr.request      | a69c058f | POST /api/align/check-gate → 200 (370.1ms) role=-
+2026-08-11 15:19:45 | INFO    | amr.request      | 9df9709b | POST /api/align/check-gate → 200 (348.2ms) role=-
+2026-08-11 15:19:46 | INFO    | amr.request      | 6ec2e8aa | OPTIONS /api/robots/AMR-02/emergency-stop → 200 (0.2ms) role=-
+2026-08-11 15:19:46 | INFO    | amr.bridge       | 7a5c5666 | [robot_bridge] AMR-02 ← ESTOP CMD-20260811-3fd6
+2026-08-11 15:19:46 | INFO    | amr.request      | 7a5c5666 | POST /api/robots/AMR-02/emergency-stop → 200 (3.3ms) role=-
+2026-08-11 15:19:46 | INFO    | amr.bridge       | 7de13b94 | [robot_bridge] AMR-02 ← DOCK CMD-20260811-ca76
+2026-08-11 15:19:46 | INFO    | amr.request      | 7de13b94 | POST /api/robots/AMR-02/dock → 200 (3.2ms) role=-
+2026-08-11 15:19:48 | INFO    | amr.request      | 0e0807ba | GET /api/routes → 200 (5.1ms) role=-
+2026-08-11 15:19:48 | INFO    | amr.request      | d808489e | GET /api/map/active → 200 (4.4ms) role=-
+2026-08-11 15:19:48 | INFO    | amr.request      | ab00bf82 | GET /api/patrol/missions → 200 (2.8ms) role=-
+2026-08-11 15:19:48 | INFO    | amr.bridge       | 9ab2d108 | [robot_bridge] AMR-01 ← START_PATROL CMD-20260811-2bd1
+2026-08-11 15:19:48 | INFO    | amr.vision       | 9ab2d108 | [vision_bridge] /ui/start=True 발행
+2026-08-11 15:19:48 | INFO    | amr.request      | 9ab2d108 | POST /api/patrol/start → 200 (6.3ms) role=-
+2026-08-11 15:19:48 | INFO    | amr.request      | 22b313ba | POST /api/align/check-gate → 200 (429.0ms) role=-
+2026-08-11 15:19:48 | INFO    | amr.request      | 7ced9a0f | POST /api/align/check-gate → 200 (345.3ms) role=-
+2026-08-11 15:19:50 | INFO    | amr.request      | fe4d4559 | GET /api/routes → 200 (2.5ms) role=-
+2026-08-11 15:19:50 | INFO    | amr.request      | eea53df8 | GET /api/map/active → 200 (3.3ms) role=-
+2026-08-11 15:19:50 | INFO    | amr.request      | 67c23418 | GET /api/patrol/missions → 200 (1.9ms) role=-
+2026-08-11 15:19:50 | INFO    | amr.bridge       | 045b5173 | [robot_bridge] AMR-02 ← START_PATROL CMD-20260811-089b
+2026-08-11 15:19:50 | INFO    | amr.vision       | 045b5173 | [vision_bridge] /ui/start=True 발행
+2026-08-11 15:19:50 | INFO    | amr.request      | 045b5173 | POST /api/patrol/start → 200 (6.3ms) role=-
+2026-08-11 15:19:51 | INFO    | amr.request      | fa5cb641 | POST /api/align/check-gate → 200 (388.8ms) role=-
+2026-08-11 15:19:51 | INFO    | amr.request      | 11e2e656 | POST /api/align/check-gate → 200 (369.2ms) role=-
+2026-08-11 15:19:52 | INFO    | amr.request      | 5b16270f | PUT /api/zones/Z-P1 → 200 (4.0ms) role=ADMIN
+2026-08-11 15:19:52 | INFO    | amr.request      | 6e19dc8d | GET /api/patrol/missions → 200 (3.1ms) role=-
+2026-08-11 15:19:52 | INFO    | amr.request      | 693b43f6 | OPTIONS /api/patrol/MSN-20260811-6b81/cancel → 200 (0.1ms) role=-
+2026-08-11 15:19:52 | INFO    | amr.bridge       | bd624f87 | [robot_bridge] AMR-01 ← CANCEL CMD-20260811-cc65
+2026-08-11 15:19:52 | INFO    | amr.request      | bd624f87 | POST /api/patrol/MSN-20260811-6b81/cancel → 200 (7.7ms) role=-
+2026-08-11 15:19:52 | INFO    | amr.request      | c3eccc3b | POST /api/nodes → 201 (4.7ms) role=ADMIN
+2026-08-11 15:19:52 | INFO    | amr.request      | 35b4002d | POST /api/nodes → 201 (3.5ms) role=ADMIN
+2026-08-11 15:19:52 | INFO    | amr.request      | b319263f | POST /api/nodes → 201 (3.5ms) role=ADMIN
+2026-08-11 15:19:52 | INFO    | amr.request      | a4fa99a0 | POST /api/routes → 201 (2.6ms) role=ADMIN
+2026-08-11 15:19:52 | INFO    | amr.bridge       | 9e8323bf | [robot_bridge] AMR-01 ← START_PATROL CMD-20260811-d445
+2026-08-11 15:19:52 | INFO    | amr.vision       | 9e8323bf | [vision_bridge] /ui/start=True 발행
+2026-08-11 15:19:52 | INFO    | amr.request      | 9e8323bf | POST /api/patrol/start → 200 (6.8ms) role=-
+2026-08-11 15:19:52 | INFO    | amr.request      | a40c9278 | PUT /api/zones/Z-P2 → 200 (2.6ms) role=ADMIN
+2026-08-11 15:19:52 | INFO    | amr.request      | c8b16d63 | GET /api/patrol/missions → 200 (1.7ms) role=-
+2026-08-11 15:19:52 | INFO    | amr.request      | 70890c02 | OPTIONS /api/patrol/MSN-20260811-7ff2/cancel → 200 (0.2ms) role=-
+2026-08-11 15:19:52 | INFO    | amr.bridge       | 4cb08ddc | [robot_bridge] AMR-02 ← CANCEL CMD-20260811-bf60
+2026-08-11 15:19:52 | INFO    | amr.request      | 4cb08ddc | POST /api/patrol/MSN-20260811-7ff2/cancel → 200 (4.4ms) role=-
+2026-08-11 15:19:52 | INFO    | amr.request      | b5a669ce | POST /api/nodes → 201 (4.0ms) role=ADMIN
+2026-08-11 15:19:52 | INFO    | amr.request      | 9c9013ea | POST /api/nodes → 201 (3.5ms) role=ADMIN
+2026-08-11 15:19:52 | INFO    | amr.request      | eb9621f3 | POST /api/nodes → 201 (2.9ms) role=ADMIN
+2026-08-11 15:19:52 | INFO    | amr.request      | 49c6902d | POST /api/routes → 201 (2.4ms) role=ADMIN
+2026-08-11 15:19:52 | INFO    | amr.bridge       | c3db9b8b | [robot_bridge] AMR-02 ← START_PATROL CMD-20260811-3113
+2026-08-11 15:19:52 | INFO    | amr.vision       | c3db9b8b | [vision_bridge] /ui/start=True 발행
+2026-08-11 15:19:52 | INFO    | amr.request      | c3db9b8b | POST /api/patrol/start → 200 (5.5ms) role=-
+2026-08-11 15:19:55 | INFO    | amr.request      | de52ec1e | POST /api/align/check-gate → 200 (470.3ms) role=-
+2026-08-11 15:19:55 | INFO    | amr.request      | 9ebe2487 | POST /api/align/check-gate → 200 (409.0ms) role=-
+2026-08-11 15:19:57 | INFO    | amr.request      | f51db371 | POST /api/align/check-gate → 200 (324.7ms) role=-
+2026-08-11 15:19:59 | INFO    | amr.request      | e0520a2d | POST /api/align/check-gate → 200 (2039.9ms) role=-
+2026-08-11 15:20:00 | INFO    | amr.request      | f5f47253 | POST /api/align/check-gate → 200 (348.9ms) role=-
+2026-08-11 15:20:03 | INFO    | amr.request      | f50c46fc | POST /api/align/check-gate → 200 (376.9ms) role=-
+2026-08-11 15:20:03 | INFO    | amr.request      | 74e5c497 | POST /api/align/check-gate → 200 (1360.6ms) role=-
+2026-08-11 15:20:05 | INFO    | amr.request      | a79fbf04 | GET /api/stats/overview → 200 (2.9ms) role=-
+2026-08-11 15:20:06 | INFO    | amr.request      | 4e1fb20a | POST /api/align/check-gate → 200 (294.9ms) role=-
+2026-08-11 15:20:06 | INFO    | amr.request      | 39dd65d4 | POST /api/align/check-gate → 200 (369.9ms) role=-
+2026-08-11 15:20:09 | INFO    | amr.request      | 9c259104 | POST /api/align/check-gate → 200 (309.0ms) role=-
+2026-08-11 15:20:09 | INFO    | amr.request      | 9dbeac10 | POST /api/align/check-gate → 200 (367.5ms) role=-
+2026-08-11 15:20:12 | INFO    | amr.request      | 7ab48f98 | POST /api/align/check-gate → 200 (346.8ms) role=-
+2026-08-11 15:20:12 | INFO    | amr.request      | 978d8bae | POST /api/align/check-gate → 200 (346.6ms) role=-
+2026-08-11 15:20:15 | INFO    | amr.request      | d66d0d7c | POST /api/align/check-gate → 200 (290.2ms) role=-
+2026-08-11 15:20:15 | INFO    | amr.request      | c1e51607 | POST /api/align/check-gate → 200 (345.8ms) role=-
+2026-08-11 15:20:18 | INFO    | amr.request      | 3b551461 | POST /api/align/check-gate → 200 (366.3ms) role=-
+2026-08-11 15:20:18 | INFO    | amr.request      | f26980fc | POST /api/align/check-gate → 200 (367.3ms) role=-
+2026-08-11 15:20:22 | INFO    | amr.request      | cda77e1e | POST /api/align/check-gate → 200 (387.7ms) role=-
+2026-08-11 15:20:22 | INFO    | amr.request      | bef08ada | POST /api/align/check-gate → 200 (449.4ms) role=-
+2026-08-11 15:20:24 | INFO    | amr.request      | 548a4bb8 | POST /api/align/check-gate → 200 (327.6ms) role=-
+2026-08-11 15:20:26 | INFO    | amr.request      | 928022d5 | POST /api/align/check-gate → 200 (2039.7ms) role=-
+2026-08-11 15:20:27 | INFO    | amr.request      | cade846c | POST /api/align/check-gate → 200 (347.3ms) role=-
+2026-08-11 15:20:30 | INFO    | amr.request      | 14310d8a | POST /api/align/check-gate → 200 (1337.1ms) role=-
+2026-08-11 15:20:30 | INFO    | amr.request      | 2a5f0776 | POST /api/align/check-gate → 200 (365.8ms) role=-
+2026-08-11 15:20:33 | INFO    | amr.request      | b1458850 | POST /api/align/check-gate → 200 (308.2ms) role=-
+2026-08-11 15:20:33 | INFO    | amr.request      | 239faece | POST /api/align/check-gate → 200 (388.8ms) role=-
+2026-08-11 15:20:35 | INFO    | amr.request      | 70fd92fe | GET /api/stats/overview → 200 (2.9ms) role=-
+2026-08-11 15:20:36 | INFO    | amr.request      | 6d6202a0 | POST /api/align/check-gate → 200 (367.6ms) role=-
+2026-08-11 15:20:36 | INFO    | amr.request      | e72faf5f | POST /api/align/check-gate → 200 (407.3ms) role=-
+2026-08-11 15:20:39 | INFO    | amr.request      | b36c1141 | POST /api/align/check-gate → 200 (349.9ms) role=-
+2026-08-11 15:20:42 | INFO    | amr.request      | 1b52b4ab | POST /api/align/check-gate → 200 (387.1ms) role=-
+2026-08-11 15:20:46 | INFO    | amr.request      | bafdd3ef | POST /api/align/check-gate → 200 (386.7ms) role=-
+2026-08-11 15:20:48 | INFO    | amr.request      | 853544dc | POST /api/align/check-gate → 200 (345.9ms) role=-
+2026-08-11 15:20:51 | INFO    | amr.request      | dfecd9a9 | POST /api/align/check-gate → 200 (366.6ms) role=-
+2026-08-11 15:20:54 | INFO    | amr.request      | b706503e | POST /api/align/check-gate → 200 (349.2ms) role=-
+2026-08-11 15:20:58 | INFO    | amr.request      | 6e4dc319 | POST /api/align/check-gate → 200 (388.8ms) role=-
+2026-08-11 15:21:00 | INFO    | amr.request      | f6c37c8a | POST /api/align/check-gate → 200 (325.2ms) role=-
+2026-08-11 15:21:03 | INFO    | amr.request      | 3314fec5 | POST /api/align/check-gate → 200 (353.5ms) role=-
+2026-08-11 15:21:05 | INFO    | amr.request      | 9d1b31aa | GET /api/stats/overview → 200 (3.1ms) role=-
+2026-08-11 15:21:06 | INFO    | amr.request      | 68193a8b | POST /api/align/check-gate → 200 (365.8ms) role=-
+2026-08-11 15:21:10 | INFO    | amr.request      | 8b621afe | POST /api/align/check-gate → 200 (406.3ms) role=-
+2026-08-11 15:21:12 | INFO    | amr.request      | 12543cf1 | POST /api/align/check-gate → 200 (348.3ms) role=-
+2026-08-11 15:21:15 | INFO    | amr.request      | edbec43f | POST /api/align/check-gate → 200 (346.0ms) role=-
+2026-08-11 15:21:18 | INFO    | amr.request      | 26431f8f | POST /api/align/check-gate → 200 (387.1ms) role=-
+2026-08-11 15:21:22 | INFO    | amr.request      | 829269fa | POST /api/align/check-gate → 200 (486.7ms) role=-
+2026-08-11 15:21:24 | INFO    | amr.request      | ce42129a | POST /api/align/check-gate → 200 (310.7ms) role=-
+2026-08-11 15:21:27 | INFO    | amr.request      | 7c6c19a7 | POST /api/align/check-gate → 200 (348.1ms) role=-
+2026-08-11 15:21:30 | INFO    | amr.request      | 3c4032b1 | POST /api/align/check-gate → 200 (367.6ms) role=-
+2026-08-11 15:21:33 | INFO    | amr.request      | 0df204df | POST /api/align/check-gate → 200 (308.9ms) role=-
+2026-08-11 15:21:35 | INFO    | amr.request      | c1afc287 | GET /api/stats/overview → 200 (2.3ms) role=-
+2026-08-11 15:21:36 | INFO    | amr.request      | b1acd1e6 | POST /api/align/check-gate → 200 (332.4ms) role=-
+2026-08-11 15:21:39 | INFO    | amr.request      | 2c8a6108 | POST /api/align/check-gate → 200 (368.0ms) role=-
+2026-08-11 15:21:42 | INFO    | amr.request      | 2aaa09c3 | POST /api/align/check-gate → 200 (370.5ms) role=-
+2026-08-11 15:21:46 | INFO    | amr.request      | 8f400277 | POST /api/align/check-gate → 200 (406.8ms) role=-
+2026-08-11 15:21:48 | INFO    | amr.request      | 83457223 | POST /api/align/check-gate → 200 (348.8ms) role=-
+2026-08-11 15:21:51 | INFO    | amr.request      | ef6a3f7a | POST /api/align/check-gate → 200 (347.0ms) role=-
+2026-08-11 15:21:55 | INFO    | amr.request      | 5a75fb50 | POST /api/align/check-gate → 200 (387.0ms) role=-
+2026-08-11 15:21:57 | INFO    | amr.request      | 1c93c5cc | POST /api/align/check-gate → 200 (389.8ms) role=-
+2026-08-11 15:22:00 | INFO    | amr.request      | 55f1f8ce | POST /api/align/check-gate → 200 (350.1ms) role=-
+2026-08-11 15:22:03 | INFO    | amr.request      | bae30a61 | POST /api/align/check-gate → 200 (345.7ms) role=-
+2026-08-11 15:22:05 | INFO    | amr.request      | 7b5a55fb | GET /api/stats/overview → 200 (2.5ms) role=-
+2026-08-11 15:22:07 | INFO    | amr.request      | f4bb5963 | POST /api/align/check-gate → 200 (385.5ms) role=-
+2026-08-11 15:22:09 | INFO    | amr.request      | 223b8aa1 | POST /api/align/check-gate → 200 (327.3ms) role=-
+2026-08-11 15:22:12 | INFO    | amr.request      | b7f934c4 | POST /api/align/check-gate → 200 (346.5ms) role=-
+2026-08-11 15:22:15 | INFO    | amr.request      | 6c8034f6 | POST /api/align/check-gate → 200 (407.9ms) role=-
+2026-08-11 15:22:19 | INFO    | amr.request      | 65a333b5 | POST /api/align/check-gate → 200 (429.3ms) role=-
+2026-08-11 15:22:21 | INFO    | amr.request      | 727067a8 | POST /api/align/check-gate → 200 (367.0ms) role=-
+2026-08-11 15:22:24 | INFO    | amr.request      | 8568e6b2 | POST /api/align/check-gate → 200 (354.8ms) role=-
+2026-08-11 15:22:27 | INFO    | amr.request      | 10f4bad5 | POST /api/align/check-gate → 200 (369.2ms) role=-
+2026-08-11 15:22:30 | INFO    | amr.request      | 113acc59 | POST /api/align/check-gate → 200 (388.3ms) role=-
+2026-08-11 15:22:33 | INFO    | amr.request      | 08572875 | POST /api/align/check-gate → 200 (349.7ms) role=-
+2026-08-11 15:22:35 | INFO    | amr.request      | 44b111a3 | GET /api/stats/overview → 200 (2.6ms) role=-
+2026-08-11 15:22:36 | INFO    | amr.request      | 82e5734f | POST /api/align/check-gate → 200 (354.3ms) role=-
+2026-08-11 15:22:39 | INFO    | amr.request      | 1a02a828 | POST /api/align/check-gate → 200 (387.9ms) role=-
+2026-08-11 15:22:43 | INFO    | amr.request      | 0c69195f | POST /api/align/check-gate → 200 (408.1ms) role=-
+2026-08-11 15:22:46 | INFO    | amr.request      | 16865991 | POST /api/align/check-gate → 200 (386.7ms) role=-
+2026-08-11 15:22:48 | INFO    | amr.request      | 932a9a79 | POST /api/align/check-gate → 200 (347.2ms) role=-
+2026-08-11 15:22:51 | INFO    | amr.request      | 1b34d19b | POST /api/align/check-gate → 200 (389.0ms) role=-
+2026-08-11 15:22:54 | INFO    | amr.request      | 5e02b4c2 | POST /api/align/check-gate → 200 (327.0ms) role=-
+2026-08-11 15:22:57 | INFO    | amr.request      | c7c97848 | POST /api/align/check-gate → 200 (348.6ms) role=-
+2026-08-11 15:23:00 | INFO    | amr.request      | a9d00a3a | POST /api/align/check-gate → 200 (345.2ms) role=-
+2026-08-11 15:23:03 | INFO    | amr.request      | fd330b0e | POST /api/align/check-gate → 200 (326.9ms) role=-
+2026-08-11 15:23:05 | INFO    | amr.request      | 98dd1017 | GET /api/stats/overview → 200 (3.1ms) role=-
+2026-08-11 15:23:06 | INFO    | amr.request      | c4522f41 | POST /api/align/check-gate → 200 (349.4ms) role=-
+2026-08-11 15:23:10 | INFO    | amr.request      | 3e580135 | POST /api/align/check-gate → 200 (348.3ms) role=-
+2026-08-11 15:23:13 | INFO    | amr.request      | 79c60f34 | POST /api/align/check-gate → 200 (389.9ms) role=-
+2026-08-11 15:23:15 | INFO    | amr.request      | 6232fe62 | POST /api/align/check-gate → 200 (329.0ms) role=-
+2026-08-11 15:23:18 | INFO    | amr.request      | 0ec5e04f | POST /api/align/check-gate → 200 (345.1ms) role=-
+2026-08-11 15:23:21 | INFO    | amr.request      | 2a01ce9c | POST /api/align/check-gate → 200 (346.6ms) role=-
+2026-08-11 15:23:25 | INFO    | amr.request      | 91ceb57b | POST /api/align/check-gate → 200 (408.3ms) role=-
+2026-08-11 15:23:27 | INFO    | amr.request      | f875cc6f | POST /api/align/check-gate → 200 (324.9ms) role=-
+2026-08-11 15:23:30 | INFO    | amr.request      | 7ca5f2cc | POST /api/align/check-gate → 200 (346.0ms) role=-
+2026-08-11 15:23:33 | INFO    | amr.request      | 2064c989 | POST /api/align/check-gate → 200 (371.0ms) role=-
+2026-08-11 15:23:35 | INFO    | amr.request      | 2564e34f | GET /api/stats/overview → 200 (2.8ms) role=-
+2026-08-11 15:23:37 | INFO    | amr.request      | eaf749b7 | POST /api/align/check-gate → 200 (507.2ms) role=-
+2026-08-11 15:23:39 | INFO    | amr.request      | e0aee7bd | POST /api/align/check-gate → 200 (386.5ms) role=-
+2026-08-11 15:23:43 | INFO    | amr.request      | 54f4e4d5 | POST /api/align/check-gate → 200 (448.5ms) role=-
+2026-08-11 15:23:46 | INFO    | amr.request      | d3c2b674 | POST /api/align/check-gate → 200 (387.6ms) role=-
+2026-08-11 15:23:48 | INFO    | amr.request      | 730b3009 | POST /api/align/check-gate → 200 (307.3ms) role=-
+2026-08-11 15:23:51 | INFO    | amr.request      | 806d0527 | POST /api/align/check-gate → 200 (345.8ms) role=-
+2026-08-11 15:23:54 | INFO    | amr.request      | 50f993b4 | POST /api/align/check-gate → 200 (350.2ms) role=-
+2026-08-11 15:23:58 | INFO    | amr.request      | 0a2ae7a3 | POST /api/align/check-gate → 200 (386.6ms) role=-
+2026-08-11 15:24:01 | INFO    | amr.request      | 6e73870c | POST /api/align/check-gate → 200 (407.5ms) role=-
+2026-08-11 15:24:03 | INFO    | amr.request      | 3d5d4ff2 | POST /api/align/check-gate → 200 (307.1ms) role=-
+2026-08-11 15:24:05 | INFO    | amr.request      | 9471ca5f | GET /api/stats/overview → 200 (2.8ms) role=-
+2026-08-11 15:24:06 | INFO    | amr.request      | c15a167c | POST /api/align/check-gate → 200 (347.9ms) role=-
+2026-08-11 15:24:10 | INFO    | amr.request      | 1d2d2fe8 | POST /api/align/check-gate → 200 (386.9ms) role=-
+2026-08-11 15:24:13 | INFO    | amr.request      | cbfc5c19 | POST /api/align/check-gate → 200 (408.6ms) role=-
+2026-08-11 15:24:16 | INFO    | amr.request      | 086c5621 | POST /api/align/check-gate → 200 (406.4ms) role=-
+2026-08-11 15:24:18 | INFO    | amr.request      | 8b2a1328 | POST /api/align/check-gate → 200 (346.3ms) role=-
+2026-08-11 15:24:22 | INFO    | amr.request      | 36beada9 | POST /api/align/check-gate → 200 (409.6ms) role=-
+2026-08-11 15:24:25 | INFO    | amr.request      | f905b05a | POST /api/align/check-gate → 200 (430.6ms) role=-
+2026-08-11 15:24:27 | INFO    | amr.request      | 0abadeb7 | POST /api/align/check-gate → 200 (326.8ms) role=-
+2026-08-11 15:24:31 | INFO    | amr.request      | 9ace0c00 | POST /api/align/check-gate → 200 (447.7ms) role=-
+2026-08-11 15:24:33 | INFO    | amr.request      | 18816379 | POST /api/align/check-gate → 200 (371.1ms) role=-
+2026-08-11 15:24:35 | INFO    | amr.request      | 65fb8e2c | GET /api/stats/overview → 200 (2.6ms) role=-
+2026-08-11 15:24:37 | INFO    | amr.request      | 2d0ded63 | POST /api/align/check-gate → 200 (409.4ms) role=-
+2026-08-11 15:24:40 | INFO    | amr.request      | 8886c300 | POST /api/align/check-gate → 200 (470.4ms) role=-
+2026-08-11 15:24:42 | INFO    | amr.request      | 4771a454 | POST /api/align/check-gate → 200 (367.5ms) role=-
+2026-08-11 15:24:45 | INFO    | amr.request      | 2332410c | POST /api/align/check-gate → 200 (369.7ms) role=-
+2026-08-11 15:24:49 | INFO    | amr.request      | d852bfb2 | POST /api/align/check-gate → 200 (407.2ms) role=-
+2026-08-11 15:24:51 | INFO    | amr.request      | e25d4811 | POST /api/align/check-gate → 200 (330.5ms) role=-
+2026-08-11 15:24:55 | INFO    | amr.request      | a0501e53 | POST /api/align/check-gate → 200 (350.4ms) role=-
+2026-08-11 15:24:57 | INFO    | amr.request      | 0348a2d2 | POST /api/align/check-gate → 200 (347.5ms) role=-
+2026-08-11 15:25:01 | INFO    | amr.request      | 6e7ac5b1 | POST /api/align/check-gate → 200 (408.3ms) role=-
+2026-08-11 15:25:04 | INFO    | amr.request      | ee397d9a | POST /api/align/check-gate → 200 (1422.0ms) role=-
+2026-08-11 15:25:05 | INFO    | amr.request      | 6bdab082 | GET /api/stats/overview → 200 (3.8ms) role=-
+2026-08-11 15:25:07 | INFO    | amr.request      | cea13e2d | POST /api/align/check-gate → 200 (353.2ms) role=-
+2026-08-11 15:25:35 | INFO    | amr.request      | a0915172 | GET /api/stats/overview → 200 (2.6ms) role=-
+2026-08-11 15:26:05 | INFO    | amr.request      | e50a1467 | GET /api/stats/overview → 200 (2.4ms) role=-
+2026-08-11 15:26:35 | INFO    | amr.request      | b1af3412 | GET /api/stats/overview → 200 (2.9ms) role=-
+2026-08-11 15:27:05 | INFO    | amr.request      | 91a581e6 | GET /api/stats/overview → 200 (2.1ms) role=-
+2026-08-11 15:27:35 | INFO    | amr.request      | 8749bffd | GET /api/stats/overview → 200 (2.4ms) role=-
+2026-08-11 15:28:05 | INFO    | amr.request      | 6e5c500a | GET /api/stats/overview → 200 (2.3ms) role=-
+2026-08-11 15:28:35 | INFO    | amr.request      | b7709b87 | GET /api/stats/overview → 200 (2.6ms) role=-
+2026-08-11 15:29:05 | INFO    | amr.request      | 436cbded | GET /api/stats/overview → 200 (2.4ms) role=-
+2026-08-11 15:29:35 | INFO    | amr.request      | 9c6fad14 | GET /api/stats/overview → 200 (2.3ms) role=-
+2026-08-11 15:30:05 | INFO    | amr.request      | 544779e5 | GET /api/stats/overview → 200 (2.3ms) role=-
+2026-08-11 15:30:14 | ERROR   | amr.vision       | -        | [vision_bridge] rclpy spin 종료
+Traceback (most recent call last):
+  File "/home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/app/vision_bridge.py", line 340, in _spin
+    executor.spin_once(timeout_sec=0.5)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 808, in spin_once
+    self._spin_once_impl(timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 797, in _spin_once_impl
+    handler, entity, node = self.wait_for_ready_callbacks(timeout_sec=timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 780, in wait_for_ready_callbacks
+    return next(self._cb_iter)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 681, in _wait_for_ready_callbacks
+    raise ExternalShutdownException()
+rclpy.executors.ExternalShutdownException
+2026-08-11 15:30:14 | INFO    | amr.ws           | -        | WS 해제 — 현재 0개 연결
+2026-08-11 15:30:22 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 종료
+2026-08-11 15:30:22 | INFO    | amr.vision       | -        | [vision_bridge] 종료
+2026-08-11 15:30:22 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 브리지 종료
+2026-08-11 15:30:22 | INFO    | amr.main         | -        | 서버 종료
+2026-08-11 15:32:06 | WARNING | amr.db           | -        | 기존 테이블을 전부 삭제합니다 (drop=True)
+2026-08-11 15:32:06 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-11 15:32:06 | INFO    | amr.db           | -        | 시드 완료 — {'maps': 2, 'zones': 3, 'nodes': 8, 'routes': 1, 'equipment': 5, 'rules': 3, 'robots': 2}
+2026-08-11 15:32:07 | INFO    | amr.main         | -        | ======================================================================
+2026-08-11 15:32:07 | INFO    | amr.main         | -        | AMR 순찰·이상감지 관제 API v1.0.0 기동
+2026-08-11 15:32:07 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-11 15:32:08 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 브리지 기동 — 발행 2개, 구독 8토픽/로봇, 상행 큐 컨슈머 1
+2026-08-11 15:32:08 | INFO    | amr.bridge       | -        | 브리지 교체 → RobotBridge
+2026-08-11 15:32:08 | INFO    | amr.vision       | -        | [vision_bridge] 기동 — 구독 /detection/cam_state, 발행 /ui/start
+2026-08-11 15:32:08 | INFO    | amr.main         | -        | 데모 시뮬레이터 활성화 (AMR_DEMO_SIM=1)
+2026-08-11 15:32:08 | INFO    | amr.main         | -        | REST 15개 라우터 · WS /ws/monitor 준비 완료
+2026-08-11 15:32:08 | INFO    | amr.main         | -        | ======================================================================
+2026-08-11 15:32:08 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 시작
+2026-08-11 15:32:08 | INFO    | amr.demo_sim     | -        | 데모 시뮬레이터 시작 (TICK=0.6s, STEP=0.35m)
+2026-08-11 15:32:14 | ERROR   | amr.bridge       | -        | [robot_bridge] rclpy spin 종료
+Traceback (most recent call last):
+  File "/home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/app/robot_bridge.py", line 570, in _spin
+    executor.spin_once(timeout_sec=0.5)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 808, in spin_once
+    self._spin_once_impl(timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 805, in _spin_once_impl
+    raise handler.exception()
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 272, in _execute_coroutine_step
+    result = coro.send(None)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 488, in handler
+    await call_coroutine(entity, arg)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 407, in _execute_subscription
+    await await_or_execute(sub.callback, msg)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 110, in await_or_execute
+    return callback(*args)
+  File "/home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/app/robot_bridge.py", line 477, in <lambda>
+    lambda m, r=rid: produce(
+TypeError: Ros2Bridge._produce() takes 4 positional arguments but 5 were given
+2026-08-11 15:32:26 | INFO    | amr.request      | c62182de | GET /api/cameras/cctv1/stream → 200 (84.9ms) role=-
+2026-08-11 15:32:26 | INFO    | amr.request      | f08386c4 | GET /api/cameras/cctv2/stream → 200 (4.1ms) role=-
+2026-08-11 15:32:26 | INFO    | amr.ws           | -        | WS 접속 — 현재 1개 연결
+2026-08-11 15:32:26 | INFO    | amr.request      | a16fa03a | GET /api/stats/overview → 200 (17.3ms) role=-
+2026-08-11 15:32:26 | INFO    | amr.request      | 45381cf2 | GET /api/zones → 200 (17.1ms) role=-
+2026-08-11 15:32:26 | INFO    | amr.request      | cdd696ac | GET /api/map → 200 (21.4ms) role=-
+2026-08-11 15:32:26 | INFO    | amr.request      | b9eea914 | GET /api/stats/overview → 200 (5.4ms) role=-
+2026-08-11 15:32:26 | INFO    | amr.request      | 74faceb9 | GET /api/zones → 200 (4.8ms) role=-
+2026-08-11 15:32:26 | INFO    | amr.request      | 7d2a1bf9 | GET /api/map → 200 (3.4ms) role=-
+2026-08-11 15:32:26 | INFO    | amr.request      | 72fe85bd | GET /api/map/MAP-DC-V4/grid → 200 (3.3ms) role=-
+2026-08-11 15:32:39 | INFO    | amr.ws           | -        | WS 해제 — 현재 0개 연결
+2026-08-11 15:32:40 | INFO    | amr.request      | a0563414 | GET /api/cameras/cctv1/stream → 200 (1.8ms) role=-
+2026-08-11 15:32:40 | INFO    | amr.request      | 055ce393 | GET /api/cameras/cctv2/stream → 200 (1.9ms) role=-
+2026-08-11 15:32:40 | INFO    | amr.request      | 4bdfae82 | GET /api/zones → 200 (3.0ms) role=-
+2026-08-11 15:32:40 | INFO    | amr.request      | badf92f5 | GET /api/stats/overview → 200 (5.5ms) role=-
+2026-08-11 15:32:40 | INFO    | amr.request      | 96cc34a3 | GET /api/map → 200 (4.5ms) role=-
+2026-08-11 15:32:40 | INFO    | amr.ws           | -        | WS 접속 — 현재 1개 연결
+2026-08-11 15:32:40 | INFO    | amr.request      | 0e182e3c | GET /api/map → 200 (7.3ms) role=-
+2026-08-11 15:32:40 | INFO    | amr.request      | 2b9db3d6 | GET /api/stats/overview → 200 (8.1ms) role=-
+2026-08-11 15:32:40 | INFO    | amr.request      | e3a7090a | GET /api/zones → 200 (7.8ms) role=-
+2026-08-11 15:32:40 | INFO    | amr.request      | 792e5596 | GET /api/map/MAP-DC-V4/grid → 200 (2.2ms) role=-
+2026-08-11 15:33:10 | INFO    | amr.request      | 6adce7f2 | GET /api/stats/overview → 200 (2.6ms) role=-
+2026-08-11 15:33:20 | INFO    | amr.request      | 00e55391 | OPTIONS /api/zones/Z-P1 → 200 (0.1ms) role=-
+2026-08-11 15:33:20 | WARNING | amr.request      | 056650f9 | PUT /api/zones/Z-P1 → 404 (2.9ms) role=ADMIN
+2026-08-11 15:33:20 | INFO    | amr.request      | 1091baff | OPTIONS /api/zones → 200 (0.1ms) role=-
+2026-08-11 15:33:20 | INFO    | amr.request      | 9094cd0c | POST /api/zones → 201 (3.9ms) role=ADMIN
+2026-08-11 15:33:20 | INFO    | amr.request      | 0897bde6 | GET /api/patrol/missions → 200 (2.6ms) role=-
+2026-08-11 15:33:20 | INFO    | amr.request      | 7931b7b2 | OPTIONS /api/nodes → 200 (0.2ms) role=-
+2026-08-11 15:33:20 | INFO    | amr.request      | 9da1d845 | POST /api/nodes → 201 (8.8ms) role=ADMIN
+2026-08-11 15:33:20 | INFO    | amr.request      | ff838f76 | POST /api/nodes → 201 (3.5ms) role=ADMIN
+2026-08-11 15:33:20 | INFO    | amr.request      | 546b6b19 | POST /api/nodes → 201 (2.9ms) role=ADMIN
+2026-08-11 15:33:20 | INFO    | amr.request      | ba4317ff | OPTIONS /api/routes → 200 (0.1ms) role=-
+2026-08-11 15:33:20 | INFO    | amr.request      | 56c80b03 | POST /api/routes → 201 (4.6ms) role=ADMIN
+2026-08-11 15:33:20 | INFO    | amr.request      | f7ccee63 | OPTIONS /api/patrol/start → 200 (0.1ms) role=-
+2026-08-11 15:33:20 | INFO    | amr.bridge       | b75b3901 | [robot_bridge] AMR-01 ← START_PATROL CMD-20260811-0a81
+2026-08-11 15:33:20 | INFO    | amr.vision       | b75b3901 | [vision_bridge] /ui/start=True 발행
+2026-08-11 15:33:20 | INFO    | amr.vision       | -        | [vision_bridge] cam=0 state=0 bbox=False → 이벤트 EV-20260811-0001 (NEW) map=(None,None)
+2026-08-11 15:33:20 | INFO    | amr.vision       | -        | [vision_bridge] cam=0 state=2 bbox=False → 이벤트 EV-20260811-0002 (NEW) map=(None,None)
+2026-08-11 15:33:20 | INFO    | amr.vision       | -        | [vision_bridge] cam=1 state=0 bbox=False → 이벤트 EV-20260811-0003 (NEW) map=(None,None)
+2026-08-11 15:33:20 | INFO    | amr.vision       | -        | [vision_bridge] cam=1 state=2 bbox=False → 이벤트 EV-20260811-0004 (NEW) map=(None,None)
+2026-08-11 15:33:20 | INFO    | amr.request      | b75b3901 | POST /api/patrol/start → 200 (57.6ms) role=-
+2026-08-11 15:33:20 | INFO    | amr.request      | bd8ce006 | OPTIONS /api/zones/Z-P2 → 200 (0.1ms) role=-
+2026-08-11 15:33:20 | WARNING | amr.request      | 12cfaf51 | PUT /api/zones/Z-P2 → 404 (2.6ms) role=ADMIN
+2026-08-11 15:33:20 | INFO    | amr.request      | 4ee42a76 | POST /api/zones → 201 (2.7ms) role=ADMIN
+2026-08-11 15:33:20 | INFO    | amr.request      | ac87c901 | GET /api/patrol/missions → 200 (1.4ms) role=-
+2026-08-11 15:33:20 | INFO    | amr.request      | 76bf495d | POST /api/nodes → 201 (3.3ms) role=ADMIN
+2026-08-11 15:33:20 | INFO    | amr.request      | fb0aaf70 | POST /api/nodes → 201 (3.1ms) role=ADMIN
+2026-08-11 15:33:20 | INFO    | amr.request      | f208bd1a | POST /api/nodes → 201 (3.1ms) role=ADMIN
+2026-08-11 15:33:20 | INFO    | amr.request      | dd310c84 | POST /api/routes → 201 (2.8ms) role=ADMIN
+2026-08-11 15:33:20 | INFO    | amr.bridge       | 59945a63 | [robot_bridge] AMR-02 ← START_PATROL CMD-20260811-7552
+2026-08-11 15:33:20 | INFO    | amr.vision       | 59945a63 | [vision_bridge] /ui/start=True 발행
+2026-08-11 15:33:20 | INFO    | amr.request      | 59945a63 | POST /api/patrol/start → 200 (5.8ms) role=-
+2026-08-11 15:33:40 | INFO    | amr.request      | 0d8f744e | GET /api/stats/overview → 200 (1.8ms) role=-
+2026-08-11 15:33:45 | INFO    | amr.request      | 8e486f08 | POST /api/align/check-gate → 200 (2049.5ms) role=-
+2026-08-11 15:33:50 | INFO    | amr.request      | 01506bf2 | POST /api/align/check-gate → 200 (2042.8ms) role=-
+2026-08-11 15:33:56 | INFO    | amr.request      | ec75843d | POST /api/align/check-gate → 200 (2063.6ms) role=-
+2026-08-11 15:34:01 | INFO    | amr.request      | f5b16e4d | POST /api/align/check-gate → 200 (2040.5ms) role=-
+2026-08-11 15:34:03 | INFO    | amr.request      | 18fe9c35 | POST /api/align/check-gate → 200 (2037.3ms) role=-
+2026-08-11 15:34:07 | INFO    | amr.request      | 22ab68d0 | POST /api/align/check-gate → 200 (1880.5ms) role=-
+2026-08-11 15:34:07 | INFO    | amr.request      | 9a196bd7 | POST /api/align/check-gate → 200 (346.7ms) role=-
+2026-08-11 15:34:10 | INFO    | amr.request      | 66cfd873 | GET /api/stats/overview → 200 (2.4ms) role=-
+2026-08-11 15:34:10 | INFO    | amr.request      | 9cf5ef52 | POST /api/align/check-gate → 200 (387.6ms) role=-
+2026-08-11 15:34:13 | INFO    | amr.request      | 5a41f9cf | POST /api/align/check-gate → 200 (1679.7ms) role=-
+2026-08-11 15:34:13 | INFO    | amr.request      | f9703c88 | POST /api/align/check-gate → 200 (326.1ms) role=-
+2026-08-11 15:34:16 | INFO    | amr.request      | 5ffba321 | POST /api/align/check-gate → 200 (305.0ms) role=-
+2026-08-11 15:34:18 | INFO    | amr.request      | 391e02c1 | POST /api/align/check-gate → 200 (2057.1ms) role=-
+2026-08-11 15:34:19 | INFO    | amr.request      | 7d832b93 | POST /api/align/check-gate → 200 (324.4ms) role=-
+2026-08-11 15:34:22 | INFO    | amr.request      | 92a89ece | POST /api/align/check-gate → 200 (348.6ms) role=-
+2026-08-11 15:34:23 | INFO    | amr.request      | 280b0965 | POST /api/align/check-gate → 200 (2040.4ms) role=-
+2026-08-11 15:34:25 | INFO    | amr.request      | 5c5efc22 | POST /api/align/check-gate → 200 (406.8ms) role=-
+2026-08-11 15:34:28 | INFO    | amr.request      | 375266f9 | POST /api/align/check-gate → 200 (308.3ms) role=-
+2026-08-11 15:34:28 | INFO    | amr.request      | cc48e0b2 | POST /api/align/check-gate → 200 (329.8ms) role=-
+2026-08-11 15:34:31 | INFO    | amr.request      | 1e3fd96d | POST /api/align/check-gate → 200 (328.1ms) role=-
+2026-08-11 15:34:33 | INFO    | amr.request      | 9571d761 | POST /api/align/check-gate → 200 (2062.0ms) role=-
+2026-08-11 15:34:34 | INFO    | amr.request      | be6bfc76 | POST /api/align/check-gate → 200 (366.5ms) role=-
+2026-08-11 15:34:37 | ERROR   | amr.vision       | -        | [vision_bridge] rclpy spin 종료
+Traceback (most recent call last):
+  File "/home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/app/vision_bridge.py", line 340, in _spin
+    executor.spin_once(timeout_sec=0.5)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 808, in spin_once
+    self._spin_once_impl(timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 797, in _spin_once_impl
+    handler, entity, node = self.wait_for_ready_callbacks(timeout_sec=timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 780, in wait_for_ready_callbacks
+    return next(self._cb_iter)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 681, in _wait_for_ready_callbacks
+    raise ExternalShutdownException()
+rclpy.executors.ExternalShutdownException
+2026-08-11 15:34:37 | INFO    | amr.ws           | -        | WS 해제 — 현재 0개 연결
+2026-08-11 15:43:13 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 종료
+2026-08-11 15:43:13 | INFO    | amr.vision       | -        | [vision_bridge] 종료
+2026-08-11 15:43:14 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 브리지 종료
+2026-08-11 15:43:14 | INFO    | amr.main         | -        | 서버 종료
+2026-08-11 15:45:34 | WARNING | amr.db           | -        | 기존 테이블을 전부 삭제합니다 (drop=True)
+2026-08-11 15:45:34 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-11 15:45:34 | INFO    | amr.db           | -        | 시드 완료 — {'maps': 2, 'zones': 3, 'nodes': 8, 'routes': 1, 'equipment': 5, 'rules': 3, 'robots': 2}
+2026-08-11 15:45:35 | INFO    | amr.main         | -        | ======================================================================
+2026-08-11 15:45:35 | INFO    | amr.main         | -        | AMR 순찰·이상감지 관제 API v1.0.0 기동
+2026-08-11 15:45:35 | INFO    | amr.db           | -        | DB 초기화 완료 — 테이블 20개 (sqlite:////home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/data/amr.db)
+2026-08-11 15:45:35 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 브리지 기동 — 발행 2개, 구독 8토픽/로봇, 상행 큐 컨슈머 1
+2026-08-11 15:45:35 | INFO    | amr.bridge       | -        | 브리지 교체 → RobotBridge
+2026-08-11 15:45:35 | INFO    | amr.vision       | -        | [vision_bridge] 기동 — 구독 /detection/cam_state, 발행 /ui/start
+2026-08-11 15:45:35 | INFO    | amr.main         | -        | 데모 시뮬레이터 활성화 (AMR_DEMO_SIM=1)
+2026-08-11 15:45:35 | INFO    | amr.main         | -        | REST 15개 라우터 · WS /ws/monitor 준비 완료
+2026-08-11 15:45:35 | INFO    | amr.main         | -        | ======================================================================
+2026-08-11 15:45:35 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 시작
+2026-08-11 15:45:35 | INFO    | amr.demo_sim     | -        | 데모 시뮬레이터 시작 (TICK=0.6s, STEP=0.35m)
+2026-08-11 15:45:40 | INFO    | amr.request      | 1d0c0bd3 | GET /api/stats/overview → 200 (78.4ms) role=-
+2026-08-11 15:45:52 | ERROR   | amr.bridge       | -        | [robot_bridge] rclpy spin 종료
+Traceback (most recent call last):
+  File "/home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/app/robot_bridge.py", line 570, in _spin
+    executor.spin_once(timeout_sec=0.5)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 808, in spin_once
+    self._spin_once_impl(timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 805, in _spin_once_impl
+    raise handler.exception()
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/task.py", line 272, in _execute_coroutine_step
+    result = coro.send(None)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 488, in handler
+    await call_coroutine(entity, arg)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 407, in _execute_subscription
+    await await_or_execute(sub.callback, msg)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 110, in await_or_execute
+    return callback(*args)
+  File "/home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/app/robot_bridge.py", line 477, in <lambda>
+    lambda m, r=rid: produce(
+TypeError: Ros2Bridge._produce() takes 4 positional arguments but 5 were given
+2026-08-11 15:46:01 | INFO    | amr.request      | 7b5fb246 | GET /api/cameras/cctv1/stream → 200 (11.8ms) role=-
+2026-08-11 15:46:01 | INFO    | amr.request      | e3847b17 | GET /api/cameras/cctv2/stream → 200 (11.8ms) role=-
+2026-08-11 15:46:01 | INFO    | amr.ws           | -        | WS 접속 — 현재 1개 연결
+2026-08-11 15:46:01 | INFO    | amr.request      | dce5bd88 | GET /api/stats/overview → 200 (14.5ms) role=-
+2026-08-11 15:46:01 | INFO    | amr.request      | 67c9c41a | GET /api/map → 200 (14.8ms) role=-
+2026-08-11 15:46:01 | INFO    | amr.request      | 6e6655f4 | GET /api/zones → 200 (17.6ms) role=-
+2026-08-11 15:46:01 | INFO    | amr.request      | bc77e029 | GET /api/stats/overview → 200 (5.2ms) role=-
+2026-08-11 15:46:01 | INFO    | amr.request      | 498d241e | GET /api/map → 200 (5.1ms) role=-
+2026-08-11 15:46:01 | INFO    | amr.request      | 0c9c924b | GET /api/zones → 200 (3.0ms) role=-
+2026-08-11 15:46:01 | INFO    | amr.request      | 37872437 | GET /api/map/MAP-DC-V4/grid → 200 (3.0ms) role=-
+2026-08-11 15:46:31 | INFO    | amr.request      | e557244e | GET /api/stats/overview → 200 (2.6ms) role=-
+2026-08-11 15:46:31 | INFO    | amr.request      | f1a79112 | OPTIONS /api/zones/Z-P1 → 200 (0.1ms) role=-
+2026-08-11 15:46:31 | WARNING | amr.request      | cc3c2c2a | PUT /api/zones/Z-P1 → 404 (4.1ms) role=ADMIN
+2026-08-11 15:46:31 | INFO    | amr.request      | 33865918 | OPTIONS /api/zones → 200 (0.2ms) role=-
+2026-08-11 15:46:31 | INFO    | amr.request      | 8991b91e | POST /api/zones → 201 (4.9ms) role=ADMIN
+2026-08-11 15:46:31 | INFO    | amr.request      | acca228b | GET /api/patrol/missions → 200 (2.4ms) role=-
+2026-08-11 15:46:31 | INFO    | amr.request      | 5aee97ff | OPTIONS /api/nodes → 200 (0.2ms) role=-
+2026-08-11 15:46:31 | INFO    | amr.request      | 4b29fa64 | POST /api/nodes → 201 (7.7ms) role=ADMIN
+2026-08-11 15:46:31 | INFO    | amr.request      | 41b94e50 | POST /api/nodes → 201 (3.6ms) role=ADMIN
+2026-08-11 15:46:31 | INFO    | amr.request      | e01fb9db | POST /api/nodes → 201 (3.5ms) role=ADMIN
+2026-08-11 15:46:31 | INFO    | amr.request      | c79d8ac3 | OPTIONS /api/routes → 200 (0.2ms) role=-
+2026-08-11 15:46:31 | INFO    | amr.request      | 40176040 | POST /api/routes → 201 (5.3ms) role=ADMIN
+2026-08-11 15:46:31 | INFO    | amr.request      | bda5912c | OPTIONS /api/patrol/start → 200 (0.1ms) role=-
+2026-08-11 15:46:31 | INFO    | amr.bridge       | 7363480e | [robot_bridge] AMR-01 ← START_PATROL CMD-20260811-0e53
+2026-08-11 15:46:31 | INFO    | amr.vision       | 7363480e | [vision_bridge] /ui/start=True 발행
+2026-08-11 15:46:31 | INFO    | amr.vision       | -        | [vision_bridge] cam=0 state=0 bbox=False → 이벤트 EV-20260811-0001 (NEW) map=(None,None)
+2026-08-11 15:46:31 | INFO    | amr.vision       | -        | [vision_bridge] cam=0 state=2 bbox=False → 이벤트 EV-20260811-0002 (NEW) map=(None,None)
+2026-08-11 15:46:31 | INFO    | amr.vision       | -        | [vision_bridge] cam=1 state=0 bbox=False → 이벤트 EV-20260811-0003 (NEW) map=(None,None)
+2026-08-11 15:46:31 | INFO    | amr.vision       | -        | [vision_bridge] cam=1 state=2 bbox=False → 이벤트 EV-20260811-0004 (NEW) map=(None,None)
+2026-08-11 15:46:31 | INFO    | amr.request      | 7363480e | POST /api/patrol/start → 200 (25.3ms) role=-
+2026-08-11 15:46:31 | INFO    | amr.request      | 075e2810 | OPTIONS /api/zones/Z-P2 → 200 (0.2ms) role=-
+2026-08-11 15:46:31 | WARNING | amr.request      | c1408945 | PUT /api/zones/Z-P2 → 404 (2.0ms) role=ADMIN
+2026-08-11 15:46:31 | INFO    | amr.request      | 8c687ddd | POST /api/zones → 201 (2.4ms) role=ADMIN
+2026-08-11 15:46:31 | INFO    | amr.request      | 46016d8f | GET /api/patrol/missions → 200 (1.2ms) role=-
+2026-08-11 15:46:31 | INFO    | amr.request      | 55668fd8 | POST /api/nodes → 201 (3.7ms) role=ADMIN
+2026-08-11 15:46:31 | INFO    | amr.request      | 28f3e6d5 | POST /api/nodes → 201 (10.0ms) role=ADMIN
+2026-08-11 15:46:31 | INFO    | amr.request      | 891764ac | POST /api/nodes → 201 (7.5ms) role=ADMIN
+2026-08-11 15:46:31 | INFO    | amr.request      | eb3f6d62 | POST /api/routes → 201 (2.7ms) role=ADMIN
+2026-08-11 15:46:31 | INFO    | amr.bridge       | 45af1838 | [robot_bridge] AMR-02 ← START_PATROL CMD-20260811-6334
+2026-08-11 15:46:31 | INFO    | amr.vision       | 45af1838 | [vision_bridge] /ui/start=True 발행
+2026-08-11 15:46:31 | INFO    | amr.request      | 45af1838 | POST /api/patrol/start → 200 (39.0ms) role=-
+2026-08-11 15:46:52 | INFO    | amr.request      | 2fc9ad70 | POST /api/align/check-gate → 200 (331.0ms) role=-
+2026-08-11 15:46:55 | INFO    | amr.request      | 6013bb57 | POST /api/align/check-gate → 200 (369.4ms) role=-
+2026-08-11 15:46:58 | INFO    | amr.request      | bfafe039 | POST /api/align/check-gate → 200 (1618.2ms) role=-
+2026-08-11 15:46:58 | INFO    | amr.request      | 650d718d | POST /api/align/check-gate → 200 (406.9ms) role=-
+2026-08-11 15:47:01 | INFO    | amr.request      | bb4ccf8c | GET /api/stats/overview → 200 (2.0ms) role=-
+2026-08-11 15:47:01 | INFO    | amr.request      | 76e4621e | POST /api/align/check-gate → 200 (327.0ms) role=-
+2026-08-11 15:47:04 | INFO    | amr.request      | 71b6983d | POST /api/align/check-gate → 200 (2051.1ms) role=-
+2026-08-11 15:47:04 | INFO    | amr.request      | 738d61e6 | POST /api/align/check-gate → 200 (329.5ms) role=-
+2026-08-11 15:47:07 | INFO    | amr.request      | 0d9c4f2d | POST /api/align/check-gate → 200 (350.4ms) role=-
+2026-08-11 15:47:07 | INFO    | amr.request      | a3e2f8ff | POST /api/align/check-gate → 200 (326.1ms) role=-
+2026-08-11 15:47:10 | INFO    | amr.request      | f6b2009f | POST /api/align/check-gate → 200 (288.1ms) role=-
+2026-08-11 15:47:10 | INFO    | amr.request      | d3344718 | POST /api/align/check-gate → 200 (385.2ms) role=-
+2026-08-11 15:47:13 | INFO    | amr.request      | 43170a12 | POST /api/align/check-gate → 200 (326.0ms) role=-
+2026-08-11 15:47:15 | INFO    | amr.request      | 73ce4869 | POST /api/align/check-gate → 200 (2041.9ms) role=-
+2026-08-11 15:47:16 | INFO    | amr.request      | af706d0d | POST /api/align/check-gate → 200 (401.9ms) role=-
+2026-08-11 15:47:19 | INFO    | amr.request      | a716f95e | POST /api/align/check-gate → 200 (1281.0ms) role=-
+2026-08-11 15:47:19 | INFO    | amr.request      | ab3be3f6 | POST /api/align/check-gate → 200 (344.5ms) role=-
+2026-08-11 15:47:22 | INFO    | amr.request      | 1c9f1d1f | POST /api/align/check-gate → 200 (449.3ms) role=-
+2026-08-11 15:47:22 | INFO    | amr.request      | ea64409e | POST /api/align/check-gate → 200 (385.8ms) role=-
+2026-08-11 15:47:25 | INFO    | amr.request      | 8f968035 | POST /api/align/check-gate → 200 (391.6ms) role=-
+2026-08-11 15:47:25 | INFO    | amr.request      | 15b5d26b | POST /api/align/check-gate → 200 (410.4ms) role=-
+2026-08-11 15:47:28 | INFO    | amr.request      | 44054399 | POST /api/align/check-gate → 200 (345.9ms) role=-
+2026-08-11 15:47:28 | INFO    | amr.request      | 52e0157b | POST /api/align/check-gate → 200 (385.3ms) role=-
+2026-08-11 15:47:31 | INFO    | amr.request      | c6afcf3c | GET /api/stats/overview → 200 (2.4ms) role=-
+2026-08-11 15:47:31 | INFO    | amr.request      | c8fbabd6 | POST /api/align/check-gate → 200 (329.7ms) role=-
+2026-08-11 15:47:31 | INFO    | amr.request      | 970802ae | POST /api/align/check-gate → 200 (328.3ms) role=-
+2026-08-11 15:47:34 | INFO    | amr.request      | 921c4715 | POST /api/align/check-gate → 200 (307.1ms) role=-
+2026-08-11 15:47:34 | INFO    | amr.request      | 30a6d32f | POST /api/align/check-gate → 200 (366.3ms) role=-
+2026-08-11 15:47:37 | INFO    | amr.request      | 69669d02 | POST /api/align/check-gate → 200 (348.0ms) role=-
+2026-08-11 15:47:37 | INFO    | amr.request      | dd7d7995 | POST /api/align/check-gate → 200 (390.3ms) role=-
+2026-08-11 15:47:40 | INFO    | amr.request      | 3efb2add | POST /api/align/check-gate → 200 (394.0ms) role=-
+2026-08-11 15:47:40 | INFO    | amr.request      | e8535a8b | POST /api/align/check-gate → 200 (433.8ms) role=-
+2026-08-11 15:47:43 | INFO    | amr.request      | f8bc8002 | POST /api/align/check-gate → 200 (268.6ms) role=-
+2026-08-11 15:47:44 | INFO    | amr.request      | dfb966d7 | POST /api/align/check-gate → 200 (446.2ms) role=-
+2026-08-11 15:47:46 | INFO    | amr.request      | d5b30c00 | POST /api/align/check-gate → 200 (345.7ms) role=-
+2026-08-11 15:47:48 | INFO    | amr.request      | 82dc5675 | POST /api/align/check-gate → 200 (2040.8ms) role=-
+2026-08-11 15:47:49 | INFO    | amr.request      | 2cbf0c7b | POST /api/align/check-gate → 200 (408.6ms) role=-
+2026-08-11 15:47:52 | INFO    | amr.request      | 2825ccb5 | POST /api/align/check-gate → 200 (1392.1ms) role=-
+2026-08-11 15:47:52 | INFO    | amr.request      | a925ea5a | POST /api/align/check-gate → 200 (429.3ms) role=-
+2026-08-11 15:47:55 | INFO    | amr.request      | 9fa9dde5 | POST /api/align/check-gate → 200 (327.3ms) role=-
+2026-08-11 15:47:57 | INFO    | amr.request      | 82435378 | POST /api/align/check-gate → 200 (2039.1ms) role=-
+2026-08-11 15:47:58 | INFO    | amr.request      | 2e4aa3f5 | POST /api/align/check-gate → 200 (367.4ms) role=-
+2026-08-11 15:48:01 | INFO    | amr.request      | 47e22063 | GET /api/stats/overview → 200 (2.2ms) role=-
+2026-08-11 15:48:01 | INFO    | amr.request      | afca6bff | POST /api/align/check-gate → 200 (1356.8ms) role=-
+2026-08-11 15:48:01 | INFO    | amr.request      | 09350a33 | POST /api/align/check-gate → 200 (406.9ms) role=-
+2026-08-11 15:48:04 | INFO    | amr.request      | 3521e481 | POST /api/align/check-gate → 200 (307.1ms) role=-
+2026-08-11 15:48:04 | INFO    | amr.request      | 73ff65f1 | POST /api/align/check-gate → 200 (328.5ms) role=-
+2026-08-11 15:48:07 | INFO    | amr.request      | e5c827ff | POST /api/align/check-gate → 200 (410.9ms) role=-
+2026-08-11 15:48:07 | INFO    | amr.request      | 3408f890 | POST /api/align/check-gate → 200 (366.4ms) role=-
+2026-08-11 15:48:09 | ERROR   | amr.vision       | -        | [vision_bridge] rclpy spin 종료
+Traceback (most recent call last):
+  File "/home/rokey/Desktop/DBcenter-PT-Bot/hmi/backend/app/vision_bridge.py", line 340, in _spin
+    executor.spin_once(timeout_sec=0.5)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 808, in spin_once
+    self._spin_once_impl(timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 797, in _spin_once_impl
+    handler, entity, node = self.wait_for_ready_callbacks(timeout_sec=timeout_sec)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 780, in wait_for_ready_callbacks
+    return next(self._cb_iter)
+  File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/executors.py", line 681, in _wait_for_ready_callbacks
+    raise ExternalShutdownException()
+rclpy.executors.ExternalShutdownException
+2026-08-11 15:48:09 | INFO    | amr.ws           | -        | WS 해제 — 현재 0개 연결
+2026-08-11 15:48:23 | INFO    | amr.ws           | -        | 브로드캐스트 소비 루프 종료
+2026-08-11 15:48:23 | INFO    | amr.vision       | -        | [vision_bridge] 종료
+2026-08-11 15:48:23 | INFO    | amr.bridge       | -        | [robot_bridge] ROS2 브리지 종료
+2026-08-11 15:48:23 | INFO    | amr.main         | -        | 서버 종료
