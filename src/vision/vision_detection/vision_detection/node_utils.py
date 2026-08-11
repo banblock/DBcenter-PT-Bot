@@ -8,6 +8,7 @@ from pathlib import Path
 
 import yaml
 from ament_index_python.packages import get_package_share_directory
+from rcl_interfaces.msg import ParameterDescriptor
 
 
 def declare_parameters_from_yaml(node, section_name):
@@ -20,7 +21,12 @@ def declare_parameters_from_yaml(node, section_name):
     all_params = yaml.safe_load(params_path.read_text())
     defaults = all_params.get(section_name, {}).get('ros__parameters', {})
     for name, value in defaults.items():
-        node.declare_parameter(name, value)
+        if isinstance(value, list) and not value:
+            # 빈 리스트는 원소가 없어 타입 추론이 불가 → NOT_SET으로 선언되어 get 시
+            # ParameterUninitializedException이 발생한다. 동적 타이핑을 허용해 회피.
+            node.declare_parameter(name, value, ParameterDescriptor(dynamic_typing=True))
+        else:
+            node.declare_parameter(name, value)
 
 
 # CamState.msg 프로토콜 상수 - detect_cctv_node/detect_ambient_node가 공유한다.

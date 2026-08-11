@@ -77,7 +77,7 @@ class DetectCctvNode(Node):
         # 문자열 배열로 통일하면 카메라 인덱스("0")와 /dev 경로를 모두 사용할 수 있다.
         # 비워두면(기본값) 연결된 웹캠을 자동 탐지한다.
         configured_devices = [
-            str(value) for value in self.get_parameter("camera_devices").value
+            str(value) for value in (self.get_parameter("camera_devices").value or [])
         ]
         camera_devices = configured_devices or self._discover_camera_devices(len(camera_ids))
 
