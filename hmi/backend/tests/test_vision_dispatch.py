@@ -50,16 +50,17 @@ def _make_fire_event(db: Session, *, x: float | None, y: float | None):
 
 # ── should_auto_dispatch 조건 (순수) ─────────────────────────────────────────
 
-def test_should_auto_dispatch_fire_with_coords() -> None:
-    assert dispatch.should_auto_dispatch("FIRE", (12.0, 3.0), merged=False) is True
+@pytest.mark.parametrize("etype", ["FIRE", "LEAK"])  # 화재·냉각수 누수 = 자동 급파 대상
+def test_should_auto_dispatch_with_coords(etype) -> None:
+    assert dispatch.should_auto_dispatch(etype, (12.0, 3.0), merged=False) is True
 
 
 @pytest.mark.parametrize(
     "etype, xy, merged",
     [
-        ("SMOKE", (1.0, 2.0), False),   # 화재 아님 → 자동 급파 안 함
-        ("LEAK", (1.0, 2.0), False),
+        ("SMOKE", (1.0, 2.0), False),   # 연기는 대상 아님 → 자동 급파 안 함
         ("FIRE", None, False),          # 맵 좌표 없음 → GOTO 목표 없음
+        ("LEAK", None, False),          # 맵 좌표 없음 → GOTO 목표 없음
         ("FIRE", (1.0, 2.0), True),     # dedup 병합 → 최초 감지 때 이미 급파
     ],
 )
@@ -70,6 +71,32 @@ def test_should_not_auto_dispatch(etype, xy, merged) -> None:
 def test_should_auto_dispatch_respects_setting(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "vision_auto_dispatch", False)
     assert dispatch.should_auto_dispatch("FIRE", (1.0, 2.0), merged=False) is False
+
+
+# ── should_auto_hold 조건 (AMR 자체 감지 제자리 정지, 순수) ────────────────────
+
+@pytest.mark.parametrize("etype", ["FIRE", "LEAK"])  # 화재·냉각수 = 제자리 정지 대상
+def test_should_auto_hold_amr_self_detection(etype) -> None:
+    # 자체 감지는 맵 좌표가 없어도(로봇이 이미 현장) 정지시켜야 한다.
+    assert dispatch.should_auto_hold(etype, "amr", "AMR-01", merged=False) is True
+
+
+@pytest.mark.parametrize(
+    "etype, source, robot_id, merged",
+    [
+        ("SMOKE", "amr", "AMR-01", False),   # 연기는 대상 아님
+        ("FIRE", "cctv", None, False),       # CCTV 는 급파 경로 — 제자리 정지 아님
+        ("FIRE", "amr", None, False),        # 세울 로봇 불명
+        ("FIRE", "amr", "AMR-01", True),     # dedup 병합 → 최초 감지 때 이미 대응
+    ],
+)
+def test_should_not_auto_hold(etype, source, robot_id, merged) -> None:
+    assert dispatch.should_auto_hold(etype, source, robot_id, merged=merged) is False
+
+
+def test_should_auto_hold_respects_setting(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "vision_auto_dispatch", False)
+    assert dispatch.should_auto_hold("FIRE", "amr", "AMR-01", merged=False) is False
 
 
 # ── dispatch 서비스 (자동 급파가 쓰는 그 로직) ───────────────────────────────
@@ -108,3 +135,25 @@ def test_assign_and_goto_publishes_goto_with_map_coords(db: Session, bridge: Nul
     wp = goto[0]["payload"]["waypoints"][0]
     assert (wp["x"], wp["y"]) == (12.5, -3.0)
     assert goto[0]["payload"]["event_id"] == event.event_id
+
+
+def test_assign_and_hold_publishes_hold_without_waypoints(db: Session, bridge: NullBridge) -> None:
+    _seed_min(db)
+    _make_eligible_robot(db, "amr_1")
+    # 자체 감지 이벤트는 좌표가 없다(로봇이 이미 현장에 있음).
+    event = crud.events.create(db, source="amr", type_="LEAK", confidence=0.9, x=None, y=None)
+    db.flush()
+
+    outcome = dispatch.assign_and_hold(db, event, "amr_1", preempt=True)
+
+    assert event.assigned_robot_id == "amr_1"
+    assert event.status == "ASSIGNED"
+    assert outcome.mission.mission_type == "ANOMALY"
+    robot = crud.robots.get(db, "amr_1")
+    assert robot.status == RobotState.INSPECTING.value
+    # 좌표 없이 그 로봇을 제자리에 세우는 ANOMALY_HOLD 만 나가야 한다(GOTO waypoint 없음).
+    hold = [c for c in bridge.sent if c["command_type"] == "ANOMALY_HOLD"]
+    assert len(hold) == 1
+    assert hold[0]["payload"]["event_id"] == event.event_id
+    assert "waypoints" not in hold[0]["payload"]
+    assert not [c for c in bridge.sent if c["command_type"] == "GOTO"]

@@ -22,7 +22,7 @@ from app.logging_config import get_logger
 
 log = get_logger("bridge")
 
-CommandType = str  # START_PATROL|PAUSE|RESUME|CANCEL|GOTO|INSPECT|EVACUATE|ESTOP|RESET|DOCK
+CommandType = str  # START_PATROL|PAUSE|RESUME|CANCEL|GOTO|ANOMALY_HOLD|INSPECT|EVACUATE|ESTOP|RESET|DOCK
 
 
 # [공부 메모] 이게 수업 때 배운 "의존성 역전(DIP)" 실물 예시라 리뷰 때 얘기하면 좋음.

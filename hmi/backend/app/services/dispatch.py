@@ -63,13 +63,13 @@ class DispatchOutcome:
     preempted_mission_id: str | None
 
 
-def assign_and_goto(
-    db: Session, event: models.Event, robot_id: str, *, preempt: bool = True
-) -> DispatchOutcome:
-    """robot_id 를 event 에 배정 → ANOMALY 미션 생성 → GOTO(event.x/y) 발행.
+def _assign_anomaly_mission(
+    db: Session, event: models.Event, robot_id: str, *, preempt: bool, status: str
+) -> tuple[models.Mission, str | None]:
+    """급파(GOTO)와 제자리 정지(HOLD)가 공유하는 배정 로직 — 로봇 명령만 빼고 동일.
 
-    commit/broadcast 는 하지 않는다(호출부). preempt=True 면 순찰(PATROL) 중인 로봇을
-    선점하고 재개 컨텍스트를 남긴다. GOTO 좌표는 event.x/event.y(호모그래피로 채운 맵 좌표).
+    순찰 선점(preempt) → ANOMALY 미션 생성 → 로봇/이벤트 배정까지 한다. 실제 로봇
+    명령(GOTO/ANOMALY_HOLD)은 호출부가 이 뒤에 발행한다. commit 은 하지 않는다.
     """
     preempted_mission_id = None
     if preempt:
@@ -98,14 +98,27 @@ def assign_and_goto(
     )
     robot = crud.robots.get(db, robot_id)
     robot.current_mission_id = mission.mission_id
-    robot.status = RobotState.DISPATCHING.value
+    robot.status = status
     robot.progress_step = 2
 
     event.assigned_robot_id = robot_id
     crud.events.set_status(
         db, event.event_id, EventStatus.ASSIGNED.value, actor="dispatcher", detail=f"{robot_id} 선정"
     )
+    return mission, preempted_mission_id
 
+
+def assign_and_goto(
+    db: Session, event: models.Event, robot_id: str, *, preempt: bool = True
+) -> DispatchOutcome:
+    """robot_id 를 event 에 배정 → ANOMALY 미션 생성 → GOTO(event.x/y) 발행.
+
+    commit/broadcast 는 하지 않는다(호출부). preempt=True 면 순찰(PATROL) 중인 로봇을
+    선점하고 재개 컨텍스트를 남긴다. GOTO 좌표는 event.x/event.y(호모그래피로 채운 맵 좌표).
+    """
+    mission, preempted_mission_id = _assign_anomaly_mission(
+        db, event, robot_id, preempt=preempt, status=RobotState.DISPATCHING.value
+    )
     get_bridge().publish_command(
         robot_id,
         "GOTO",
@@ -117,17 +130,59 @@ def assign_and_goto(
     return DispatchOutcome(mission=mission, preempted_mission_id=preempted_mission_id)
 
 
-def should_auto_dispatch(event_type: str, map_xy: tuple | None, merged: bool) -> bool:
-    """비전 자동 급파 트리거 조건 (2026-08-09 정책: 화재 감지 즉시 자동 급파).
+def assign_and_hold(
+    db: Session, event: models.Event, robot_id: str, *, preempt: bool = True
+) -> DispatchOutcome:
+    """자체 카메라로 이상을 감지한 robot_id 를 그 자리에 정지(HOLD)시킨다.
 
-    · 화재(FIRE)만 — 연기/누수는 자동 급파 안 함(오탐 시 순찰 낭비 방지).
+    급파(assign_and_goto)와 달리 이동 목표(좌표)가 없다 — 로봇이 이미 이상 지점에
+    있기 때문이다. fleet 의 자체 감지 경로(/fleet/anomaly_trigger {"robot": ns})가 그
+    로봇의 현재 위치(amcl_pose)를 이상 위치로 써서 제자리 정지로 동작한다.
+    commit/broadcast 는 하지 않는다(호출부).
+    """
+    mission, preempted_mission_id = _assign_anomaly_mission(
+        db, event, robot_id, preempt=preempt, status=RobotState.INSPECTING.value
+    )
+    get_bridge().publish_command(robot_id, "ANOMALY_HOLD", {"event_id": event.event_id})
+    return DispatchOutcome(mission=mission, preempted_mission_id=preempted_mission_id)
+
+
+#: 자동 급파를 발동시키는 이상 유형. 화재(FIRE)는 2026-08-09부터, 냉각수 누수
+#: (LEAK)는 화재와 동일 대응으로 추가(2026-08-11). 연기(SMOKE)는 오탐이 잦아 제외.
+AUTO_DISPATCH_TYPES = frozenset({EventType.FIRE.value, EventType.LEAK.value})
+
+
+def should_auto_dispatch(event_type: str, map_xy: tuple | None, merged: bool) -> bool:
+    """비전 자동 급파 트리거 조건 (화재·냉각수 누수 감지 시 즉시 자동 급파).
+
+    · AUTO_DISPATCH_TYPES(화재/냉각수 누수)만 — 연기는 자동 급파 안 함(오탐 시 순찰 낭비 방지).
     · 맵 좌표가 있어야 함 — 호모그래피로 좌표를 못 구하면 GOTO 목표가 없어 급파 무의미.
     · 신규 이벤트만(merged=False) — dedup 병합은 최초 감지 때 이미 급파됐으므로 재급파 안 함.
     · settings.vision_auto_dispatch 로 전체 on/off.
     """
     return (
         getattr(settings, "vision_auto_dispatch", True)
-        and event_type == EventType.FIRE.value
+        and event_type in AUTO_DISPATCH_TYPES
         and map_xy is not None
+        and not merged
+    )
+
+
+def should_auto_hold(
+    event_type: str, source: str | None, robot_id: str | None, merged: bool
+) -> bool:
+    """자체 감지 제자리 정지 트리거 조건 (AMR 자체 카메라가 이상 감지 → 그 로봇 정지).
+
+    급파(should_auto_dispatch)와의 차이:
+    · 맵 좌표가 필요 없다 — fleet 이 로봇의 현재 위치를 이상 위치로 쓴다(제자리 정지).
+    · 감지 출처가 AMR 자체 카메라여야 한다(source="amr") — 어느 로봇을 세울지 그 로봇
+      자신으로 정해지므로 robot_id 가 있어야 한다.
+    유형/병합/전체 on-off 규칙은 급파와 동일하다.
+    """
+    return (
+        getattr(settings, "vision_auto_dispatch", True)
+        and event_type in AUTO_DISPATCH_TYPES
+        and source == "amr"
+        and robot_id is not None
         and not merged
     )

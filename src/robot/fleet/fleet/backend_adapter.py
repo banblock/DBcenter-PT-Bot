@@ -191,6 +191,8 @@ class BackendAdapter(Node):
             self._handle_reset(robot)
         elif ctype == 'GOTO':
             self._handle_goto(robot, payload)
+        elif ctype == 'ANOMALY_HOLD':
+            self._handle_anomaly_hold(robot)
         elif ctype == 'CANCEL':
             self._handle_cancel(robot)
         elif ctype in ('PAUSE', 'RESUME'):
@@ -284,6 +286,15 @@ class BackendAdapter(Node):
         self.anomaly_pub.publish(String(data=json.dumps({'x': x, 'y': y})))
         self.get_logger().info(
             f'{robot} <- GOTO({x:.2f},{y:.2f}) → /fleet/anomaly_trigger{{x,y}} (최근접 급파)')
+
+    def _handle_anomaly_hold(self, robot):
+        # 자체 감지 제자리 정지: 백엔드가 이상을 자기 카메라로 본 그 로봇을 세우라고 보낸다.
+        # 좌표 기반(최근접) 급파와 달리, robot id 를 그대로 실어 자체 감지 경로
+        # (/fleet/anomaly_trigger {"robot": ns})로 매핑한다 - fleet_node 가 그 로봇의
+        # 현재 위치(amcl_pose)를 이상 위치로 써서 제자리에 정지시킨다.
+        self.anomaly_pub.publish(String(data=json.dumps({'robot': robot})))
+        self.get_logger().info(
+            f'{robot} <- ANOMALY_HOLD → /fleet/anomaly_trigger{{robot:{robot}}} (제자리 정지)')
 
     def _handle_cancel(self, robot):
         # 순찰 취소: Fleet 에 per-robot 취소 입력이 없다. 재시작 흐름(취소→재시작)에서는

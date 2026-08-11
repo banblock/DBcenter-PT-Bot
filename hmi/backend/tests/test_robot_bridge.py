@@ -99,6 +99,13 @@ def test_estop_command_dispatches(bridge: RobotBridge, pub: RecordingPublisher):
     assert pub.for_robot("amr_1")[0]["command_type"] == "ESTOP"
 
 
+def test_anomaly_hold_command_accepted(bridge: RobotBridge, pub: RecordingPublisher):
+    """자체 감지 제자리 정지 — ANOMALY_HOLD 가 §10-2 화이트리스트를 통과해 발행돼야 한다."""
+    result = bridge.publish_command("amr_1", "ANOMALY_HOLD", {"event_id": "EV-9"})
+    assert result["accepted"] is True  # 화이트리스트 미등록이면 ValueError 로 거부됐을 것
+    assert "ANOMALY_HOLD" in [env["command_type"] for _topic, env in pub.frames]
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # 단일 AMR 목표 하달 · 도착 확인 (§10-2 → §10-3)
 # ══════════════════════════════════════════════════════════════════════════

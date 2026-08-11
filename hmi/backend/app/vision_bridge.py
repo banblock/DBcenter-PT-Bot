@@ -19,7 +19,7 @@ from typing import Any
 from app import crud
 from app.connection_manager import manager
 from app.database import SessionLocal
-from app.enums import EventType, WsMessageType
+from app.enums import EventType, RobotState, WsMessageType
 from app.logging_config import get_logger
 from app.services import detection, dispatch, homography
 
@@ -278,7 +278,11 @@ class VisionBridge:
             db.commit()
             payload = crud.events.to_dict(result.event)
             event_id = result.event.event_id
-            auto = dispatch.should_auto_dispatch(etype, map_xy, result.merged)
+            # CCTV 감지 → 가까운 AMR 급파(좌표 필요). AMR 자체 카메라 감지 → 그 로봇 제자리 정지(좌표 불필요).
+            auto_dispatch = dispatch.should_auto_dispatch(etype, map_xy, result.merged)
+            auto_hold = dispatch.should_auto_hold(
+                etype, meta["source"], meta.get("robot_id"), result.merged
+            )
         except Exception:  # noqa: BLE001
             db.rollback()
             log.exception("[vision_bridge] 이벤트 생성 실패 (cam=%s)", camera_id)
@@ -292,9 +296,12 @@ class VisionBridge:
             camera_id, state, bbox_list is not None, event_id,
             "MERGED" if result.merged else "NEW", map_x, map_y,
         )
-        # 정책(2026-08-09): 화재 감지 + 맵 좌표 확보 시 즉시 자동 급파(가까운 AMR 에 GOTO).
-        if auto:
+        # 정책: 화재/냉각수 누수 감지 시 즉시 자동 대응(대상 유형은 dispatch.AUTO_DISPATCH_TYPES).
+        # CCTV 는 가까운 AMR 급파, AMR 자체 감지는 그 로봇 제자리 정지 — 둘은 상호배타.
+        if auto_dispatch:
             await self._auto_dispatch(event_id)
+        elif auto_hold:
+            await self._auto_hold(event_id, meta["robot_id"])
 
     async def _auto_dispatch(self, event_id: str) -> None:  # pragma: no cover
         """화재 이벤트에 가장 가까운 가용 로봇을 골라 GOTO(맵 좌표)를 하달한다.
@@ -322,6 +329,41 @@ class VisionBridge:
         except Exception:  # noqa: BLE001
             db.rollback()
             log.exception("[vision_bridge] 자동 급파 실패 (event=%s)", event_id)
+        finally:
+            db.close()
+
+    async def _auto_hold(self, event_id: str, robot_id: str) -> None:  # pragma: no cover
+        """자체 카메라로 이상을 감지한 그 AMR 을 제자리 정지시킨다.
+
+        급파(_auto_dispatch)와 달리 로봇을 새로 고르지 않는다 — 감지한 로봇 자신이
+        대상이다. 오프라인/긴급정지 로봇은 세울 필요가 없어(이미 멈춰 있거나 명령이
+        닿지 않음) 건너뛴다. 실패해도 컨슈머는 멈추지 않는다.
+        """
+        db = SessionLocal()
+        try:
+            robot = crud.robots.get(db, robot_id)
+            if robot is None or not robot.online or robot.status in (
+                RobotState.OFFLINE.value,
+                RobotState.EMERGENCY_STOP.value,
+            ):
+                log.warning(
+                    "[vision_bridge] 제자리 정지 보류 — 로봇 미가용 (robot=%s event=%s)",
+                    robot_id, event_id,
+                )
+                return
+            event = crud.events.get(db, event_id)
+            outcome = dispatch.assign_and_hold(db, event, robot_id, preempt=True)
+            db.commit()
+            await manager.publish_async(WsMessageType.EVENT.value, crud.events.to_dict(event))
+            await manager.publish_async(
+                WsMessageType.MISSION_STATUS.value, crud.robots.mission_to_dict(db, outcome.mission)
+            )
+            log.info(
+                "[vision_bridge] 자체 감지 제자리 정지 → %s HOLD event=%s", robot_id, event_id
+            )
+        except Exception:  # noqa: BLE001
+            db.rollback()
+            log.exception("[vision_bridge] 제자리 정지 실패 (robot=%s event=%s)", robot_id, event_id)
         finally:
             db.close()
 
