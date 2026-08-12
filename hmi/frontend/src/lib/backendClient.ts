@@ -114,6 +114,10 @@ interface BackendEvent {
   robot_id?: string | null;         // source=amr 감지 로봇 (AMR 캠 스트림 id)
   assigned_robot_id?: string | null;
   detected_at?: string;
+  // 백엔드가 '로봇이 자기 카메라로 독립 감지해 실제로 멈춘(HOLD)' 경우에만 true 로 실어준다.
+  // AMR 캠 알림 팝업(영상)은 이 플래그로만 띄운다 — source=="amr" 만 보면 CCTV 발단 화재에
+  // 급파된 로봇의 재확인 감지에도 알림이 뜬다(vision_bridge._handle 참고).
+  amr_alert?: boolean;
 }
 interface BackendZone {
   zone_id: string;
@@ -305,7 +309,9 @@ export function translateFrame(raw: string): InboundMessage | null {
       const ev = p as unknown as BackendEvent;
       const isNew = !eventsById.has(ev.event_id);
       const isNewCctvDetection = ev.source === "cctv" && isNew;
-      const isNewAmrDetection = ev.source === "amr" && isNew;
+      // AMR 캠 알림 팝업은 백엔드가 '독립 자체 감지로 실제 정지(HOLD)' 판정한 경우(amr_alert)
+      // 에만 띄운다 — source=="amr" 만 보면 CCTV 발단 화재에 급파된 로봇의 재확인에도 뜬다.
+      const isNewAmrDetection = ev.amr_alert === true && isNew;
       eventsById.set(ev.event_id, ev);
       const out = eventToOut(ev);
       return {

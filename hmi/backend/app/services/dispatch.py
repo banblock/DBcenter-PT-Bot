@@ -10,6 +10,7 @@ REST(`POST /events/{id}/dispatch`, 운영자 수동)와 비전 자동 급파(`vi
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 from sqlalchemy import select
@@ -24,12 +25,44 @@ from app.models import utcnow
 
 log = get_logger("dispatch")
 
+#: 로봇별 자체 감지 정지(auto_hold) 억제 마감시각(monotonic 초). '작업 복귀'(resume) 직후
+#: 짧게 채워, 로봇이 이상 지점을 벗어나기 전에 같은 이상을 재감지해 다시 멈추는 루프를 끊는다.
+#: 백엔드 단일 프로세스 in-memory (재시작 시 비워짐 — 짧은 창이라 무해). 상세는 [[dispatch]].
+_anomaly_hold_cooldown_until: dict[str, float] = {}
+
+
+def mark_anomaly_resume_cooldown(robot_id: str, seconds: float | None = None) -> None:
+    """robot_id 의 auto_hold 억제 창을 지금부터 seconds(기본 설정값)만큼 연다."""
+    secs = settings.anomaly_resume_cooldown_sec if seconds is None else seconds
+    if secs > 0:
+        _anomaly_hold_cooldown_until[robot_id] = time.monotonic() + secs
+
+
+def in_anomaly_resume_cooldown(robot_id: str | None) -> bool:
+    """robot_id 가 '작업 복귀' 직후 재감지 억제 창 안이면 True. 만료됐으면 정리하고 False."""
+    if robot_id is None:
+        return False
+    deadline = _anomaly_hold_cooldown_until.get(robot_id)
+    if deadline is None:
+        return False
+    if time.monotonic() >= deadline:
+        _anomaly_hold_cooldown_until.pop(robot_id, None)
+        return False
+    return True
+
 
 def select_robot(db: Session, event: models.Event) -> tuple[str | None, dict]:
     """급파 대상 선정 (B-34).
 
     점수 = 거리(가까울수록↑) 0.6 + 배터리 0.4. 오프라인·긴급정지·충전 중인 로봇은 후보에서 제외.
     실제 주행거리 대신 직선거리를 쓴다 — 경로 탐색까지 하려면 Nav2 가 필요하다.
+
+    이미 다른 이상에 급파돼 대응 중인 로봇(DISPATCHING/INSPECTING/ALERTING/REPORTING)도
+    제외한다 — 이걸 빼먹으면 첫 화재로 출동 중인 로봇을 두 번째 화재에 또 골라서, 정작
+    fleet_node 는 그 로봇을 busy 로 보고 다른(최근접) 로봇을 급파해 백엔드-fleet 선정이
+    어긋난다(백엔드는 AMR-01 급파로 기록, 실제로는 AMR-02 가 이동). fleet 의 이상신호
+    급파 후보(anomaly_control.eligible_candidates: anomaly_busy 제외)와 기준을 맞춘다.
+    순찰 중(PATROLLING)인 로봇은 선점(preempt)해서 급파하므로 후보에 남긴다.
     """
     candidates = []
     for robot in crud.robots.list_all(db):
@@ -38,7 +71,16 @@ def select_robot(db: Session, event: models.Event) -> tuple[str | None, dict]:
             RobotState.EMERGENCY_STOP.value,
             RobotState.ERROR.value,
             RobotState.CHARGING.value,
+            RobotState.DISPATCHING.value,
+            RobotState.INSPECTING.value,
+            RobotState.ALERTING.value,
+            RobotState.REPORTING.value,
         ):
+            continue
+        # status 는 텔레메트리로 덮여(DISPATCHING→PATROLLING) busy 판정이 흔들리므로,
+        # 진행 중 ANOMALY 미션(백엔드 소유, 안정적)으로 한 번 더 거른다 — 이미 이상 대응
+        # 중인 로봇에 두 번째 이상을 얹으면 미션이 중첩된다.
+        if crud.robots.has_active_anomaly_mission(db, robot.robot_id):
             continue
         if robot.battery < settings.battery_low_threshold:
             continue
@@ -214,6 +256,10 @@ def resume_from_anomaly(db: Session, robot_id: str) -> ResumeOutcome:
             db, event_id, EventStatus.RESOLVED.value,
             actor="operator", detail="작업 복귀 결정(이상 대응 해제)",
         )
+
+    # 재개 직후 재감지 억제 창을 연다 — 로봇이 이상 지점을 벗어나기 전에 같은 이상을
+    # 새 이벤트로 재감지해 곧바로 다시 HOLD 되는 루프를 끊는다(should_auto_hold 호출부에서 확인).
+    mark_anomaly_resume_cooldown(robot_id)
 
     # 로봇에 재개 신호 → anomaly hold 해제 후 순찰 복귀.
     get_bridge().publish_command(robot_id, "ANOMALY_RESUME", {})

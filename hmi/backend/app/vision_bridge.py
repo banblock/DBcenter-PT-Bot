@@ -260,6 +260,20 @@ class VisionBridge:
         bbox_list = list(bbox) if valid_bbox(bbox) else None
         conf = confidence if confidence and confidence > 0 else DEFAULT_CONFIDENCE
 
+        # CCTV 는 실제 감지 시 항상 bbox 를 싣는다(호모그래피 좌표 확보용). bbox 없는 CCTV
+        # CamState 는 감지가 아니라 순찰 시작/해제 때 CCTV 노드가 뿌리는 "정상 baseline"
+        # (_publish_initial_status)이다. 이걸 감지 이벤트로 만들면 순찰을 시작할 때마다
+        # cam0/cam1 × fire/coolant = 가짜 FIRE/LEAK 4건이 떠서, 관제 화면이 화재 복귀
+        # 흐름을 타 전체 AMR 을 도킹시킨다(출발하자마자 되돌아오는 버그). 그래서 bbox 없는
+        # CCTV 메시지는 이벤트로 만들지 않고 버린다. AMR 자체 감지는 호모그래피가 없어
+        # 실제 감지도 항상 bbox 가 없으므로(source="amr") 이 필터에서 제외한다.
+        if meta["source"] == "cctv" and bbox_list is None:
+            log.info(
+                "[vision_bridge] CCTV baseline/해제 무시 — 감지 이벤트 미생성 (cam=%s state=%s)",
+                camera_id, state,
+            )
+            return
+
         # CamState 는 "감지/해제" 구분이 없음 → Phase 1 은 '감지'로만 취급(해제 규칙은 §8 미정).
         db = SessionLocal()
         try:
@@ -283,6 +297,27 @@ class VisionBridge:
             auto_hold = dispatch.should_auto_hold(
                 etype, meta["source"], meta.get("robot_id"), result.merged
             )
+            # 운영자가 방금 '작업 복귀'로 해제한 로봇은 이상 지점을 벗어날 때까지 재정지 억제
+            # (AMR 이벤트는 zone_id 가 없어 dedup 이 안 되고 resume 이 이벤트를 닫아, 억제가
+            # 없으면 순찰 복귀 즉시 같은 이상을 새 이벤트로 재감지해 다시 HOLD 되는 루프가 생긴다).
+            if auto_hold and dispatch.in_anomaly_resume_cooldown(meta.get("robot_id")):
+                log.info(
+                    "[vision_bridge] 재개 쿨다운 중 — 자체 감지 제자리 정지 억제 (robot=%s event=%s)",
+                    meta.get("robot_id"), event_id,
+                )
+                auto_hold = False
+            # 이미 이상 대응 미션을 물고 있는 로봇의 자체 감지는 '새 독립 감지'가 아니라
+            # (급파돼 도착한 그 화재를) 재확인하는 것뿐이다 → 새 HOLD 를 얹지 않는다.
+            if auto_hold and crud.robots.has_active_anomaly_mission(db, meta["robot_id"]):
+                log.info(
+                    "[vision_bridge] 이미 이상 대응 중 — 자체 감지 재확인, HOLD 미발동 (robot=%s event=%s)",
+                    meta["robot_id"], event_id,
+                )
+                auto_hold = False
+            # 프론트 AMR 캠 알림 팝업(영상)은 '로봇이 자기 카메라로 독립 감지해 실제로 멈추는'
+            # 경우(= auto_hold 확정)에만 띄운다. source=="amr" 만으로 띄우면 CCTV(웹캠) 발단
+            # 화재에 급파된 로봇의 재확인/재감지에도 알림이 떠서 "웹캠 감지인데 AMR 알림" 이 된다.
+            payload["amr_alert"] = auto_hold
         except Exception:  # noqa: BLE001
             db.rollback()
             log.exception("[vision_bridge] 이벤트 생성 실패 (cam=%s)", camera_id)
@@ -348,6 +383,15 @@ class VisionBridge:
             ):
                 log.warning(
                     "[vision_bridge] 제자리 정지 보류 — 로봇 미가용 (robot=%s event=%s)",
+                    robot_id, event_id,
+                )
+                return
+            # 이미 이상 대응 미션을 물고 있으면(급파 이동 중이거나 이미 제자리 정지 중) 새
+            # HOLD 를 얹지 않는다 — 안 그러면 ANOMALY 미션이 중첩돼 뒤 급파의 DISPATCHING 이
+            # 자체 감지의 INSPECTING 을 덮어 '작업 복귀' 버튼이 사라진다. (재감지 무시)
+            if crud.robots.has_active_anomaly_mission(db, robot_id):
+                log.info(
+                    "[vision_bridge] 제자리 정지 보류 — 이미 이상 대응 중 (robot=%s event=%s)",
                     robot_id, event_id,
                 )
                 return

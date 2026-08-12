@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import crud, models
-from app.enums import AlignVerdict, EquipmentCheckState, ObservedState
+from app.enums import AlignVerdict, EquipmentCheckState, ObservedState, RobotState
 from app.errors import ApiError
 from app.services import align_engine
 
@@ -322,3 +322,58 @@ def test_aware_datetime_comparison_does_not_raise(seeded: Session):
     since = datetime.now(tz.utc) - timedelta(hours=1)
     rows, _ = crud.events.query(seeded, from_=since)
     assert rows
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# apply_telemetry — 이상 대응 hold(INSPECTING+ANOMALY) 상태 보호
+#   /control/<ns>_State 를 Fleet(4-상태 폴링)과 Control(세부 상태)이 공유해, hold 중
+#   Control 의 INSPECTING 을 Fleet 의 PATROLLING/DISPATCHING 이 덮어써 '작업 복귀' 버튼이
+#   사라지던 문제를 백엔드에서 막는다. (mission_type=ANOMALY + status=INSPECTING 일 때만)
+# ══════════════════════════════════════════════════════════════════════════
+def _put_in_anomaly_hold(db: Session, robot_id: str) -> None:
+    robot = crud.robots.ensure(db, robot_id)
+    robot.status = RobotState.INSPECTING.value
+    crud.robots.create_mission(
+        db, mission_id=crud.ids.next_mission_id(), mission_type="ANOMALY",
+        robot_id=robot_id, status="RUNNING",
+    )
+    db.flush()
+
+
+def test_apply_telemetry_keeps_anomaly_hold_over_patrol_states(db: Session):
+    _put_in_anomaly_hold(db, "amr_1")
+    for state in ("PATROLLING", "DISPATCHING", "IDLE"):
+        robot = crud.robots.apply_telemetry(db, "amr_1", status=state)
+        assert robot.status == RobotState.INSPECTING.value  # hold 유지
+
+
+def test_apply_telemetry_allows_safety_state_during_hold(db: Session):
+    _put_in_anomaly_hold(db, "amr_1")
+    robot = crud.robots.apply_telemetry(db, "amr_1", status="EMERGENCY_STOP")
+    assert robot.status == RobotState.EMERGENCY_STOP.value  # 안전/종단 상태는 통과
+
+
+def test_apply_telemetry_pose_passes_through_during_hold(db: Session):
+    _put_in_anomaly_hold(db, "amr_1")
+    robot = crud.robots.apply_telemetry(db, "amr_1", x=1.5, y=2.5)
+    assert robot.status == RobotState.INSPECTING.value  # 상태 유지
+    assert robot.x == 1.5 and robot.y == 2.5            # pose 는 반영
+
+
+def test_apply_telemetry_not_guarded_for_patrol_inspecting(db: Session):
+    # 순찰 중 INSPECTING(차단기 점검 등, mission_type=PATROL)은 보호 대상 아님 → 정상 반영
+    robot = crud.robots.ensure(db, "amr_1")
+    robot.status = RobotState.INSPECTING.value
+    crud.robots.create_mission(
+        db, mission_id=crud.ids.next_mission_id(), mission_type="PATROL",
+        robot_id="amr_1", status="RUNNING",
+    )
+    db.flush()
+    robot = crud.robots.apply_telemetry(db, "amr_1", status="PATROLLING")
+    assert robot.status == RobotState.PATROLLING.value
+
+
+def test_apply_telemetry_normal_when_not_in_hold(db: Session):
+    crud.robots.ensure(db, "amr_1")  # hold 아님(기본 상태)
+    robot = crud.robots.apply_telemetry(db, "amr_1", status="PATROLLING")
+    assert robot.status == RobotState.PATROLLING.value

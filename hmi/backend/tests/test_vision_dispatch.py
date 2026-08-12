@@ -10,6 +10,8 @@ DB 격리: 함수스코프 `db` 픽스처(teardown 에서 rollback)를 쓰고 fl
 
 from __future__ import annotations
 
+import time
+
 import pytest
 from sqlalchemy.orm import Session
 
@@ -219,3 +221,75 @@ def test_resume_from_anomaly_without_preempted_patrol_goes_idle(db: Session, bri
     assert robot.status == RobotState.IDLE.value
     assert robot.current_mission_id is None
     assert [c for c in bridge.sent if c["command_type"] == "ANOMALY_RESUME"]
+
+
+# ── 재개 후 재감지 억제 쿨다운 (재감지→즉시 정지 루프 차단) ────────────────────
+def test_resume_from_anomaly_opens_hold_cooldown(db: Session, bridge: NullBridge) -> None:
+    dispatch._anomaly_hold_cooldown_until.clear()
+    _seed_min(db)
+    _make_eligible_robot(db, "amr_1")
+    _make_anomaly_hold(db, "amr_1", with_preempted_patrol=True)
+    assert dispatch.in_anomaly_resume_cooldown("amr_1") is False  # 재개 전엔 억제 없음
+
+    dispatch.resume_from_anomaly(db, "amr_1")
+
+    # 재개 직후 그 로봇의 자체 감지 정지가 억제된다(순찰 복귀 직후 재감지→재정지 루프 차단)
+    assert dispatch.in_anomaly_resume_cooldown("amr_1") is True
+    assert dispatch.in_anomaly_resume_cooldown("amr_2") is False  # 다른 로봇은 영향 없음
+
+
+def test_hold_cooldown_expires() -> None:
+    dispatch._anomaly_hold_cooldown_until.clear()
+    dispatch.mark_anomaly_resume_cooldown("amr_9", seconds=0.05)
+    assert dispatch.in_anomaly_resume_cooldown("amr_9") is True
+    time.sleep(0.06)
+    assert dispatch.in_anomaly_resume_cooldown("amr_9") is False  # 만료 시 자동 해제
+
+
+def test_hold_cooldown_disabled_when_zero() -> None:
+    dispatch._anomaly_hold_cooldown_until.clear()
+    dispatch.mark_anomaly_resume_cooldown("amr_9", seconds=0)
+    assert dispatch.in_anomaly_resume_cooldown("amr_9") is False  # 0 이면 억제 안 함
+    assert dispatch.in_anomaly_resume_cooldown(None) is False     # robot_id None 안전
+
+
+# ── 이상 미션 중첩 방지 (같은 로봇에 2번째 이상 배정 차단) ──────────────────────
+def test_has_active_anomaly_mission_true_only_for_running_anomaly(db: Session) -> None:
+    _seed_min(db)
+    _make_eligible_robot(db, "amr_1")
+    assert crud.robots.has_active_anomaly_mission(db, "amr_1") is False  # 미션 없음
+    crud.robots.create_mission(
+        db, mission_id=crud.ids.next_mission_id(), mission_type="ANOMALY",
+        robot_id="amr_1", status="RUNNING",
+    )
+    db.flush()
+    assert crud.robots.has_active_anomaly_mission(db, "amr_1") is True
+
+
+def test_select_robot_skips_robot_already_on_anomaly(db: Session) -> None:
+    _seed_min(db)
+    _make_eligible_robot(db, "amr_1", x=1.0, y=1.0)   # 화재에 훨씬 가깝지만…
+    _make_eligible_robot(db, "amr_2", x=9.0, y=9.0)   # 멀어도 free
+    crud.robots.create_mission(  # amr_1 은 이미 이상 대응 중(중첩 금지)
+        db, mission_id=crud.ids.next_mission_id(), mission_type="ANOMALY",
+        robot_id="amr_1", status="RUNNING",
+    )
+    db.flush()
+    event = _make_fire_event(db, x=1.0, y=1.0)
+    robot_id, _ = dispatch.select_robot(db, event)
+    assert robot_id == "amr_2"  # busy 한 amr_1 을 건너뛰고 free 한 amr_2 선정
+
+
+def test_select_robot_none_when_all_on_anomaly(db: Session) -> None:
+    _seed_min(db)
+    _make_eligible_robot(db, "amr_1")
+    _make_eligible_robot(db, "amr_2")
+    for rid in ("amr_1", "amr_2"):
+        crud.robots.create_mission(
+            db, mission_id=crud.ids.next_mission_id(), mission_type="ANOMALY",
+            robot_id=rid, status="RUNNING",
+        )
+    db.flush()
+    event = _make_fire_event(db, x=0.0, y=0.0)
+    robot_id, _ = dispatch.select_robot(db, event)
+    assert robot_id is None  # 둘 다 이상 대응 중 → 급파 보류(가용 로봇 없음)

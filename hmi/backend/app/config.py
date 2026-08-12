@@ -96,6 +96,12 @@ class Settings(BaseSettings):
 
     # ── 이벤트 / 검증 ─────────────────────────────────────────────────────
     dedup_window_sec: int = 10
+    #: 운영자가 '작업 복귀'(anomaly resume)로 이상 대응을 해제한 뒤, 그 로봇의 자체 감지
+    #: 제자리 정지(auto_hold)를 잠시 억제하는 창(초). AMR 카메라 이벤트는 zone_id 가 없어
+    #: dedup 병합이 안 되고 resume 이 이벤트를 RESOLVED 로 닫으므로, 억제가 없으면 로봇이
+    #: 순찰로 돌아가는 순간 같은 이상을 새 이벤트로 재감지해 곧바로 다시 멈춘다(무한 루프).
+    #: 이 창 동안 로봇이 이상 지점을 벗어나게 해 재정지 루프를 끊는다. 0 이면 억제 안 함.
+    anomaly_resume_cooldown_sec: float = 15.0
     inspect_angle_count: int = 3
     confidence_threshold: float = 0.6
     verdict_confidence_threshold: float = 0.75

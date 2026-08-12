@@ -56,9 +56,39 @@ def to_dict(r: models.Robot) -> dict:
     }
 
 
+#: 이상 대응 제자리 정지(INSPECTING+ANOMALY) 중일 때, 텔레메트리로 덮어써지면 로봇이
+#: 멈춰 있는데도 '순찰/이동/대기'로 보여 '작업 복귀' 버튼이 사라지는 상태값들. 이 상태로의
+#: 하향 덮어쓰기만 막고, 안전/종단 상태(EMERGENCY_STOP·ERROR·OFFLINE·DOCKING 등)는 통과시킨다.
+_PATROL_LIKE_STATES = frozenset({
+    RobotState.PATROLLING.value,
+    RobotState.DISPATCHING.value,
+    RobotState.IDLE.value,
+})
+
+
+def _in_anomaly_hold(db: Session, robot: models.Robot) -> bool:
+    """이 로봇이 '이상 대응 제자리 정지(hold)' 중인가 — INSPECTING + 진행 중 ANOMALY 미션.
+
+    이때 상태 소유권은 백엔드에 있다: hold 해제는 resume_from_anomaly(작업 복귀)/도킹이 하고,
+    그전까지는 로봇이 이상 지점에 멈춰 운영자 결정을 기다린다. (차단기 점검 등 순찰 중
+    INSPECTING 은 mission_type 이 PATROL 이라 여기서 걸러져 영향받지 않는다.)
+    """
+    if robot.status != RobotState.INSPECTING.value:
+        return False
+    mission = active_mission_for(db, robot.robot_id)
+    return mission is not None and mission.mission_type == "ANOMALY"
+
+
 def apply_telemetry(db: Session, robot_id: str, **fields) -> models.Robot:
     """ROS 브리지가 올려주는 텔레메트리 반영. 항상 last_seen/online 을 갱신한다."""
     obj = ensure(db, robot_id)
+    # 이상 대응 hold 중에는 로봇 상태를 백엔드가 소유한다. /control/<ns>_State 는 Fleet(4-상태
+    # 폴링)과 Control(세부 상태)이 공유하는 토픽이라, Control 이 INSPECTING(anomaly_waiting)을
+    # 올려도 Fleet 의 상태 폴링이 곧이어 PATROLLING/DISPATCHING 을 덮어써 로봇이 멈춰 있는데도
+    # '순찰 중'으로 보이고 '작업 복귀' 버튼이 안 뜬다. 그래서 hold 중 순찰류 상태로의 덮어쓰기만
+    # 무시한다(해제는 백엔드 resume/도킹이 담당하므로 갇히지 않는다).
+    if fields.get("status") in _PATROL_LIKE_STATES and _in_anomaly_hold(db, obj):
+        fields = {k: v for k, v in fields.items() if k != "status"}
     for key, value in fields.items():
         if value is not None and hasattr(obj, key):
             setattr(obj, key, value)
@@ -147,6 +177,18 @@ def active_mission_for(db: Session, robot_id: str) -> models.Mission | None:
         .scalars()
         .first()
     )
+
+
+def has_active_anomaly_mission(db: Session, robot_id: str) -> bool:
+    """이 로봇이 이미 이상 대응 미션(ANOMALY, RUNNING/PENDING)을 물고 있는가.
+
+    급파/제자리 정지 중복 배정(미션 중첩)을 막는 권위 기준. robot.status 는 ROS 텔레메트리로
+    수시로 덮여(DISPATCHING→PATROLLING 등) busy 판정이 흔들리지만, 미션 상태는 백엔드가
+    소유해 안정적이다. 이상 하나를 처리 중인 로봇에 두 번째 이상을 얹으면 미션이 쌓이고
+    INSPECTING(제자리 정지) 상태가 뒤 급파의 DISPATCHING 으로 덮여 '작업 복귀' 버튼이 사라진다.
+    """
+    mission = active_mission_for(db, robot_id)
+    return mission is not None and mission.mission_type == "ANOMALY"
 
 
 def mission_to_dict(db: Session, m: models.Mission) -> dict:

@@ -298,23 +298,28 @@ class DetectCctvNode(Node):
         """모든 클래스가 미검출(False)인 초기 상태 딕셔너리를 생성."""
         return dict.fromkeys(self.STATUS_STATES, False)
 
-    def _publish_initial_status(self, camera: CameraContext) -> None:
-        """구독자가 시작 시 정상 상태(False)를 받을 수 있게 발행한다."""
+    def _reset_detection_state(self, camera: CameraContext) -> None:
+        """시작/중지 시 카메라의 감지 판정 상태(직전 상태·hit/miss 카운트)를 초기화한다.
+
+        예전엔 여기서 각 클래스의 '정상(False)' 상태를 CamState 로도 재발행했는데,
+        CamState 에는 감지/해제 구분 필드가 없어 백엔드가 이 baseline 을 신규 감지로
+        오인했다(순찰 시작마다 가짜 FIRE/coolant → 전체 도킹). 실제 감지/해제는
+        _publish_status_changes 가 상태 전이 때만 발행하므로, 여기선 내부 상태만
+        리셋하고 baseline 은 발행하지 않는다.
+        """
         camera.last_status = self._default_status()
         camera.hit_counts = self._zero_counts()
         camera.miss_counts = self._zero_counts()
-        for event_name in self.STATUS_STATES:
-            self._publish_status_message(camera, event_name)
 
     def _start_callback(self, message: Bool) -> None:
-        """/ui/start 수신 시 task_started를 갱신하고, 상태가 바뀌면 모든 카메라의 초기 상태를 재발행."""
+        """/ui/start 수신 시 task_started 를 갱신하고, 모든 카메라의 감지 판정 상태를 초기화."""
         if message.data == self.task_started:
             return
 
         self.task_started = message.data
 
         for camera in self.cameras:
-            self._publish_initial_status(camera)
+            self._reset_detection_state(camera)
 
     @staticmethod
     def _convert_camera_device(value: Union[int, str]) -> Union[int, str]:
