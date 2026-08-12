@@ -13,8 +13,8 @@ setup(
         ('share/' + package_name + '/launch', ['launch/vision_detection_launch.py']),
         ('share/' + package_name + '/config', ['config/params.yaml']),
         ('share/' + package_name + '/models', [
-            'resource/ambient_yolov8n_v2.pt', 'resource/ambient_yolo26n_v2.pt',
-            'resource/cctv_best.pt']),
+            'resource/ambient_yolo26n_v2.pt', 'resource/ambient_yolo11n_v3.pt', 'resource/ambient_yolov8n_v3.pt',
+            'resource/cctv_yolov8n_v3.pt', 'resource/cctv_yolo26s_v3.pt']),
     ],
     install_requires=['setuptools', 'ultralytics'],
     zip_safe=True,

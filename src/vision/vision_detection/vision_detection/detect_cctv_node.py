@@ -29,7 +29,18 @@ from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import Bool
 from ultralytics import YOLO
 
-from vision_detection.node_utils import declare_parameters_from_yaml, STATE_BY_CLASS, CAMERA_ID_BY_NAME
+from vision_detection.node_utils import (
+    CAMERA_ID_BY_NAME,
+    CLASS_NAME_BY_STATE,
+    STATE_BY_CLASS,
+    declare_parameters_from_yaml,
+    draw_detections,
+    weighted_boxes_fusion,
+)
+
+# WBF에 최대한 많은 후보를 모으기 위한 모델별 raw conf. 최종 필터는 self.confidence로
+# WBF 병합 후에 적용한다(detect_ambient_node와 동일한 관례).
+RAW_CONF = 0.01
 
 @dataclass
 class CameraContext:
@@ -58,7 +69,7 @@ class DetectCctvNode(Node):
     검출, 해제는 연속 미검출 카운트로 확정한다(순간적인 오검출/흔들림 방지).
     """
 
-    STATUS_STATES = {name: value for name, value in STATE_BY_CLASS.items() if name != 'smoke'}
+    # smoke 오탐이 잦아 CCTV 이상감지 대상에서 제외 (fire/coolant만 판정·발행)
     STATUS_STATES = {name: state for name, state in STATE_BY_CLASS.items() if name != "smoke"}
     HIT_THRESHOLD = 5
     OFF_MISS_THRESHOLD = 7
@@ -87,8 +98,12 @@ class DetectCctvNode(Node):
         ]
         camera_devices = configured_devices or self._discover_camera_devices(len(camera_ids))
 
-        self.model_path = self._resolve_model_path(self.get_parameter("model_path").value)
+        model_paths = self.get_parameter("model_paths").value
+        model_tta = self.get_parameter("model_tta").value
+        if len(model_paths) != len(model_tta):
+            raise ValueError("model_paths와 model_tta의 항목 수가 같아야 합니다.")
         self.confidence = self.get_parameter("confidence").value
+        self.wbf_merge_iou = self.get_parameter("wbf_merge_iou").value
         self.jpeg_quality = self.get_parameter("jpeg_quality").value
         self.device = self.get_parameter("device").value
         self.image_width = self.get_parameter("image_width").value
@@ -98,8 +113,12 @@ class DetectCctvNode(Node):
 
         self._validate_camera_parameters(camera_devices, camera_ids)
 
-        # 두 카메라가 동일한 학습 모델을 공유하여 메모리 사용량을 줄인다.
-        self.model = YOLO(self.model_path)
+        # 카메라 여러 대가 동일한 모델 세트를 공유하여 메모리 사용량을 줄인다.
+        # 모델 1개면 기존과 동일하게 단일모델 추론, 2개 이상이면 WBF로 앙상블.
+        self.models = [
+            (YOLO(self._resolve_model_path(p)), bool(tta))
+            for p, tta in zip(model_paths, model_tta)
+        ]
         self._warmup_model(len(camera_ids))
         self.cameras: List[CameraContext] = []
         self.task_started = False
@@ -257,17 +276,17 @@ class DetectCctvNode(Node):
         안 그러면 노드 시작 직후 들어오는 첫 프레임의 추론이 몇 초씩 늦어질 수 있다.
         """
         dummy_frame = np.zeros((self.image_height, self.image_width, 3), dtype=np.uint8)
-        predict_kwargs = {
-            "source": [dummy_frame] * max(batch_size, 1),
-            "conf": self.confidence,
-            "imgsz": self.inference_size,
-            "augment": True,
-            "verbose": False,
-        }
-        if self.device:
-            predict_kwargs["device"] = self.device
-
-        self.model.predict(**predict_kwargs)
+        for model, tta in self.models:
+            predict_kwargs = {
+                "source": [dummy_frame] * max(batch_size, 1),
+                "conf": RAW_CONF,
+                "imgsz": self.inference_size,
+                "augment": tta,
+                "verbose": False,
+            }
+            if self.device:
+                predict_kwargs["device"] = self.device
+            model.predict(**predict_kwargs)
 
     def _create_camera_context(self, camera_device: str, camera_id: str, camera_number: int,) -> CameraContext:
         """카메라 1대를 열고 전용 퍼블리셔/상태를 묶은 CameraContext를 만든다."""
@@ -298,28 +317,23 @@ class DetectCctvNode(Node):
         """모든 클래스가 미검출(False)인 초기 상태 딕셔너리를 생성."""
         return dict.fromkeys(self.STATUS_STATES, False)
 
-    def _reset_detection_state(self, camera: CameraContext) -> None:
-        """시작/중지 시 카메라의 감지 판정 상태(직전 상태·hit/miss 카운트)를 초기화한다.
-
-        예전엔 여기서 각 클래스의 '정상(False)' 상태를 CamState 로도 재발행했는데,
-        CamState 에는 감지/해제 구분 필드가 없어 백엔드가 이 baseline 을 신규 감지로
-        오인했다(순찰 시작마다 가짜 FIRE/coolant → 전체 도킹). 실제 감지/해제는
-        _publish_status_changes 가 상태 전이 때만 발행하므로, 여기선 내부 상태만
-        리셋하고 baseline 은 발행하지 않는다.
-        """
+    def _publish_initial_status(self, camera: CameraContext) -> None:
+        """구독자가 시작 시 정상 상태(False)를 받을 수 있게 발행한다."""
         camera.last_status = self._default_status()
         camera.hit_counts = self._zero_counts()
         camera.miss_counts = self._zero_counts()
+        for event_name in self.STATUS_STATES:
+            self._publish_status_message(camera, event_name)
 
     def _start_callback(self, message: Bool) -> None:
-        """/ui/start 수신 시 task_started 를 갱신하고, 모든 카메라의 감지 판정 상태를 초기화."""
+        """/ui/start 수신 시 task_started를 갱신하고, 상태가 바뀌면 모든 카메라의 초기 상태를 재발행."""
         if message.data == self.task_started:
             return
 
         self.task_started = message.data
 
         for camera in self.cameras:
-            self._reset_detection_state(camera)
+            self._publish_initial_status(camera)
 
     @staticmethod
     def _convert_camera_device(value: Union[int, str]) -> Union[int, str]:
@@ -419,96 +433,94 @@ class DetectCctvNode(Node):
             return
 
         try:
-            predict_kwargs = {
-                "source": frames,
-                "conf": self.confidence,
-                "imgsz": self.inference_size,
-                # TTA 효과는 모델 아키텍처마다 달라서(오히려 나빠지는 경우도 있음)
-                # 모델을 바꾸면 재검증 필요.
-                "augment": True,
-                "verbose": False,
-            }
-            if self.device:
-                predict_kwargs["device"] = self.device
+            # 모델별로 카메라 배치 전체를 한 번씩 추론(raw conf) - 카메라 순서는
+            # frames와 동일하게 유지되므로 이후 인덱스로 그대로 매칭한다.
+            per_model_results = []
+            for model, tta in self.models:
+                predict_kwargs = {
+                    "source": frames,
+                    "conf": RAW_CONF,
+                    "imgsz": self.inference_size,
+                    "augment": tta,
+                    "verbose": False,
+                }
+                if self.device:
+                    predict_kwargs["device"] = self.device
+                results = model.predict(**predict_kwargs)
+                if len(results) != len(frames):
+                    raise RuntimeError("YOLO 결과 수가 입력한 카메라 프레임 수와 다릅니다.")
+                per_model_results.append(results)
 
-            results = self.model.predict(**predict_kwargs)
-            if len(results) != len(cameras_with_frames):
-                raise RuntimeError(
-                    "YOLO 결과 수가 입력한 카메라 프레임 수와 다릅니다."
-                )
+            for cam_idx, (camera, frame, sequence) in enumerate(
+                zip(cameras_with_frames, frames, frame_sequences)
+            ):
+                h, w = frame.shape[:2]
+                boxes_list, scores_list, labels_list = [], [], []
+                for results in per_model_results:
+                    result = results[cam_idx]
+                    xyxy = result.boxes.xyxy.cpu().numpy()
+                    boxes_list.append((xyxy / np.array([w, h, w, h])).tolist())
+                    scores_list.append(result.boxes.conf.cpu().numpy().tolist())
+                    labels_list.append(result.boxes.cls.cpu().numpy().astype(int).tolist())
 
-            for camera, result, sequence in zip(cameras_with_frames, results, frame_sequences):
-                detected_status = self._extract_detected_status(result)
-                current_boxes = self._extract_boxes(result)
+                if len(self.models) > 1:
+                    fused_boxes, fused_scores, fused_labels = weighted_boxes_fusion(
+                        boxes_list, scores_list, labels_list, iou_thr=self.wbf_merge_iou)
+                else:
+                    fused_boxes = np.array(boxes_list[0]) if boxes_list[0] else np.zeros((0, 4))
+                    fused_scores = np.array(scores_list[0])
+                    fused_labels = np.array(labels_list[0])
+
+                keep = fused_scores >= self.confidence
+                fused_boxes = (fused_boxes[keep] * np.array([w, h, w, h])) if len(fused_boxes) else fused_boxes
+                fused_scores = fused_scores[keep]
+                fused_labels = fused_labels[keep].astype(int)
+
+                detections = [
+                    {
+                        "class_name": CLASS_NAME_BY_STATE.get(int(cls_id), str(int(cls_id))),
+                        "confidence": float(score),
+                        "xyxy": [float(v) for v in box],
+                    }
+                    for box, score, cls_id in zip(fused_boxes, fused_scores, fused_labels)
+                ]
+
+                detected_status = self._extract_detected_status(detections)
+                current_boxes = self._extract_boxes(detections)
                 stable_status = self._apply_debounce(camera, detected_status)
                 self._publish_status(camera, stable_status, current_boxes)
-                self._publish_image(camera, self._plot_tracked_only(result))
+                # 화면에도 추적 대상(STATUS_STATES)만 표시 - 제외한 smoke는 박스도 안 그린다.
+                drawable = [d for d in detections if d["class_name"] in self.STATUS_STATES]
+                self._publish_image(camera, draw_detections(frame, drawable))
                 camera.last_inferred_sequence = sequence
         except Exception as exc:
             self.get_logger().error(f"YOLO 배치 처리 중 오류: {exc}")
 
-    def _plot_tracked_only(self, result: Any) -> Any:
-        """추적 대상(STATUS_STATES) 클래스 박스만 그린다.
-
-        result.plot()은 모델이 검출한 모든 클래스를 그려서, 추적 제외한 smoke 같은
-        클래스도 영상에 표시된다. 이벤트뿐 아니라 화면에서도 감추기 위해 제외 클래스
-        박스는 그리기 전에 걸러낸다.
-        """
-        boxes = result.boxes
-        if boxes is None or len(boxes) == 0:
-            return result.plot()
-        keep = [
-            i for i, class_index in enumerate(boxes.cls.tolist())
-            if self._class_name_from_index(int(class_index), result.names) in self.STATUS_STATES
-        ]
-        if len(keep) == len(boxes):
-            return result.plot()
-        return result[keep].plot()
-
-    def _extract_detected_status(self, result: Any) -> Dict[str, bool]:
-        """YOLO 결과 1장에서 클래스별 검출 여부(True/False)만 뽑는다."""
+    def _extract_detected_status(self, detections: List[Dict[str, Any]]) -> Dict[str, bool]:
+        """WBF 병합 결과(카메라 1대분)에서 클래스별 검출 여부(True/False)만 뽑는다."""
         detected_status = self._default_status()
-
-        if result.boxes is not None:
-            for class_index in result.boxes.cls.tolist():
-                class_name = self._class_name_from_index(
-                    int(class_index), result.names
-                )
-                if class_name in detected_status:
-                    detected_status[class_name] = True
-
+        for det in detections:
+            if det["class_name"] in detected_status:
+                detected_status[det["class_name"]] = True
         return detected_status
 
-    def _extract_boxes(self, result: Any) -> Dict[str, tuple]:
+    def _extract_boxes(self, detections: List[Dict[str, Any]]) -> Dict[str, tuple]:
         """클래스별 대표 bounding box(신뢰도 최고 1개)를 뽑는다.
 
         반환: {class_name: (x1, y1, x2, y2, conf)} - 이미지 픽셀 좌표.
         호모그래피 입력용으로 CamState에 실어 보낸다(백엔드가 픽셀→맵 변환).
         """
         boxes: Dict[str, tuple] = {}
-        if result.boxes is None:
-            return boxes
-
-        xyxy = result.boxes.xyxy.tolist()
-        confs = result.boxes.conf.tolist()
-        classes = result.boxes.cls.tolist()
-        for (x1, y1, x2, y2), conf, class_index in zip(xyxy, confs, classes):
-            class_name = self._class_name_from_index(int(class_index), result.names)
+        for det in detections:
+            class_name = det["class_name"]
             if class_name not in self.STATUS_STATES:
                 continue
+            x1, y1, x2, y2 = det["xyxy"]
+            conf = det["confidence"]
             existing = boxes.get(class_name)
             if existing is None or conf > existing[4]:
-                boxes[class_name] = (float(x1), float(y1), float(x2), float(y2), float(conf))
+                boxes[class_name] = (x1, y1, x2, y2, conf)
         return boxes
-
-    @staticmethod
-    def _class_name_from_index(
-        class_index: int, names: Union[Dict[int, str], list]
-    ) -> str:
-        """YOLO 결과의 클래스 인덱스를 클래스 이름 문자열로 변환(names가 dict/list 둘 다 가능)."""
-        if isinstance(names, dict):
-            return str(names.get(class_index, class_index))
-        return str(names[class_index])
 
     def _apply_debounce(
         self, camera: CameraContext, detected_status: Dict[str, bool]

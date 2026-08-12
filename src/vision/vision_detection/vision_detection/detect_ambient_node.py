@@ -23,7 +23,14 @@ from std_msgs.msg import Bool
 from std_srvs.srv import SetBool
 from patrol_interfaces.msg import CamState
 
-from vision_detection.node_utils import declare_parameters_from_yaml, STATE_BY_CLASS, CAMERA_ID_BY_NAME
+from vision_detection.node_utils import (
+    CAMERA_ID_BY_NAME,
+    CLASS_COLORS,
+    STATE_BY_CLASS,
+    declare_parameters_from_yaml,
+    draw_detections,
+    weighted_boxes_fusion,
+)
 
 # 진입(켜짐)은 최근 HIT_WINDOW프레임 중 HIT_REQUIRED장 이상 검출되면 확정한다(연속일
 # 필요는 없음 - 중간에 한두 번 놓쳐도 누적이 안 사라짐). 연속 요구 방식보다 실제
@@ -38,68 +45,6 @@ HIT_REQUIRED = 3
 # 실제로 다른 위치에서 발생한 새 이상상황을 "이미 진행 중"으로 착각해 재발행을
 # 놓칠 위험이 커진다.
 OFF_MISS_THRESHOLD = 5
-
-CLASS_COLORS = {'fire': (0, 0, 255), 'smoke': (0, 255, 255), 'coolant': (255, 128, 0)}
-
-def _iou(a, b):
-    """박스 두 개(xyxy) 간 IoU(교집합/합집합 비율)를 계산."""
-    ax0, ay0, ax1, ay1 = a
-    bx0, by0, bx1, by1 = b
-    ix0, iy0 = max(ax0, bx0), max(ay0, by0)
-    ix1, iy1 = min(ax1, bx1), min(ay1, by1)
-    iw, ih = max(0.0, ix1 - ix0), max(0.0, iy1 - iy0)
-    inter = iw * ih
-    area_a = max(0.0, ax1 - ax0) * max(0.0, ay1 - ay0)
-    area_b = max(0.0, bx1 - bx0) * max(0.0, by1 - by0)
-    union = area_a + area_b - inter
-    return inter / union if union > 0 else 0.0
-
-def weighted_boxes_fusion(boxes_list, scores_list, labels_list, iou_thr=0.5):
-    """모델별 예측을 confidence 가중 평균으로 병합(외부 ensemble-boxes 라이브러리 없이
-    직접 구현 - 검증 환경에서 numba/coverage 패키지 충돌로 그 라이브러리를 못 씀).
-    여러 모델이 동의한 박스일수록 합쳐진 confidence가 높아지는 게 단순 NMS와 다른 점."""
-    all_boxes, all_scores, all_labels, all_model_idx = [], [], [], []
-    for m_idx, (boxes, scores, labels) in enumerate(zip(boxes_list, scores_list, labels_list)):
-        for b, s, l in zip(boxes, scores, labels):
-            all_boxes.append(b)
-            all_scores.append(s)
-            all_labels.append(l)
-            all_model_idx.append(m_idx)
-
-    if not all_boxes:
-        return np.zeros((0, 4)), np.zeros(0), np.zeros(0)
-
-    all_boxes = np.array(all_boxes)
-    all_scores = np.array(all_scores)
-    all_labels = np.array(all_labels)
-    n_models = len(boxes_list)
-
-    order = np.argsort(-all_scores)
-    used = np.zeros(len(order), dtype=bool)
-    fused_boxes, fused_scores, fused_labels = [], [], []
-
-    for idx in order:
-        if used[idx]:
-            continue
-        cluster = [idx]
-        used[idx] = True
-        for jdx in order:
-            if used[jdx] or all_labels[jdx] != all_labels[idx]:
-                continue
-            if _iou(all_boxes[idx], all_boxes[jdx]) >= iou_thr:
-                cluster.append(jdx)
-                used[jdx] = True
-        c_boxes = all_boxes[cluster]
-        c_scores = all_scores[cluster]
-        w = c_scores / c_scores.sum()
-        fused_box = (c_boxes * w[:, None]).sum(axis=0)
-        # 합의한 모델 수 비례로 confidence 보정(여러 모델이 동의할수록 신뢰도 상승)
-        avg_score = c_scores.mean() * (len({all_model_idx[c] for c in cluster}) / n_models)
-        fused_boxes.append(fused_box)
-        fused_scores.append(avg_score)
-        fused_labels.append(all_labels[idx])
-
-    return np.array(fused_boxes), np.array(fused_scores), np.array(fused_labels)
 
 class DetectAmbientNode(Node):
     """AMR 주변 이상 상황(화재/연기/냉각수 누출 등)을 상시 감지하는 노드.
@@ -261,26 +206,8 @@ class DetectAmbientNode(Node):
 
         # 화면에도 추적 대상(anomaly_classes)만 표시한다 - 제외한 smoke 등은 박스도 안 그린다.
         drawable = [d for d in detections if d['class_name'] in self.anomaly_classes]
-        annotated_image = self._draw_detections(cv_image, drawable)
+        annotated_image = draw_detections(cv_image, drawable)
         return annotated_image, detections
-
-    @staticmethod
-    def _draw_detections(frame, detections):
-        """WBF 병합 결과(Result 객체가 아님)를 프레임 위에 클래스별 색상 박스+라벨로 직접 그린다."""
-        annotated = frame.copy()
-        height, width = annotated.shape[:2]
-        for det in detections:
-            x1, y1, x2, y2 = det['xyxy']
-            x1 = max(0, min(int(x1), width - 1))
-            y1 = max(0, min(int(y1), height - 1))
-            x2 = max(0, min(int(x2), width - 1))
-            y2 = max(0, min(int(y2), height - 1))
-            color = CLASS_COLORS.get(det['class_name'], (0, 255, 0))
-            label = f"{det['class_name']} {det['confidence']:.2f}"
-            cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
-            cv2.putText(annotated, label, (x1, max(15, y1 - 6)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
-        return annotated
 
     def _to_compressed_image_msg(self, cv_image, frame_id=''):
         """JPEG로 압축해서 발행 - raw Image 대비 대역폭을 30~50배 줄인다."""
