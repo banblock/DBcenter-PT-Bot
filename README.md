@@ -6,6 +6,8 @@
 본 프로젝트는 **ROS2 Humble**과 **TurtleBot4(Create3) 2대**(`robot3`, `robot8`)를 기반으로 구동되는 데이터센터 자율 순찰 로봇 시스템입니다.
 YOLO 기반 비전 인식으로 화재(fire)·냉각수 누출(coolant) 등 설비 이상을 실시간으로 판정하고, 다중 AMR의 순찰 경로를 자동 배분·충돌 회피하며, React 기반 관제 화면에서 로봇 상태·CCTV·이벤트 이력을 통합 모니터링합니다.
 
+> 최종 산출물 링크: https://drive.google.com/drive/folders/1njO6nk-6mtjUqDG21eYFS9oH2JPyToxq?usp=drive_link
+
 ---
 
 ## 📌 주요 기능 (Key Features)
