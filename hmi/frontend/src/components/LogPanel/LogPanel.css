@@ -1,0 +1,20 @@
+.log-panel { overflow: hidden; }
+.actlog { padding: 4px 6px 6px; max-height: 230px; overflow-y: auto; }
+.ali { display: flex; gap: 8px; padding: 6px 8px; font-size: 11.5px; align-items: flex-start; border-radius: 8px; }
+.ali:hover { background: var(--surface-soft); }
+.ali .adot { width: 7px; height: 7px; border-radius: 50%; margin-top: 5px; flex: 0 0 auto; }
+.adot.pc1 { background: var(--blue); }
+.adot.pc2 { background: var(--pink); }
+.adot.fleet { background: var(--purple); }
+.adot.other { background: var(--muted2); }
+.ali .atm { color: var(--muted2); flex: 0 0 auto; width: 44px; font-variant-numeric: tabular-nums; }
+.ali .atag { font-weight: 800; flex: 0 0 auto; }
+.atag.pc1 { color: var(--blue); }
+.atag.pc2 { color: var(--pink); }
+.atag.fleet { color: var(--purple); }
+.atag.other { color: var(--muted); }
+.ali .amsg { color: #4b5563; overflow-wrap: anywhere; }
+
+.actlegend { display: flex; gap: 14px; padding: 9px 14px 12px; font-size: 10.5px; color: var(--muted); border-top: 1px solid var(--line2); flex-wrap: wrap; }
+.actlegend span { display: inline-flex; align-items: center; gap: 5px; }
+.actlegend .sq { width: 9px; height: 9px; border-radius: 3px; }

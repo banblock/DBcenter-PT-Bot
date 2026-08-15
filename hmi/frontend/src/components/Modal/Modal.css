@@ -1,0 +1,126 @@
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 18, 24, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 60;
+}
+.modal {
+  background: var(--panel, #fff);
+  border: 1px solid var(--line, #e7e9ee);
+  border-radius: 16px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
+  width: min(540px, 94vw);
+  overflow: hidden;
+}
+.modal__hd {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line-2, #eef0f4);
+}
+.modal__hd span {
+  font-size: 14.5px;
+  font-weight: 800;
+}
+.modal__cam {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: linear-gradient(180deg, #262b36, #1a1e27);
+}
+.modal__cam--hot {
+  background: radial-gradient(120% 90% at 50% 120%, rgba(229, 72, 77, 0.28), transparent 60%),
+    linear-gradient(180deg, #2a2620, #1c1a17);
+}
+.modal__feed {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.modal__chd {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  justify-content: space-between;
+  z-index: 2;
+}
+.modal__cname {
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+  padding: 3px 9px;
+  border-radius: 20px;
+}
+.modal__cstatus {
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(229, 72, 77, 0.92);
+  padding: 3px 9px;
+  border-radius: 20px;
+}
+.modal__nofeed {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.5);
+}
+.modal__cfoot {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  justify-content: space-between;
+  color: #c7cdd8;
+  font-size: 10.5px;
+  z-index: 2;
+}
+.modal__live {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #fff;
+}
+.modal__live i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #e5484d;
+  animation: modal-live 1.2s infinite;
+}
+@keyframes modal-live {
+  50% {
+    opacity: 0.3;
+  }
+}
+.modal__body {
+  padding: 14px 16px 16px;
+}
+.modal__evt {
+  font-size: 13px;
+  color: #3a4150;
+  line-height: 1.6;
+  margin-bottom: 14px;
+}
+.modal__evt b {
+  color: var(--ink, #1f2430);
+}
+.modal__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}

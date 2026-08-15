@@ -1,0 +1,17 @@
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 12px; flex-wrap: wrap; }
+.topbar__brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.topbar__logo { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, var(--blue), var(--violet)); box-shadow: var(--shadow-panel); flex: 0 0 auto; }
+.topbar h1 { font-size: 22px; line-height: 1.2; letter-spacing: -0.025em; }
+.topbar p { margin-top: 2px; color: var(--ink-muted); font-size: 12px; }
+.topbar__actions { display: flex; align-items: center; gap: 9px; flex: 0 0 auto; flex-wrap: wrap; }
+
+/* 연결 상태 pill */
+.link { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; padding: 6px 11px; border-radius: 20px; background: #eef0f4; color: #5b6270; }
+.link i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted2); }
+.link--live { background: var(--green-soft); color: var(--green); }
+.link--live i { background: var(--green); animation: link-pulse 1.6s infinite; }
+.link--demo { background: var(--purple-soft); color: #5b3fe0; }
+.link--demo i { background: var(--purple); }
+.link--down { background: var(--red-soft); color: var(--red); }
+.link--down i { background: var(--red); }
+@keyframes link-pulse { 50% { opacity: .3; } }

@@ -1,0 +1,74 @@
+.map-panel { overflow: hidden; }
+.map-panel__legend { display: flex; gap: 16px; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--line2); font-size: 11px; color: #6b7280; }
+.map-panel__legend span { display: inline-flex; align-items: center; gap: 6px; }
+.map-panel__legend .sw { display: inline-block; width: 16px; height: 3px; border-radius: 2px; background: var(--green); }
+.map-panel__legend .sw--dash { background: repeating-linear-gradient(90deg, #a9b0be 0 4px, transparent 4px 7px); }
+.map-panel__legend .sw--area { width: 11px; height: 11px; border-radius: 3px; }
+.map-panel__legend .sw--danger { background: var(--red-soft); border: 1px solid var(--red); }
+.map-panel__legend .sw--dock { background: var(--purple-soft); border: 1px solid var(--purple); }
+
+/* 헤더 맵 선택 드롭다운 */
+.map-panel__mapselect { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-muted); }
+.map-panel__mapselect label { font-weight: 700; }
+.map-panel__mapselect select { padding: 4px 8px; border-radius: 7px; border: 1px solid var(--border); font: inherit; font-size: 11.5px; color: var(--ink); background: #fff; max-width: 220px; }
+.map-panel__mapselect select:disabled { opacity: .6; cursor: not-allowed; }
+
+/* 모드 전환 + 존/waypoint 컨트롤 바 */
+.map-panel__toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 9px 14px; border-bottom: 1px solid var(--line2, #eef0f4); background: var(--blue-soft, #eaf0ff); }
+.map-panel__modes { display: inline-flex; gap: 2px; padding: 2px; border-radius: 9px; background: #dfe6f5; }
+.map-panel__mode { display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; border-radius: 7px; padding: 5px 10px; font-size: 11.5px; font-weight: 700; color: #5b6270; cursor: pointer; }
+.map-panel__mode.is-active { background: #fff; color: #1f4fd0; box-shadow: 0 1px 3px rgba(31,79,208,.18); }
+.map-panel__mode:disabled { opacity: .5; cursor: not-allowed; }
+.map-panel__zonebtn { background: #fff; border: 1px solid #d8dce6; border-radius: 8px; padding: 6px 10px; font-size: 11.5px; font-weight: 700; cursor: pointer; }
+.map-panel__zonebtn:disabled { opacity: .6; cursor: not-allowed; }
+.map-panel__count { font-size: 12px; font-weight: 800; color: #1f4fd0; font-variant-numeric: tabular-nums; }
+.map-panel__hint { font-size: 11px; color: #5b6270; flex: 1; min-width: 180px; }
+
+.map-panel__canvas { position: relative; background: #eef0f4; }
+.map-panel__canvas svg { display: block; width: 100%; height: auto; }
+.map-panel__controls { position: absolute; top: 12px; right: 12px; display: flex; flex-direction: column; gap: 6px; }
+.map-panel__controls button { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border); background: #fff; box-shadow: var(--shadow-panel); cursor: pointer; font-size: 14px; color: #5b6270; }
+.map-panel__controls button:hover { color: var(--blue); }
+
+/* ROS map frame 실제 좌표 — 지도 마커는 waypoint 고정, 숫자는 텔레메트리 그대로 실시간 표시 */
+.map-panel__coordinates {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 5;
+  min-width: 265px;
+  padding: 9px 11px;
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: 10px;
+  background: rgba(19, 24, 34, .86);
+  color: #fff;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .24);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+.map-panel__coordinates strong { display: block; margin-bottom: 5px; font-size: 10.5px; color: #cbd5e1; }
+.map-panel__coordinate-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 10.5px; line-height: 1.65; }
+.map-panel__coordinate-row > span { font-weight: 800; color: #93c5fd; }
+.map-panel__coordinate-row code { color: #f8fafc; font: 600 10.5px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 700px) {
+  .map-panel__coordinates { right: 8px; bottom: 8px; min-width: 0; max-width: calc(100% - 16px); }
+  .map-panel__coordinate-row { align-items: flex-start; flex-direction: column; gap: 0; }
+}
+
+.map-panel__svg { cursor: crosshair; }
+.map-panel__target-ring { fill: var(--purple); opacity: .28; animation: target-pulse 1.4s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes target-pulse { 0% { r: 6; opacity: .5; } 100% { r: 18; opacity: 0; } }
+
+/* 클릭한 좌표 옆에 뜨는 "어느 로봇을 어디로" 전송 카드 */
+.map-panel__goto { position: absolute; z-index: 4; transform: translate(14px, -12px); width: 168px;
+  background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-panel);
+  padding: 9px 10px 10px; font-size: 11px; }
+.map-panel__goto-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 6px; color: var(--purple); font-weight: 700; }
+.map-panel__goto-head span { display: inline-flex; align-items: center; gap: 5px; }
+.map-panel__goto-head button { border: none; background: transparent; color: var(--ink-faint); cursor: pointer; padding: 2px; display: flex; }
+.map-panel__goto-head button:hover { color: var(--red); }
+.map-panel__goto-coord { font-variant-numeric: tabular-nums; color: var(--ink-muted); margin-bottom: 7px; }
+.map-panel__goto-select { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 8px; color: var(--ink-muted); }
+.map-panel__goto-select select { flex: 1; min-width: 0; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--border); font: inherit; color: var(--ink); }
+.map-panel__goto-send { width: 100%; }

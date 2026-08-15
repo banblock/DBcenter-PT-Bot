@@ -1,0 +1,74 @@
+detect_main_node:
+  ros__parameters:
+    service_call_timeout_sec: 5.0
+
+detect_cctv_node:
+  ros__parameters:
+    camera_devices: []  # 비워두면 연결된 웹캠을 자동 탐지
+    camera_ids: ["cctv1", "cctv2"]
+    # 노트북 내장캠 등 잡히면 안 되는 장치를 V4L2 카드 이름(부분 문자열, 대소문자
+    # 무시)으로 배제한다. 예) 이 노트북 내장캠 = "HP Wide Vision HD Camera".
+    exclude_camera_names: ["HP Wide Vision"]
+    min_camera_index: 0  # 이름 배제로 충분하면 0(끔). 이름으로 못 거를 때만 상향.
+    # 2모델 WBF 앙상블(yolov8n_cctv_v3+TTA, yolo26s_cctv_v3) - 실사진 test_cctv_v2
+    # 재검증(smoke 제외 fire+coolant 기준)에서 단일모델 대비 F1 0.763->0.800으로 개선
+    # 확인된 조합(2026-08-11). 모델 1개만 넣으면 기존과 동일하게 단일모델로 동작.
+    model_paths:
+      - "models/cctv_yolov8n_v3.pt"
+      - "models/cctv_yolo26s_v3.pt"
+    model_tta: [true, false]
+    confidence: 0.44  # WBF conf/merge_iou 2D 스윕에서 F1 최적점
+    wbf_merge_iou: 0.70  # 위와 동일 스윕에서 F1 최적점
+    jpeg_quality: 80
+    device: ""  # 비워두면 ultralytics 기본 디바이스 선택
+    image_width: 1280
+    image_height: 960
+    camera_fps: 30.0
+    inference_size: 640
+
+detect_ambient_node:
+  ros__parameters:
+    # 3모델 WBF 앙상블 구성 (yolo26n_amr_v2, yolo11n_amr_v3, yolov8n_amr_v3, TTA 없음) - 이전
+    # 2모델(v8n_amr_v2+TTA, yolo11s_amr_v3)과 정확도 완전 동일(F1=0.986, P=1.000, R=0.972,
+    # mAP50=0.979, smoke 제외 fire+coolant 기준)하면서 로봇 2대 순차 처리 30.4ms->26.6ms로
+    # 13% 더 빠름(2026-08-12) - 셋 다 가벼운 모델이라 TTA 낀 무거운 모델 하나보다 합계가 빠름.
+    # conf/wbf_merge_iou 2D 스윕: wbf_iou 0.40~0.50 x conf 0.18~0.24 전 구간 동률(21개 지점,
+    # 넓은 안정 구간), 가장자리 피해 중앙값 채택.
+    model_paths:
+      - "ambient_yolo26n_v2.pt"
+      - "ambient_yolo11n_v3.pt"
+      - "ambient_yolov8n_v3.pt"
+    model_tta: [false, false, false]
+    conf_threshold: 0.21
+    wbf_merge_iou: 0.45
+    amr_cam_topics:
+      - "/robot3/oakd/rgb/preview/image_raw"
+      - "/robot8/oakd/rgb/preview/image_raw"
+    anomaly_classes:
+      - "fire"
+      - "coolant"
+    normal_process_every_n: 1
+    throttled_process_every_n: 10
+    jpeg_quality: 80
+
+detect_station_node:
+  ros__parameters:
+    amr_cam_topics:
+      - "/robot3/oakd/rgb/preview/image_raw"
+      - "/robot8/oakd/rgb/preview/image_raw"
+    fresh_frame_timeout_sec: 2.0
+    sample_frame_count: 3
+    hough_dp: 1.2
+    hough_min_dist: 50.0
+    hough_param1: 100.0
+    hough_param2: 30.0
+    hough_min_radius: 10
+    hough_max_radius: 100
+    # red wraps around hue 0/180 in OpenCV HSV, so "closed" needs two ranges
+    closed_hsv_lower1: [0, 0, 0]
+    closed_hsv_upper1: [180, 255, 50]
+    closed_hsv_lower2: [0, 0, 200]
+    closed_hsv_upper2: [180, 30, 255] 
+    open_hsv_lower: [40, 70, 50]
+    open_hsv_upper: [80, 255, 255]
+    min_color_ratio: 0.3

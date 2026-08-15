@@ -1,0 +1,14 @@
+.stats-panel { overflow: hidden; }
+.stat3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 12px 14px; }
+.sc { border-radius: 10px; padding: 11px 8px; text-align: center; }
+.sc svg { color: var(--ink-muted); }
+.sc.neutral { background: var(--surface-soft); border: 1px solid var(--line2); }
+.sc.red { background: var(--red-soft); }
+.sc.amber { background: var(--amber-soft); }
+.sc.red svg { color: var(--red); }
+.sc.amber svg { color: var(--amber); }
+.sc .k { margin-top: 4px; font-size: 10px; color: var(--muted); }
+.sc .v { font-size: 20px; font-weight: 800; margin-top: 3px; color: var(--ink); }
+.sc.red .v { color: var(--red); }
+.sc.amber .v { color: var(--amber); }
+.sc .d { font-size: 9.5px; color: var(--muted); margin-top: 3px; }

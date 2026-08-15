@@ -1,0 +1,43 @@
+# Fixed corridor graph for map/datacenter_map/datacenter_map_v4.pgm.
+# 4 server racks (A, B, C, D) in a row, a front aisle and a rear aisle
+# running the length of the room, and 5 cross-aisles (left end, between
+# each pair of racks, right end) connecting them - a ladder graph:
+#
+#   F_left --- F_AB --- F_BC --- F_CD --- F_right      (front aisle)
+#     |          |         |         |         |
+#   R_left --- R_AB --- R_BC --- R_CD --- R_right      (rear aisle)
+#
+# 좌표는 rviz에서 실측한 값(맵 origin [-5.15, -0.659, 0] 기준)이다 -
+# 이전에 임시로 넣어뒀던 placeholder 값과는 front/rear, left/right가
+# 반대 방향이었는데, 실측해보니 이 방향이 실제 방 배치와 맞다.
+#
+# Every edge is a single-file aisle (too narrow for two robots side by
+# side), so any edge used by more than one robot's route is arbitrated
+# via the existing /fleet/occupancy_request-grant-release protocol.
+
+nodes:
+  F_left:  {x: -0.25, y: 2}
+  F_AB:    {x: -1.4, y: 1.94}
+  F_BC:    {x: -2.43, y: 1.9}
+  F_CD:    {x: -3.55, y: 1.84}
+  F_right: {x: -4.54, y: 1.76}
+  R_left:  {x: -0.18, y: 0.1}
+  R_AB:    {x: -1.25, y: 0.11}
+  R_BC:    {x: -2.38, y: 0.017}
+  R_CD:    {x: -3.45, y: -0.1}
+  R_right: {x: -4.5, y: -0.16}
+
+edges:
+  - {id: F_left_AB,  a: F_left,  b: F_AB}
+  - {id: F_AB_BC,    a: F_AB,    b: F_BC}
+  - {id: F_BC_CD,    a: F_BC,    b: F_CD}
+  - {id: F_CD_right, a: F_CD,    b: F_right}
+  - {id: R_left_AB,  a: R_left,  b: R_AB}
+  - {id: R_AB_BC,    a: R_AB,    b: R_BC}
+  - {id: R_BC_CD,    a: R_BC,    b: R_CD}
+  - {id: R_CD_right, a: R_CD,    b: R_right}
+  - {id: V_left,  a: F_left,  b: R_left}
+  - {id: V_AB,    a: F_AB,    b: R_AB}
+  - {id: V_BC,    a: F_BC,    b: R_BC}
+  - {id: V_CD,    a: F_CD,    b: R_CD}
+  - {id: V_right, a: F_right, b: R_right}
