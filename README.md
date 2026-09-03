@@ -9,6 +9,9 @@ YOLO 기반 비전 인식으로 화재(fire)·냉각수 누출(coolant) 등 설�
 > 최종 산출물 링크: https://drive.google.com/drive/folders/1njO6nk-6mtjUqDG21eYFS9oH2JPyToxq?usp=drive_link
 
 ---
+**영상**
+youtube : https://youtu.be/62ifIyQE2yI
+---
 
 ## 📌 주요 기능 (Key Features)
 
